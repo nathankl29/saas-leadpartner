@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   LayoutDashboard, Users, Settings, Plus, Search, 
   ChevronLeft, FileText, Package, Printer, Trash2, CheckCircle, Clock, 
@@ -85,17 +85,33 @@ interface AppSettings {
   logoUrl: string;
 }
 
-// --- CONFIGURATION FIREBASE ---
-const firebaseConfig = JSON.parse((window as any).__firebase_config || '{}');
-// FIX: Sanitize APP_ID to remove slashes which break Firestore paths
-const RAW_APP_ID = (window as any).__app_id || 'leadpartner-crm-v26';
-const APP_ID = RAW_APP_ID.replace(/[^a-zA-Z0-9-_]/g, '_');
+// --- CONFIGURATION FIREBASE (POUR VERCEL) ---
+// J'ai remis vos clés d'origine pour que ça marche partout
+const hardcodedConfig = {
+  apiKey: "AIzaSyDY6zXLeebKhMxL_2_mfQOYV44JuoCArK0",
+  authDomain: "crm-leadpartner.firebaseapp.com",
+  projectId: "crm-leadpartner",
+  storageBucket: "crm-leadpartner.firebasestorage.app",
+  messagingSenderId: "588502456936",
+  appId: "1:588502456936:web:5c509a0c418f34f77239dd",
+  measurementId: "G-6QM0LM69Z1"
+};
 
-let app, db: any, auth: any;
+// Logique : Utilise la config StackBlitz si dispo, sinon utilise la config en dur (Vercel)
+const sbConfig = (window as any).__firebase_config;
+const firebaseConfig = sbConfig ? JSON.parse(sbConfig) : hardcodedConfig;
+
+const APP_ID = 'leadpartner-crm-v27-prod';
+
+let app: any, db: any, auth: any;
 try {
-  app = initializeApp(firebaseConfig);
-  db = getFirestore(app);
-  auth = getAuth(app);
+  if (firebaseConfig && Object.keys(firebaseConfig).length > 0 && firebaseConfig.apiKey) {
+      app = initializeApp(firebaseConfig);
+      db = getFirestore(app);
+      auth = getAuth(app);
+  } else {
+      console.warn("⚠️ Aucune configuration Firebase valide trouvée.");
+  }
 } catch (e) {
   console.error("Erreur init Firebase:", e);
 }
@@ -194,7 +210,7 @@ const LoginScreen = ({ onLogin }: { onLogin: () => void }) => {
             {error && <p className="text-red-500 text-sm font-medium">{error}</p>}
             <button type="submit" className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2"><LogIn size={20}/> Se connecter</button>
           </form>
-          <div className="mt-6 text-center"><p className="text-xs text-slate-400">Version 26.0 (Path Fix) • TVA 0% Ready</p></div>
+          <div className="mt-6 text-center"><p className="text-xs text-slate-400">Version 27.0 (Vercel Ready)</p></div>
         </div>
       </div>
     </div>
@@ -207,6 +223,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAppAuthenticated, setIsAppAuthenticated] = useState(false);
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
   
   // Données
   const [settings, setSettings] = useState<AppSettings>({
@@ -256,28 +273,66 @@ export default function App() {
   // --- AUTH ---
   useEffect(() => {
     const initAuth = async () => {
-      if ((window as any).__initial_auth_token) await signInWithCustomToken(auth, (window as any).__initial_auth_token);
-      else await signInAnonymously(auth);
+      // 1. Essai avec config injectée (StackBlitz) OU hardcodée (Vercel)
+      if (!auth) {
+         console.warn("Firebase non initialisé. Mode hors-ligne.");
+         setIsOfflineMode(true);
+         setUser({ uid: 'offline', email: 'demo@offline' } as User);
+         setLoading(false);
+         return;
+      }
+
+      // 2. Auth Firebase
+      if ((window as any).__initial_auth_token) {
+         await signInWithCustomToken(auth, (window as any).__initial_auth_token);
+      } else {
+         try {
+            await signInAnonymously(auth);
+         } catch(e) {
+            console.error("Erreur Auth:", e);
+            // Fallback ultime pour ne jamais avoir d'écran blanc
+            setIsOfflineMode(true);
+            setUser({ uid: 'offline', email: 'demo@offline' } as User);
+         }
+      }
     };
+    
     initAuth();
-    const unsubscribe = onAuthStateChanged(auth, (u) => { setUser(u); setLoading(false); });
-    return () => unsubscribe();
+
+    if(auth) {
+        const unsubscribe = onAuthStateChanged(auth, (u) => { 
+            if(u) {
+                setUser(u); 
+                setIsOfflineMode(false);
+            }
+            setLoading(false); 
+        });
+        return () => unsubscribe();
+    } else {
+        setLoading(false);
+    }
   }, []);
 
   // --- SYNC ---
   useEffect(() => {
-    if (!user) return;
+    if (!user || isOfflineMode || !db) return;
     const basePath = `artifacts/${APP_ID}/users/${user.uid}`;
-    const unsubs = [
-      onSnapshot(collection(db, `${basePath}/contacts`), (s: any) => setContacts(s.docs.map((d: any) => ({id: d.id, ...d.data()} as Contact)))),
-      onSnapshot(collection(db, `${basePath}/products`), (s: any) => setProducts(s.docs.map((d: any) => ({id: d.id, ...d.data()} as Product)))),
-      onSnapshot(collection(db, `${basePath}/invoices`), (s: any) => setInvoices(s.docs.map((d: any) => ({id: d.id, ...d.data()} as Invoice)))),
-      onSnapshot(collection(db, `${basePath}/interactions`), (s: any) => setInteractions(s.docs.map((d: any) => ({id: d.id, ...d.data()} as Interaction)))),
-      onSnapshot(collection(db, `${basePath}/simulations`), (s: any) => setSimulations(s.docs.map((d: any) => ({id: d.id, ...d.data()} as Simulation)))),
-      onSnapshot(doc(db, `${basePath}/config`, 'general'), (s: any) => { if(s.exists()) setSettings(prev => ({...prev, ...s.data()} as AppSettings)) })
-    ];
-    return () => unsubs.forEach(u => u());
-  }, [user]);
+    
+    try {
+        const unsubs = [
+        onSnapshot(collection(db, `${basePath}/contacts`), (s: any) => setContacts(s.docs.map((d: any) => ({id: d.id, ...d.data()} as Contact)))),
+        onSnapshot(collection(db, `${basePath}/products`), (s: any) => setProducts(s.docs.map((d: any) => ({id: d.id, ...d.data()} as Product)))),
+        onSnapshot(collection(db, `${basePath}/invoices`), (s: any) => setInvoices(s.docs.map((d: any) => ({id: d.id, ...d.data()} as Invoice)))),
+        onSnapshot(collection(db, `${basePath}/interactions`), (s: any) => setInteractions(s.docs.map((d: any) => ({id: d.id, ...d.data()} as Interaction)))),
+        onSnapshot(collection(db, `${basePath}/simulations`), (s: any) => setSimulations(s.docs.map((d: any) => ({id: d.id, ...d.data()} as Simulation)))),
+        onSnapshot(doc(db, `${basePath}/config`, 'general'), (s: any) => { if(s.exists()) setSettings(prev => ({...prev, ...s.data()} as AppSettings)) })
+        ];
+        return () => unsubs.forEach(u => u());
+    } catch(e) {
+        console.warn("Erreur Sync Firestore (Probablement droits ou config)", e);
+        setIsOfflineMode(true); // Fallback si la DB plante
+    }
+  }, [user, isOfflineMode]);
 
   // --- FILTRES & STATS ---
   const displayedContacts = useMemo(() => {
@@ -303,15 +358,20 @@ export default function App() {
   }, [invoices, contacts]);
 
   // --- ACTIONS ---
-  const handleCreate = async (col: string, data: any) => { if (!user) return; await addDoc(collection(db, `artifacts/${APP_ID}/users/${user.uid}/${col}`), { ...data, createdAt: new Date().toISOString() }); setShowModal(null); };
+  const handleCreate = async (col: string, data: any) => { 
+      if(isOfflineMode) return alert("Mode hors-ligne : Sauvegarde impossible");
+      if (!user) return; 
+      await addDoc(collection(db, `artifacts/${APP_ID}/users/${user.uid}/${col}`), { ...data, createdAt: new Date().toISOString() }); 
+      setShowModal(null); 
+  };
   
   const handleUpdate = async (col: string, id: string, data: any) => { 
-    if (!user) return; 
+    if(isOfflineMode || !user) return;
     await updateDoc(doc(db, `artifacts/${APP_ID}/users/${user.uid}/${col}`, id), data); 
   };
   
   const handleDelete = async (col: string, id: string) => { 
-    if (!user) return;
+    if(isOfflineMode || !user) return;
     if (confirm("Confirmer la suppression ?")) await deleteDoc(doc(db, `artifacts/${APP_ID}/users/${user.uid}/${col}`, id)); 
     if (col === 'contacts' && selectedContactId === id) setSelectedContactId(null); 
   };
@@ -359,15 +419,34 @@ export default function App() {
     alert("Paramètres sauvegardés !");
   };
 
+  const loadDemoData = async (silent: boolean = false) => {
+    if (isOfflineMode) return alert("Impossible en mode hors-ligne");
+    if (!user) return;
+    if (!silent && !confirm("⚠️ Charger les données de démonstration ?")) return;
+    try {
+      const batch = writeBatch(db);
+      const basePath = `artifacts/${APP_ID}/users/${user.uid}`;
+      const confRef = doc(db, `${basePath}/config/general`);
+      batch.set(confRef, { companyName: "LeadGen Performance", address: "Place de la Gare 4\n1003 Lausanne", email: "hello@leadgen-perf.ch", phone: "+41 21 000 00 00", iban: "CH50 0900 0000 0000 0000 0", invoiceFooter: "Non soumis à la TVA. Paiement net à 30 jours.", primaryColor: "#2563eb", logoUrl: "https://cdn-icons-png.flaticon.com/512/3135/3135715.png" });
+      const p1Ref = doc(collection(db, `${basePath}/products`)); batch.set(p1Ref, { name: "Leads 3ème Pilier", price: 120, cost: 35, platform: "meta", description: "Leads qualifiés 3A" });
+      const p2Ref = doc(collection(db, `${basePath}/products`)); batch.set(p2Ref, { name: "Assurance Maladie", price: 65, cost: 18, platform: "google", description: "Leads LAMal" });
+      const p3Ref = doc(collection(db, `${basePath}/products`)); batch.set(p3Ref, { name: "Gestion de Fortune", price: 250, cost: 80, platform: "meta", description: "Investisseurs qualifiés" });
+      const c1Ref = doc(collection(db, `${basePath}/contacts`)); batch.set(c1Ref, { name: "Jean Dupont", company: "Allianz Agence Dupont", email: "jean@dupont-assur.ch", phone: "079 123 45 67", status: "gagne", projectedBudget: 15000, interestedProductId: p1Ref.id, campaignStartDate: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(), createdAt: new Date().toISOString() });
+      const c2Ref = doc(collection(db, `${basePath}/contacts`)); batch.set(c2Ref, { name: "Marie Curie", company: "Curie Courtage", email: "marie@curie.ch", phone: "078 987 65 43", status: "negociation", projectedBudget: 5000, interestedProductId: p2Ref.id, createdAt: new Date().toISOString() });
+      const i1 = doc(collection(db, `${basePath}/invoices`)); batch.set(i1, { id: "INV-2024-001", date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(), clientId: c1Ref.id, clientName: "Allianz Agence Dupont", status: "payee", amount: 6000, items: [{ name: "Budget Net Investi - Leads 3ème Pilier (meta)", price: 3900, qty: 1 }, { name: "Frais de Gestion & Optimisation (35%)", price: 2100, qty: 1 }] });
+      await batch.commit();
+      alert("✅ Données de démo chargées !");
+      setActiveView('dashboard');
+    } catch (e) { console.error("Erreur demo:", e); }
+  };
+
   const handleGenerateInvoice = () => {
       if(!invoiceBudget || !invoiceThemeId) return;
       const theme = products.find(p => p.id === invoiceThemeId);
       const budget = Number(invoiceBudget);
       const margin = Number(invoiceMarginPercent) / 100;
-      
       const mediaBudget = budget * (1 - margin);
       const managementFees = budget * margin;
-
       const newItems = [
           { name: `Budget Net Investi - ${theme?.name || 'Campagne'} (${theme?.platform || 'Mix'})`, price: mediaBudget, qty: 1 },
           { name: `Frais de Gestion & Optimisation (${invoiceMarginPercent}%)`, price: managementFees, qty: 1 }
@@ -377,17 +456,10 @@ export default function App() {
 
   const handleSaveInvoice = async () => {
     if (!user || !currentInvoice?.clientId) return alert("Client requis.");
-    // Ensure currentInvoice items have default values if undefined
     const items = currentInvoice.items || [];
     const amount = items.reduce((acc, item) => acc + (item.price * item.qty), 0);
     const client = contacts.find(c => c.id === currentInvoice.clientId);
-    
-    const invData = { 
-        ...currentInvoice, 
-        amount, 
-        clientName: client?.company || 'Client Inconnu' 
-    };
-
+    const invData = { ...currentInvoice, amount, clientName: client?.company || 'Client Inconnu' };
     if (invData.id) await handleUpdate('invoices', invData.id, invData);
     else await setDoc(doc(db, `artifacts/${APP_ID}/users/${user!.uid}/invoices`, `INV-${Date.now()}`), { ...invData, status: 'brouillon', date: new Date().toISOString() });
     setShowModal(null);
@@ -405,7 +477,7 @@ export default function App() {
     if (!treasuryUnlocked) return (
       <div className="flex items-center justify-center h-full bg-slate-50 animate-fade-in"><div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-sm text-center"><div className="mx-auto w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mb-4 text-slate-500"><Lock size={24}/></div><h3 className="font-bold text-lg mb-2">Accès Sécurisé</h3><form onSubmit={handleTreasuryUnlock}><input type="password" autoFocus placeholder="Mot de passe" className="w-full border p-3 rounded-lg mb-4 text-center tracking-widest outline-none focus:ring-2 focus:ring-blue-500" value={treasuryPasswordInput} onChange={e => setTreasuryPasswordInput(e.target.value)}/><button type="submit" className="w-full bg-slate-900 text-white py-3 rounded-lg font-bold">Déverrouiller</button></form></div></div>
     );
-    const activeProjections = contacts.filter(c => Number(c.projectedBudget ?? 0) > 0 && c.interestedProductId);
+    const activeProjections = contacts.filter(c => (c.projectedBudget ?? 0) > 0 && c.interestedProductId);
     const totalProjectedRevenue = activeProjections.reduce((acc, c) => acc + Number(c.projectedBudget ?? 0), 0);
     const paperProfit = totalProjectedRevenue * (paperMarginPercent / 100);
     let totalRealCost = 0;
@@ -516,7 +588,6 @@ export default function App() {
     const clientStats = (() => {
         const paidInvoices = invoices.filter(i => i.clientId === selectedContact.id && i.status === 'payee');
         const totalCA = paidInvoices.reduce((sum, inv) => sum + Number(inv.amount || 0), 0);
-        // FIX: Arithmetic safety
         const totalCost = paidInvoices.reduce((sum, inv) => { 
             return sum + (inv.items?.reduce((isum, item) => isum + (Number(item.cost ?? 0) * item.qty), 0) || 0); 
         }, 0);
@@ -628,7 +699,7 @@ export default function App() {
     <div className={`flex h-screen bg-slate-50 text-slate-900 font-sans`}>
       <style>{`@media print { body * { visibility: hidden; } #invoice-printable, #invoice-printable * { visibility: visible; } #invoice-printable { position: fixed; left:0; top:0; width:100%; height:100%; padding:0; background:white; z-index:9999; } .no-print { display: none !important; } }`}</style>
       <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col no-print shrink-0">
-        <div className="p-6"><div className="flex items-center gap-3 mb-10 text-white"><div className="h-9 w-9 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-lg">LP</div><div><span className="font-bold block">LeadPartner</span><span className="text-xs text-slate-500 uppercase">CRM V24</span></div></div><nav className="space-y-1">{[{id: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard}, {id: 'contacts', label: 'Contacts', icon: Users}, {id: 'invoices', label: 'Factures', icon: FileText}, {id: 'products', label: 'Thématiques', icon: Package}, {id: 'projections', label: 'Projections', icon: Calculator}, {id: 'tresorerie', label: 'Trésorerie', icon: Lock}, {id: 'settings', label: 'Paramètres', icon: Settings}].map(item => (<button key={item.id} onClick={() => { setActiveView(item.id); setSelectedContactId(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg ${activeView === item.id ? 'bg-slate-800 text-white' : 'hover:bg-slate-800/50'}`}><item.icon size={18} className={activeView === item.id ? "text-blue-400" : "text-slate-500"}/> {item.label}</button>))}</nav></div>
+        <div className="p-6"><div className="flex items-center gap-3 mb-10 text-white"><div className="h-9 w-9 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-lg">LP</div><div><span className="font-bold block">LeadPartner</span><span className="text-xs text-slate-500 uppercase">CRM V24 Final</span></div></div><nav className="space-y-1">{[{id: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard}, {id: 'contacts', label: 'Contacts', icon: Users}, {id: 'invoices', label: 'Factures', icon: FileText}, {id: 'products', label: 'Thématiques', icon: Package}, {id: 'projections', label: 'Projections', icon: Calculator}, {id: 'tresorerie', label: 'Trésorerie', icon: Lock}, {id: 'settings', label: 'Paramètres', icon: Settings}].map(item => (<button key={item.id} onClick={() => { setActiveView(item.id); setSelectedContactId(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg ${activeView === item.id ? 'bg-slate-800 text-white' : 'hover:bg-slate-800/50'}`}><item.icon size={18} className={activeView === item.id ? "text-blue-400" : "text-slate-500"}/> {item.label}</button>))}</nav></div>
       </aside>
       <div className="flex-1 flex flex-col overflow-hidden relative"><header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 no-print shrink-0"><div className="flex items-center gap-4 text-slate-400"><Search size={18}/><input type="text" placeholder="Rechercher..." className="bg-transparent outline-none text-sm text-slate-800 w-64" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}/></div></header>
         <main className="flex-1 overflow-auto bg-slate-50/50 p-6 relative">
