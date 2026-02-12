@@ -4,7 +4,7 @@ import {
   ChevronLeft, FileText, Package, Printer, Trash2, CheckCircle, Clock, 
   MessageSquare, Briefcase, PlayCircle, StopCircle, Target,
   TrendingUp, Calculator, ArrowRight,
-  CalendarCheck, Globe, Share2, Loader, Lock, Wallet, LogIn, Edit2, Save, Wand2, Send, BarChart3
+  CalendarCheck, Globe, Share2, Loader, Lock, Wallet, LogIn, Edit2, Save, Wand2, Send, X
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -70,8 +70,8 @@ interface Simulation {
   productId: string;
   productName: string;
   productPlatform?: string;
-  clientId?: string; // Ajout du client
-  clientName?: string; // Ajout du nom du client
+  clientId?: string;
+  clientName?: string;
   stats: {
     volumeTotal: number;
     costTotal: number;
@@ -98,7 +98,7 @@ interface AppSettings {
 
 // --- CONFIGURATION FIREBASE ---
 const firebaseConfig = JSON.parse((window as any).__firebase_config || '{}');
-const RAW_APP_ID = (window as any).__app_id || 'leadpartner-crm-v29-projections';
+const RAW_APP_ID = (window as any).__app_id || 'leadpartner-crm-v30-fix';
 const APP_ID = RAW_APP_ID.replace(/[^a-zA-Z0-9-_]/g, '_');
 
 let app: any, db: any, auth: any;
@@ -208,7 +208,7 @@ const LoginScreen = ({ onLogin }: { onLogin: () => void }) => {
             {error && <p className="text-red-500 text-sm font-medium">{error}</p>}
             <button type="submit" className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2"><LogIn size={20}/> Se connecter</button>
           </form>
-          <div className="mt-6 text-center"><p className="text-xs text-slate-400">Version 29.0 (Secure Projections)</p></div>
+          <div className="mt-6 text-center"><p className="text-xs text-slate-400">Version 30.0 (Full Fix)</p></div>
         </div>
       </div>
     </div>
@@ -262,12 +262,11 @@ export default function App() {
   // Planificateur
   const [planBudget, setPlanBudget] = useState(1000); 
   const [planProductId, setPlanProductId] = useState('');
-  const [planClientId, setPlanClientId] = useState(''); // NEW: Link to client
+  const [planClientId, setPlanClientId] = useState('');
 
-  // Trésorerie / Projections
+  // Trésorerie
   const [treasuryUnlocked, setTreasuryUnlocked] = useState(false);
   const [treasuryPasswordInput, setTreasuryPasswordInput] = useState('');
-  const [paperMarginPercent, setPaperMarginPercent] = useState(35); // Default for comparison
 
   // --- AUTH ---
   useEffect(() => {
@@ -381,21 +380,18 @@ export default function App() {
   const handleSaveSimulation = async (simStats: any) => {
       if(!user) return;
       const activeProduct = products.find(p => p.id === planProductId);
-      const activeClient = contacts.find(c => c.id === planClientId);
-      
       if(!activeProduct) return;
-      
+      const activeClient = contacts.find(c => c.id === planClientId);
       const simData: Omit<Simulation, 'id'> = { 
           budget: planBudget, 
           productId: planProductId, 
           productName: activeProduct.name, 
           productPlatform: activeProduct.platform, 
-          clientId: planClientId, // Link to client
+          clientId: planClientId,
           clientName: activeClient ? activeClient.company : 'Client Inconnu',
           stats: simStats, 
           createdAt: new Date().toISOString() 
       };
-      
       await addDoc(collection(db, `artifacts/${APP_ID}/users/${user.uid}/simulations`), simData);
   };
 
@@ -410,7 +406,8 @@ export default function App() {
   };
 
   const loadDemoData = async (silent: boolean = false) => {
-    if (isOfflineMode || !user) return;
+    if (isOfflineMode) return alert("Impossible en mode hors-ligne");
+    if (!user) return;
     if (!silent && !confirm("⚠️ Charger les données de démonstration ?")) return;
     try {
       const batch = writeBatch(db);
@@ -447,17 +444,10 @@ export default function App() {
 
   const handleSaveInvoice = async () => {
     if (!user || !currentInvoice?.clientId) return alert("Client requis.");
-    // Ensure currentInvoice items have default values if undefined
     const items = currentInvoice.items || [];
     const amount = items.reduce((acc, item) => acc + (item.price * item.qty), 0);
     const client = contacts.find(c => c.id === currentInvoice.clientId);
-    
-    const invData = { 
-        ...currentInvoice, 
-        amount, 
-        clientName: client?.company || 'Client Inconnu' 
-    };
-
+    const invData = { ...currentInvoice, amount, clientName: client?.company || 'Client Inconnu' };
     if (invData.id) await handleUpdate('invoices', invData.id, invData);
     else await setDoc(doc(db, `artifacts/${APP_ID}/users/${user!.uid}/invoices`, `INV-${Date.now()}`), { ...invData, status: 'brouillon', date: new Date().toISOString() });
     setShowModal(null);
@@ -472,13 +462,11 @@ export default function App() {
 
   // --- RENDERERS ---
   
-  // VUE PROJECTIONS (SÉCURISÉE + KPIs + SIMULATEUR)
   const renderProjections = () => {
     if (!treasuryUnlocked) return (
       <div className="flex items-center justify-center h-full bg-slate-50 animate-fade-in"><div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-sm text-center"><div className="mx-auto w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mb-4 text-slate-500"><Lock size={24}/></div><h3 className="font-bold text-lg mb-2">Accès Sécurisé</h3><form onSubmit={handleTreasuryUnlock}><input type="password" autoFocus placeholder="Mot de passe" className="w-full border p-3 rounded-lg mb-4 text-center tracking-widest outline-none focus:ring-2 focus:ring-blue-500" value={treasuryPasswordInput} onChange={e => setTreasuryPasswordInput(e.target.value)}/><button type="submit" className="w-full bg-slate-900 text-white py-3 rounded-lg font-bold">Déverrouiller</button></form></div></div>
     );
 
-    // Calcul des KPIs Globaux sur toutes les simulations
     let globalStats = { profit: 0, realSpend: 0, volume: 0, dailySpend: 0 };
     simulations.forEach(sim => {
         globalStats.profit += Number(sim.stats?.profit ?? 0);
@@ -487,76 +475,46 @@ export default function App() {
         globalStats.dailySpend += Number(sim.stats?.dailyBudget ?? 0);
     });
 
-    // Logique du Simulateur
     const activeProduct = products.find(p => p.id === planProductId) || products[0];
     let planStats = { volumeTotal: 0, costTotal: 0, profit: 0, dailyVolume: 0, dailyBudget: 0, margin: 0, fees: 0, arbitrage: 0 };
     
     if (activeProduct && planBudget > 0 && activeProduct.price > 0) {
-        // 1. Frais de Gestion (35% fixe)
         const fees = planBudget * 0.35;
-        // 2. Budget Média Client (65%)
         const netMedia = planBudget * 0.65;
-        // 3. Volume à livrer = Net Media / CPL Vendu
         const volumeTotal = Math.floor(netMedia / activeProduct.price);
-        // 4. Coût Réel = Volume * CPL Achat
         const costTotal = volumeTotal * Number(activeProduct.cost ?? 0);
-        // 5. Arbitrage = Net Media - Coût Réel
         const arbitrage = netMedia - costTotal;
-        // 6. Marge Totale = Frais + Arbitrage
         const profit = fees + arbitrage;
-        
         const margin = (profit / planBudget) * 100;
         
         planStats = { 
-            volumeTotal, 
-            costTotal, 
-            profit, 
-            dailyVolume: volumeTotal/30, 
-            dailyBudget: costTotal/30, 
-            margin,
-            fees,
-            arbitrage
+            volumeTotal, costTotal, profit, dailyVolume: volumeTotal/30, dailyBudget: costTotal/30, margin, fees, arbitrage
         };
     }
 
     return (
       <div className="space-y-8 animate-fade-in pb-12">
-        
-        {/* KPI DASHBOARD */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                <p className="text-xs font-bold text-slate-500 uppercase mb-1">Marge Nette (Poche)</p>
-                <h3 className="text-2xl font-bold text-emerald-600">{formatCurrency(globalStats.profit)}</h3>
-            </div>
-            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                <p className="text-xs font-bold text-slate-500 uppercase mb-1">Budget Pub Réel</p>
-                <h3 className="text-2xl font-bold text-slate-800">{formatCurrency(globalStats.realSpend)}</h3>
-            </div>
-            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                <p className="text-xs font-bold text-slate-500 uppercase mb-1">Volume Leads Total</p>
-                <h3 className="text-2xl font-bold text-blue-600">{globalStats.volume}</h3>
-            </div>
-            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                <p className="text-xs font-bold text-slate-500 uppercase mb-1">Dépense / Jour (Global)</p>
-                <h3 className="text-2xl font-bold text-orange-600">{formatCurrency(globalStats.dailySpend)}</h3>
-            </div>
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm"><p className="text-xs font-bold text-slate-500 uppercase mb-1">Marge Nette Totale</p><h3 className="text-2xl font-bold text-emerald-600">{formatCurrency(globalStats.profit)}</h3></div>
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm"><p className="text-xs font-bold text-slate-500 uppercase mb-1">Budget Pub Réel</p><h3 className="text-2xl font-bold text-slate-800">{formatCurrency(globalStats.realSpend)}</h3></div>
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm"><p className="text-xs font-bold text-slate-500 uppercase mb-1">Volume Leads</p><h3 className="text-2xl font-bold text-blue-600">{globalStats.volume}</h3></div>
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm"><p className="text-xs font-bold text-slate-500 uppercase mb-1">Dépense / Jour</p><h3 className="text-2xl font-bold text-orange-600">{formatCurrency(globalStats.dailySpend)}</h3></div>
         </div>
 
-        {/* SIMULATEUR AVEC ASSIGNATION */}
         <div className="bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
-           <div className="bg-slate-900 p-6 text-white flex justify-between items-center"><div><h2 className="text-xl font-bold flex items-center gap-2"><CalendarCheck className="text-blue-400"/> Nouvelle Projection (35% + Arbitrage)</h2><p className="text-slate-400 text-sm">Estimez la rentabilité réelle d'une campagne.</p></div></div>
+           <div className="bg-slate-900 p-6 text-white flex justify-between items-center"><div><h2 className="text-xl font-bold flex items-center gap-2"><CalendarCheck className="text-blue-400"/> Calculateur de Campagne (35% + Arbitrage)</h2><p className="text-slate-400 text-sm">Estimez la rentabilité réelle.</p></div></div>
            <div className="p-6 grid grid-cols-1 lg:grid-cols-12 gap-8">
               <div className="lg:col-span-4 space-y-6 border-r border-slate-100 pr-6">
-                 <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2">1. Client (Optionnel)</label><select value={planClientId} onChange={(e) => setPlanClientId(e.target.value)} className="w-full border border-slate-300 rounded-lg p-3 font-medium outline-none focus:ring-2 focus:ring-blue-500"><option value="">-- Aucun --</option>{contacts.map(c => <option key={c.id} value={c.id}>{c.company}</option>)}</select></div>
+                 <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2">1. Client</label><select value={planClientId} onChange={(e) => setPlanClientId(e.target.value)} className="w-full border border-slate-300 rounded-lg p-3 font-medium outline-none focus:ring-2 focus:ring-blue-500"><option value="">-- Aucun --</option>{contacts.map(c => <option key={c.id} value={c.id}>{c.company}</option>)}</select></div>
                  <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2">2. Thématique</label><select value={planProductId} onChange={(e) => setPlanProductId(e.target.value)} className="w-full border border-slate-300 rounded-lg p-3 font-medium outline-none focus:ring-2 focus:ring-blue-500">{!planProductId && <option value="">-- Sélectionner --</option>}{products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
                  <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2">3. Budget Client</label><div className="relative"><input type="number" value={planBudget} onChange={(e) => setPlanBudget(Number(e.target.value))} className="w-full border border-slate-300 rounded-lg p-3 pl-4 font-bold text-2xl outline-none focus:ring-2 focus:ring-blue-500 text-blue-600"/><span className="absolute right-4 top-4 text-sm text-slate-400 font-bold">CHF</span></div></div>
-                 <button onClick={() => handleSaveSimulation(planStats)} className="w-full bg-slate-800 text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-slate-700 transition-colors"><Plus size={18}/> Sauvegarder Projection</button>
+                 <button onClick={() => handleSaveSimulation(planStats)} className="w-full bg-slate-800 text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-slate-700 transition-colors"><Plus size={18}/> Sauvegarder</button>
               </div>
               <div className="lg:col-span-8 flex flex-col justify-center">
-                 {!activeProduct ? <div className="text-center text-slate-400 italic py-10 flex flex-col items-center"><ArrowRight className="mb-2 opacity-50"/> Sélectionner une thématique.</div> : (
+                 {!activeProduct ? <div className="text-center text-slate-400 italic">Sélectionnez une thématique.</div> : (
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                        <div className="bg-slate-50 p-5 rounded-xl border border-slate-200 flex flex-col justify-between">
-                           <p className="text-slate-500 text-xs font-bold uppercase mb-2">Volume Leads</p>
+                           <p className="text-slate-500 text-xs font-bold uppercase mb-2">Leads à Livrer</p>
                            <div className="text-center py-2"><span className="text-4xl font-bold text-slate-800">{planStats.volumeTotal}</span></div>
                            <div className="text-center border-t pt-2 mt-2 text-xs text-slate-400">Budget Net Média: {formatCurrency(planBudget * 0.65)}</div>
                        </div>
@@ -566,7 +524,7 @@ export default function App() {
                            <div className="text-center border-t border-blue-200 pt-2 mt-2"><p className="text-xs text-blue-500 font-bold">~{formatCurrency(planStats.dailyBudget)} / jour</p></div>
                        </div>
                        <div className={`p-5 rounded-xl border flex flex-col justify-between shadow-sm ${planStats.margin >= 30 ? 'bg-emerald-50 border-emerald-100' : 'bg-orange-50 border-orange-100'}`}>
-                           <p className={`${planStats.margin >= 30 ? 'text-emerald-800' : 'text-orange-800'} text-xs font-bold uppercase mb-2`}>Marge Nette</p>
+                           <p className={`${planStats.margin >= 30 ? 'text-emerald-800' : 'text-orange-800'} text-xs font-bold uppercase mb-2`}>Marge Nette (Poche)</p>
                            <div className="text-center py-2"><span className={`text-3xl font-bold ${planStats.margin >= 30 ? 'text-emerald-700' : 'text-orange-700'}`}>{formatCurrency(planStats.profit)}</span></div>
                            <div className="text-center border-t border-emerald-200 pt-2 mt-2 flex justify-between px-2">
                                <p className="text-[10px] text-emerald-800">Frais: {formatCurrency(planStats.fees)}</p>
@@ -579,8 +537,7 @@ export default function App() {
            </div>
         </div>
         
-        {/* TABLEAU DES SIMULATIONS */}
-        <div><h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><Save size={20}/> Projections Enregistrées</h2><div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-8">{simulations.length === 0 ? (<div className="p-8 text-center text-slate-400 italic">Aucune projection enregistrée.</div>) : (<table className="w-full text-sm text-left"><thead className="bg-slate-50 text-slate-500 uppercase font-bold text-xs border-b"><tr><th className="px-6 py-4">Client</th><th className="px-6 py-4">Thématique</th><th className="px-6 py-4">Budget</th><th className="px-6 py-4">Volume</th><th className="px-6 py-4">Coût Réel</th><th className="px-6 py-4">Marge Nette</th><th className="px-6 py-4 text-right">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{simulations.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map(sim => (<tr key={sim.id} className="hover:bg-slate-50"><td className="px-6 py-4 font-bold text-blue-600">{sim.clientName || 'N/A'}</td><td className="px-6 py-4 font-bold text-slate-700">{sim.productName}</td><td className="px-6 py-4 font-mono">{formatCurrency(sim.budget)}</td><td className="px-6 py-4"><span className="bg-blue-50 text-blue-700 px-2 py-1 rounded font-bold">{sim.stats.volumeTotal}</span></td><td className="px-6 py-4 text-slate-500">{formatCurrency(sim.stats.costTotal)}</td><td className="px-6 py-4"><span className={`font-bold ${sim.stats.margin >= 30 ? 'text-emerald-600' : 'text-orange-600'}`}>{formatCurrency(sim.stats.profit)} ({sim.stats.margin.toFixed(0)}%)</span></td><td className="px-6 py-4 text-right"><button onClick={() => handleDelete('simulations', sim.id)} className="text-slate-300 hover:text-red-500"><Trash2 size={16}/></button></td></tr>))}</tbody></table>)}</div></div>
+        <div><h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><Save size={20}/> Simulations Enregistrées</h2><div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-8">{simulations.length === 0 ? (<div className="p-8 text-center text-slate-400 italic">Aucune simulation.</div>) : (<table className="w-full text-sm text-left"><thead className="bg-slate-50 text-slate-500 uppercase font-bold text-xs border-b"><tr><th className="px-6 py-4">Client</th><th className="px-6 py-4">Thématique</th><th className="px-6 py-4">Budget</th><th className="px-6 py-4">Volume</th><th className="px-6 py-4">Coût Réel</th><th className="px-6 py-4">Marge Nette</th><th className="px-6 py-4 text-right">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{simulations.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map(sim => (<tr key={sim.id} className="hover:bg-slate-50"><td className="px-6 py-4 font-bold text-blue-600">{sim.clientName || 'N/A'}</td><td className="px-6 py-4 font-bold text-slate-700">{sim.productName}</td><td className="px-6 py-4 font-mono">{formatCurrency(sim.budget)}</td><td className="px-6 py-4"><span className="bg-blue-50 text-blue-700 px-2 py-1 rounded font-bold">{sim.stats.volumeTotal}</span></td><td className="px-6 py-4 text-slate-500">{formatCurrency(sim.stats.costTotal)}</td><td className="px-6 py-4"><span className={`font-bold ${sim.stats.margin >= 30 ? 'text-emerald-600' : 'text-orange-600'}`}>{formatCurrency(sim.stats.profit)} ({sim.stats.margin.toFixed(0)}%)</span></td><td className="px-6 py-4 text-right"><button onClick={() => handleDelete('simulations', sim.id)} className="text-slate-300 hover:text-red-500"><Trash2 size={16}/></button></td></tr>))}</tbody></table>)}</div></div>
       </div>
     );
   };
@@ -605,11 +562,77 @@ export default function App() {
           <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><FileText size={20}/> Personnalisation Facture</h3>
           <div><label className="text-xs font-bold text-slate-500 uppercase">IBAN</label><input name="iban" defaultValue={settings.iban} className="w-full border p-2 rounded mt-1"/></div>
           <div><label className="text-xs font-bold text-slate-500 uppercase">Pied de page</label><textarea name="invoiceFooter" defaultValue={settings.invoiceFooter} className="w-full border p-2 rounded mt-1 h-24"/></div>
-          <div className="pt-4 flex gap-4"><button type="submit" className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700">Sauvegarder</button></div>
+          <div className="pt-4 flex gap-4"><button type="submit" className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700">Sauvegarder</button><button type="button" onClick={() => loadDemoData(false)} className="flex-1 bg-slate-800 text-white py-3 rounded-lg font-bold hover:bg-slate-700 flex items-center justify-center gap-2"><Loader size={16}/> Réinitialiser Démo</button></div>
         </div>
       </form>
     </div>
   );
+
+  const renderContactDetail = () => {
+    if (!selectedContact) return null;
+    const campaign = getCampaignProgress(selectedContact.campaignStartDate);
+    const clientInvoices = invoices.filter(i => i.clientId === selectedContact.id).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    return (
+      <div className="flex flex-col h-full bg-white animate-fade-in"><div className="border-b px-8 py-6 flex justify-between items-start bg-slate-50"><div className="flex items-center gap-4"><button onClick={() => setSelectedContactId(null)} className="p-2 hover:bg-slate-200 rounded-full"><ChevronLeft /></button><div><h2 className="text-2xl font-bold text-slate-800">{selectedContact.name}</h2><p className="text-slate-500 flex items-center gap-2"><Briefcase size={14}/> {selectedContact.company}</p></div></div><div className="flex gap-2"><button onClick={() => toggleCampaign(selectedContact)} className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 border ${selectedContact.campaignStartDate ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100' : 'bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100'}`}>{selectedContact.campaignStartDate ? <><StopCircle size={16}/> Arrêter</> : <><PlayCircle size={16}/> Campagne 30j</>}</button><button onClick={() => setShowModal('interaction')} className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-slate-700"><MessageSquare size={16}/> Note</button><button onClick={() => { setCurrentInvoice({ clientId: selectedContact.id, clientName: selectedContact.company } as any); if(selectedContact.projectedBudget) { setInvoiceBudget(selectedContact.projectedBudget); if(selectedContact.interestedProductId) setInvoiceThemeId(selectedContact.interestedProductId); } setShowModal('invoice'); }} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-blue-700"><FileText size={16}/> Facture</button></div></div>
+      <div className="flex-1 overflow-auto p-8 grid grid-cols-1 lg:grid-cols-2 gap-8">
+         <div className="space-y-6">
+            {/* CARD 1: INFO MODIFIABLES */}
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative group">
+                <div className="flex justify-between items-start mb-4"><h3 className="font-bold text-slate-800 flex items-center gap-2"><Briefcase size={18}/> Informations</h3>{!isEditingContact ? (<button onClick={() => { setEditContactData(selectedContact); setIsEditingContact(true); }} className="text-slate-400 hover:text-blue-600"><Edit2 size={16}/></button>) : (<div className="flex gap-2"><button onClick={() => setIsEditingContact(false)} className="text-xs text-slate-500 hover:underline">Annuler</button><button onClick={handleSaveContactEdit} className="text-xs font-bold text-blue-600 hover:underline">Sauvegarder</button></div>)}</div>
+                <div className="space-y-4 text-sm">
+                    {isEditingContact ? (
+                        <>
+                            <input className="w-full border p-2 rounded" placeholder="Nom" value={editContactData.name || ''} onChange={e => setEditContactData({...editContactData, name: e.target.value})}/>
+                            <input className="w-full border p-2 rounded" placeholder="Société" value={editContactData.company || ''} onChange={e => setEditContactData({...editContactData, company: e.target.value})}/>
+                            <input className="w-full border p-2 rounded" placeholder="Email" value={editContactData.email || ''} onChange={e => setEditContactData({...editContactData, email: e.target.value})}/>
+                            <input className="w-full border p-2 rounded" placeholder="Téléphone" value={editContactData.phone || ''} onChange={e => setEditContactData({...editContactData, phone: e.target.value})}/>
+                            <input className="w-full border p-2 rounded" type="number" placeholder="Budget" value={editContactData.projectedBudget || ''} onChange={e => setEditContactData({...editContactData, projectedBudget: Number(e.target.value)})}/>
+                        </>
+                    ) : (
+                        <>
+                            <div><label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Thématique d'intérêt</label><select value={selectedContact.interestedProductId || ''} onChange={(e) => handleUpdate('contacts', selectedContact.id, { interestedProductId: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none"><option value="">-- Non défini --</option>{products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+                            <div className="flex justify-between border-b pb-2"><span className="text-slate-500">Email</span> <a href={`mailto:${selectedContact.email}`} className="text-blue-600 truncate">{selectedContact.email}</a></div>
+                            <div className="flex justify-between border-b pb-2"><span className="text-slate-500">Téléphone</span> <a href={`tel:${selectedContact.phone}`} className="text-slate-800">{selectedContact.phone || '-'}</a></div>
+                            <div className="flex justify-between pt-1"><span className="text-slate-500">Budget</span><span className="font-bold">{formatCurrency(selectedContact.projectedBudget)}</span></div>
+                            <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center text-xs">
+                                <span className={campaign?.finished ? "text-red-600 font-bold" : "text-emerald-600 font-bold"}>{campaign?.label} ({Math.round(campaign?.percent ?? 0)}%)</span>
+                            </div>
+                        </>
+                    )}
+                </div>
+            </div>
+            
+            {/* CARD 2: FACTURES LIEES */}
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><FileText size={18}/> Factures ({clientInvoices.length})</h3>
+                <div className="space-y-2 max-h-48 overflow-auto">
+                    {clientInvoices.map(inv => (
+                        <div key={inv.id} className="flex justify-between items-center text-sm p-2 bg-slate-50 rounded hover:bg-slate-100 cursor-pointer" onClick={() => { setCurrentInvoice(inv); setShowModal('invoice'); }}>
+                            <span className="font-mono text-slate-500">{inv.id}</span>
+                            <span className="font-bold">{formatCurrency(inv.amount)}</span>
+                            <span className={`text-[10px] px-2 py-0.5 rounded uppercase font-bold ${INVOICE_STATUSES[inv.status].color.split(' ')[0]}`}>{inv.status}</span>
+                        </div>
+                    ))}
+                    {clientInvoices.length === 0 && <p className="text-slate-400 italic text-sm">Aucune facture.</p>}
+                </div>
+            </div>
+         </div>
+
+         <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col">
+             <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><Clock size={18}/> Activités & Notes</h3>
+             <div className="flex gap-2 mb-4">
+                 <input className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Écrire une note rapide..." value={newNoteContent} onChange={e => setNewNoteContent(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddQuickNote()}/>
+                 <button onClick={handleAddQuickNote} className="bg-slate-900 text-white p-2 rounded-lg hover:bg-slate-700"><Send size={16}/></button>
+             </div>
+             <div className="space-y-4 flex-1 overflow-auto">
+                 {interactions.filter(i => i.contactId === selectedContact.id).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map(i => (<div key={i.id} className="bg-slate-50 p-3 rounded-lg text-sm border border-slate-100 relative group"><button onClick={() => handleDelete('interactions', i.id)} className="absolute top-2 right-2 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 size={14}/></button><div className="flex justify-between mb-1"><span className="font-bold capitalize">{i.type === 'call' ? 'Appel' : 'Note'}</span> <span className="text-slate-400 text-xs">{formatDate(i.createdAt)}</span></div><p className="text-slate-700 whitespace-pre-wrap">{i.content}</p></div>))}
+                 {interactions.filter(i => i.contactId === selectedContact.id).length === 0 && <p className="text-slate-400 italic text-center py-4">Vide.</p>}
+             </div>
+         </div>
+      </div></div>
+    );
+  };
 
   if (loading) return <div className="h-screen flex items-center justify-center text-slate-400"><Loader className="animate-spin mr-2"/> Chargement...</div>;
   if (!isAppAuthenticated) return <LoginScreen onLogin={() => setIsAppAuthenticated(true)} />;
@@ -618,7 +641,7 @@ export default function App() {
     <div className={`flex h-screen bg-slate-50 text-slate-900 font-sans`}>
       <style>{`@media print { body * { visibility: hidden; } #invoice-printable, #invoice-printable * { visibility: visible; } #invoice-printable { position: fixed; left:0; top:0; width:100%; height:100%; padding:0; background:white; z-index:9999; } .no-print { display: none !important; } }`}</style>
       <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col no-print shrink-0">
-        <div className="p-6"><div className="flex items-center gap-3 mb-10 text-white"><div className="h-9 w-9 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-lg">LP</div><div><span className="font-bold block">LeadPartner</span><span className="text-xs text-slate-500 uppercase">CRM V28</span></div></div><nav className="space-y-1">{[{id: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard}, {id: 'contacts', label: 'Contacts', icon: Users}, {id: 'invoices', label: 'Factures', icon: FileText}, {id: 'products', label: 'Thématiques', icon: Package}, {id: 'projections', label: 'Projections (Privé)', icon: Lock}, {id: 'settings', label: 'Paramètres', icon: Settings}].map(item => (<button key={item.id} onClick={() => { setActiveView(item.id); setSelectedContactId(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg ${activeView === item.id ? 'bg-slate-800 text-white' : 'hover:bg-slate-800/50'}`}><item.icon size={18} className={activeView === item.id ? "text-blue-400" : "text-slate-500"}/> {item.label}</button>))}</nav></div>
+        <div className="p-6"><div className="flex items-center gap-3 mb-10 text-white"><div className="h-9 w-9 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-lg">LP</div><div><span className="font-bold block">LeadPartner</span><span className="text-xs text-slate-500 uppercase">CRM V29</span></div></div><nav className="space-y-1">{[{id: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard}, {id: 'contacts', label: 'Contacts', icon: Users}, {id: 'invoices', label: 'Factures', icon: FileText}, {id: 'products', label: 'Thématiques', icon: Package}, {id: 'projections', label: 'Projections (Privé)', icon: Lock}, {id: 'settings', label: 'Paramètres', icon: Settings}].map(item => (<button key={item.id} onClick={() => { setActiveView(item.id); setSelectedContactId(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg ${activeView === item.id ? 'bg-slate-800 text-white' : 'hover:bg-slate-800/50'}`}><item.icon size={18} className={activeView === item.id ? "text-blue-400" : "text-slate-500"}/> {item.label}</button>))}</nav></div>
       </aside>
       <div className="flex-1 flex flex-col overflow-hidden relative"><header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 no-print shrink-0"><div className="flex items-center gap-4 text-slate-400"><Search size={18}/><input type="text" placeholder="Rechercher..." className="bg-transparent outline-none text-sm text-slate-800 w-64" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}/></div></header>
         <main className="flex-1 overflow-auto bg-slate-50/50 p-6 relative">
@@ -643,7 +666,7 @@ export default function App() {
               <div className="flex-1 overflow-auto bg-slate-200/50 p-8 flex justify-center">
                  <div id="invoice-printable" className="bg-white w-[21cm] min-h-[29.7cm] shadow-xl p-[2.5cm] flex flex-col text-slate-800 relative">
                     <div className="flex justify-between mb-12"><div><h1 className="text-4xl font-bold uppercase mb-2" style={{color: settings.primaryColor}}>Facture</h1><p className="font-mono">#{currentInvoice.id || 'BROUILLON'}</p><p className="text-sm mt-1">Date: {formatDate(currentInvoice.date)}</p></div><div className="text-right">{settings.logoUrl && <img src={settings.logoUrl} className="h-16 mb-2 ml-auto object-contain" alt="Logo"/>}<p className="font-bold text-lg">{settings.companyName}</p><p className="text-sm text-slate-500 whitespace-pre-wrap">{settings.address}</p><p className="text-sm text-slate-500">{settings.email} • {settings.phone}</p></div></div>
-                    <div className="mb-8"><p className="text-xs font-bold text-slate-400 uppercase mb-2">Facturé à</p>{currentInvoice.id ? <div className="font-bold text-lg">{currentInvoice.clientName}</div> : <select className="bg-slate-50 border p-2 rounded w-full font-bold no-print" onChange={e => { const c = contacts.find(co => co.id === e.target.value); setCurrentInvoice({...currentInvoice, clientId: c?.id, clientName: c?.company, projectedBudget: c?.projectedBudget, interestedProductId: c?.interestedProductId } as any); if(c?.projectedBudget) { setInvoiceBudget(c.projectedBudget); if(c.interestedProductId) setInvoiceThemeId(c.interestedProductId); } }} value={currentInvoice.clientId}><option value="">-- Sélectionner Client --</option>{contacts.map(c => <option key={c.id} value={c.id}>{c.company}</option>)}</select>}{currentInvoice.clientName && !currentInvoice.id && <div className="font-bold text-lg mt-1">{currentInvoice.clientName}</div>}</div>
+                    <div className="mb-8"><p className="text-xs font-bold text-slate-400 uppercase mb-2">Facturé à</p>{currentInvoice.id ? <div className="font-bold text-lg">{currentInvoice.clientName}</div> : <select className="bg-slate-50 border p-2 rounded w-full font-bold no-print" onChange={e => { const c = contacts.find(co => co.id === e.target.value); setCurrentInvoice({...currentInvoice, clientId: c?.id, clientName: c?.company, } as any); if(c?.projectedBudget) { setInvoiceBudget(c.projectedBudget); if(c.interestedProductId) setInvoiceThemeId(c.interestedProductId); } }} value={currentInvoice.clientId}><option value="">-- Sélectionner Client --</option>{contacts.map(c => <option key={c.id} value={c.id}>{c.company}</option>)}</select>}{currentInvoice.clientName && !currentInvoice.id && <div className="font-bold text-lg mt-1">{currentInvoice.clientName}</div>}</div>
                     
                     {/* GENERATEUR LEADGEN FLEXIBLE (V20) */}
                     {!currentInvoice.id && (
