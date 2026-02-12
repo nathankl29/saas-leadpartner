@@ -2,9 +2,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   LayoutDashboard, Users, Settings, Plus, Search, 
   ChevronLeft, FileText, Package, Printer, Trash2, CheckCircle, Clock, 
-  MessageSquare, X, Briefcase, PlayCircle, StopCircle, 
+  MessageSquare, Briefcase, PlayCircle, StopCircle, Target,
   TrendingUp, Calculator, ArrowRight,
-  CalendarCheck, Globe, Share2, Loader, Lock, Wallet, LogIn, Edit2, Save, Wand2, Send
+  CalendarCheck, Globe, Share2, Loader, Lock, Wallet, LogIn, Edit2, Save, Wand2, Send, BarChart3
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -20,8 +20,8 @@ import type { User } from 'firebase/auth';
 interface Product {
   id: string;
   name: string;
-  price: number;
-  cost?: number;
+  price: number; // CPL VENDU
+  cost?: number; // CPL ACHAT
   platform?: string;
   description?: string;
 }
@@ -70,7 +70,18 @@ interface Simulation {
   productId: string;
   productName: string;
   productPlatform?: string;
-  stats: any;
+  clientId?: string; // Ajout du client
+  clientName?: string; // Ajout du nom du client
+  stats: {
+    volumeTotal: number;
+    costTotal: number;
+    profit: number;
+    dailyVolume: number;
+    dailyBudget: number;
+    margin: number;
+    fees: number;
+    arbitrage: number;
+  };
   createdAt: string;
 }
 
@@ -85,32 +96,19 @@ interface AppSettings {
   logoUrl: string;
 }
 
-// --- CONFIGURATION FIREBASE (POUR VERCEL) ---
-// J'ai remis vos clés d'origine pour que ça marche partout
-const hardcodedConfig = {
-  apiKey: "AIzaSyDY6zXLeebKhMxL_2_mfQOYV44JuoCArK0",
-  authDomain: "crm-leadpartner.firebaseapp.com",
-  projectId: "crm-leadpartner",
-  storageBucket: "crm-leadpartner.firebasestorage.app",
-  messagingSenderId: "588502456936",
-  appId: "1:588502456936:web:5c509a0c418f34f77239dd",
-  measurementId: "G-6QM0LM69Z1"
-};
-
-// Logique : Utilise la config StackBlitz si dispo, sinon utilise la config en dur (Vercel)
-const sbConfig = (window as any).__firebase_config;
-const firebaseConfig = sbConfig ? JSON.parse(sbConfig) : hardcodedConfig;
-
-const APP_ID = 'leadpartner-crm-v27-prod';
+// --- CONFIGURATION FIREBASE ---
+const firebaseConfig = JSON.parse((window as any).__firebase_config || '{}');
+const RAW_APP_ID = (window as any).__app_id || 'leadpartner-crm-v29-projections';
+const APP_ID = RAW_APP_ID.replace(/[^a-zA-Z0-9-_]/g, '_');
 
 let app: any, db: any, auth: any;
 try {
-  if (firebaseConfig && Object.keys(firebaseConfig).length > 0 && firebaseConfig.apiKey) {
-      app = initializeApp(firebaseConfig);
-      db = getFirestore(app);
-      auth = getAuth(app);
+  if (Object.keys(firebaseConfig).length > 0) {
+    app = initializeApp(firebaseConfig);
+    db = getFirestore(app);
+    auth = getAuth(app);
   } else {
-      console.warn("⚠️ Aucune configuration Firebase valide trouvée.");
+    console.warn("Mode Hors-Ligne activé (Config Firebase manquante)");
   }
 } catch (e) {
   console.error("Erreur init Firebase:", e);
@@ -210,7 +208,7 @@ const LoginScreen = ({ onLogin }: { onLogin: () => void }) => {
             {error && <p className="text-red-500 text-sm font-medium">{error}</p>}
             <button type="submit" className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2"><LogIn size={20}/> Se connecter</button>
           </form>
-          <div className="mt-6 text-center"><p className="text-xs text-slate-400">Version 27.0 (Vercel Ready)</p></div>
+          <div className="mt-6 text-center"><p className="text-xs text-slate-400">Version 29.0 (Secure Projections)</p></div>
         </div>
       </div>
     </div>
@@ -262,62 +260,44 @@ export default function App() {
   const [invoiceMarginPercent, setInvoiceMarginPercent] = useState(35);
 
   // Planificateur
-  const [planBudget, setPlanBudget] = useState(5000); 
+  const [planBudget, setPlanBudget] = useState(1000); 
   const [planProductId, setPlanProductId] = useState('');
+  const [planClientId, setPlanClientId] = useState(''); // NEW: Link to client
 
-  // Trésorerie
+  // Trésorerie / Projections
   const [treasuryUnlocked, setTreasuryUnlocked] = useState(false);
   const [treasuryPasswordInput, setTreasuryPasswordInput] = useState('');
-  const [paperMarginPercent, setPaperMarginPercent] = useState(35);
+  const [paperMarginPercent, setPaperMarginPercent] = useState(35); // Default for comparison
 
   // --- AUTH ---
   useEffect(() => {
     const initAuth = async () => {
-      // 1. Essai avec config injectée (StackBlitz) OU hardcodée (Vercel)
       if (!auth) {
-         console.warn("Firebase non initialisé. Mode hors-ligne.");
          setIsOfflineMode(true);
          setUser({ uid: 'offline', email: 'demo@offline' } as User);
          setLoading(false);
          return;
       }
-
-      // 2. Auth Firebase
-      if ((window as any).__initial_auth_token) {
-         await signInWithCustomToken(auth, (window as any).__initial_auth_token);
-      } else {
-         try {
-            await signInAnonymously(auth);
-         } catch(e) {
-            console.error("Erreur Auth:", e);
-            // Fallback ultime pour ne jamais avoir d'écran blanc
-            setIsOfflineMode(true);
-            setUser({ uid: 'offline', email: 'demo@offline' } as User);
-         }
+      if ((window as any).__initial_auth_token) await signInWithCustomToken(auth, (window as any).__initial_auth_token);
+      else {
+         try { await signInAnonymously(auth); } 
+         catch(e) { setIsOfflineMode(true); setUser({ uid: 'offline', email: 'demo@offline' } as User); }
       }
     };
-    
     initAuth();
-
     if(auth) {
         const unsubscribe = onAuthStateChanged(auth, (u) => { 
-            if(u) {
-                setUser(u); 
-                setIsOfflineMode(false);
-            }
+            if(u) { setUser(u); setIsOfflineMode(false); }
             setLoading(false); 
         });
         return () => unsubscribe();
-    } else {
-        setLoading(false);
-    }
+    } else { setLoading(false); }
   }, []);
 
   // --- SYNC ---
   useEffect(() => {
     if (!user || isOfflineMode || !db) return;
     const basePath = `artifacts/${APP_ID}/users/${user.uid}`;
-    
     try {
         const unsubs = [
         onSnapshot(collection(db, `${basePath}/contacts`), (s: any) => setContacts(s.docs.map((d: any) => ({id: d.id, ...d.data()} as Contact)))),
@@ -328,10 +308,7 @@ export default function App() {
         onSnapshot(doc(db, `${basePath}/config`, 'general'), (s: any) => { if(s.exists()) setSettings(prev => ({...prev, ...s.data()} as AppSettings)) })
         ];
         return () => unsubs.forEach(u => u());
-    } catch(e) {
-        console.warn("Erreur Sync Firestore (Probablement droits ou config)", e);
-        setIsOfflineMode(true); // Fallback si la DB plante
-    }
+    } catch(e) { setIsOfflineMode(true); }
   }, [user, isOfflineMode]);
 
   // --- FILTRES & STATS ---
@@ -359,7 +336,7 @@ export default function App() {
 
   // --- ACTIONS ---
   const handleCreate = async (col: string, data: any) => { 
-      if(isOfflineMode) return alert("Mode hors-ligne : Sauvegarde impossible");
+      if(isOfflineMode) return alert("Mode hors-ligne");
       if (!user) return; 
       await addDoc(collection(db, `artifacts/${APP_ID}/users/${user.uid}/${col}`), { ...data, createdAt: new Date().toISOString() }); 
       setShowModal(null); 
@@ -404,8 +381,21 @@ export default function App() {
   const handleSaveSimulation = async (simStats: any) => {
       if(!user) return;
       const activeProduct = products.find(p => p.id === planProductId);
+      const activeClient = contacts.find(c => c.id === planClientId);
+      
       if(!activeProduct) return;
-      const simData = { budget: planBudget, productId: planProductId, productName: activeProduct.name, productPlatform: activeProduct.platform, stats: simStats, createdAt: new Date().toISOString() };
+      
+      const simData: Omit<Simulation, 'id'> = { 
+          budget: planBudget, 
+          productId: planProductId, 
+          productName: activeProduct.name, 
+          productPlatform: activeProduct.platform, 
+          clientId: planClientId, // Link to client
+          clientName: activeClient ? activeClient.company : 'Client Inconnu',
+          stats: simStats, 
+          createdAt: new Date().toISOString() 
+      };
+      
       await addDoc(collection(db, `artifacts/${APP_ID}/users/${user.uid}/simulations`), simData);
   };
 
@@ -420,8 +410,7 @@ export default function App() {
   };
 
   const loadDemoData = async (silent: boolean = false) => {
-    if (isOfflineMode) return alert("Impossible en mode hors-ligne");
-    if (!user) return;
+    if (isOfflineMode || !user) return;
     if (!silent && !confirm("⚠️ Charger les données de démonstration ?")) return;
     try {
       const batch = writeBatch(db);
@@ -445,8 +434,10 @@ export default function App() {
       const theme = products.find(p => p.id === invoiceThemeId);
       const budget = Number(invoiceBudget);
       const margin = Number(invoiceMarginPercent) / 100;
+      
       const mediaBudget = budget * (1 - margin);
       const managementFees = budget * margin;
+
       const newItems = [
           { name: `Budget Net Investi - ${theme?.name || 'Campagne'} (${theme?.platform || 'Mix'})`, price: mediaBudget, qty: 1 },
           { name: `Frais de Gestion & Optimisation (${invoiceMarginPercent}%)`, price: managementFees, qty: 1 }
@@ -456,10 +447,17 @@ export default function App() {
 
   const handleSaveInvoice = async () => {
     if (!user || !currentInvoice?.clientId) return alert("Client requis.");
+    // Ensure currentInvoice items have default values if undefined
     const items = currentInvoice.items || [];
     const amount = items.reduce((acc, item) => acc + (item.price * item.qty), 0);
     const client = contacts.find(c => c.id === currentInvoice.clientId);
-    const invData = { ...currentInvoice, amount, clientName: client?.company || 'Client Inconnu' };
+    
+    const invData = { 
+        ...currentInvoice, 
+        amount, 
+        clientName: client?.company || 'Client Inconnu' 
+    };
+
     if (invData.id) await handleUpdate('invoices', invData.id, invData);
     else await setDoc(doc(db, `artifacts/${APP_ID}/users/${user!.uid}/invoices`, `INV-${Date.now()}`), { ...invData, status: 'brouillon', date: new Date().toISOString() });
     setShowModal(null);
@@ -470,199 +468,120 @@ export default function App() {
     else await handleUpdate('contacts', contact.id, { campaignStartDate: new Date().toISOString() });
   };
 
-  const handleTreasuryUnlock = (e: React.FormEvent) => { e.preventDefault(); if (treasuryPasswordInput === 'Naha') { setTreasuryUnlocked(true); setTreasuryPasswordInput(''); } else alert("Mot de passe incorrect."); };
+  const handleTreasuryUnlock = (e: React.FormEvent) => { e.preventDefault(); if (treasuryPasswordInput === 'Naha') { setTreasuryUnlocked(true); setTreasuryPasswordInput(''); } else alert("Mdp incorrect."); };
 
   // --- RENDERERS ---
-  const renderTreasury = () => {
+  
+  // VUE PROJECTIONS (SÉCURISÉE + KPIs + SIMULATEUR)
+  const renderProjections = () => {
     if (!treasuryUnlocked) return (
       <div className="flex items-center justify-center h-full bg-slate-50 animate-fade-in"><div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-sm text-center"><div className="mx-auto w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mb-4 text-slate-500"><Lock size={24}/></div><h3 className="font-bold text-lg mb-2">Accès Sécurisé</h3><form onSubmit={handleTreasuryUnlock}><input type="password" autoFocus placeholder="Mot de passe" className="w-full border p-3 rounded-lg mb-4 text-center tracking-widest outline-none focus:ring-2 focus:ring-blue-500" value={treasuryPasswordInput} onChange={e => setTreasuryPasswordInput(e.target.value)}/><button type="submit" className="w-full bg-slate-900 text-white py-3 rounded-lg font-bold">Déverrouiller</button></form></div></div>
     );
-    const activeProjections = contacts.filter(c => (c.projectedBudget ?? 0) > 0 && c.interestedProductId);
-    const totalProjectedRevenue = activeProjections.reduce((acc, c) => acc + Number(c.projectedBudget ?? 0), 0);
-    const paperProfit = totalProjectedRevenue * (paperMarginPercent / 100);
-    let totalRealCost = 0;
-    activeProjections.forEach(c => { 
-        const product = products.find(p => p.id === c.interestedProductId); 
-        if (product && product.price > 0) { 
-            const volume = Math.floor(Number(c.projectedBudget ?? 0) / product.price); 
-            totalRealCost += volume * Number(product.cost ?? 0); 
-        } 
+
+    // Calcul des KPIs Globaux sur toutes les simulations
+    let globalStats = { profit: 0, realSpend: 0, volume: 0, dailySpend: 0 };
+    simulations.forEach(sim => {
+        globalStats.profit += Number(sim.stats?.profit ?? 0);
+        globalStats.realSpend += Number(sim.stats?.costTotal ?? 0);
+        globalStats.volume += Number(sim.stats?.volumeTotal ?? 0);
+        globalStats.dailySpend += Number(sim.stats?.dailyBudget ?? 0);
     });
-    const realProfit = totalProjectedRevenue - totalRealCost;
-    const profitDelta = realProfit - paperProfit;
 
-    return (
-        <div className="space-y-8 animate-fade-in pb-12">
-            <div className="flex justify-between items-center"><h2 className="text-2xl font-bold flex items-center gap-2 text-slate-900"><Wallet className="text-blue-600"/> Trésorerie & Marges</h2><button onClick={() => setTreasuryUnlocked(false)} className="text-xs font-bold text-slate-400 hover:text-red-500 flex items-center gap-1"><Lock size={12}/> Verrouiller</button></div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm space-y-8">
-                    <div><div className="flex justify-between items-center mb-4"><h3 className="font-bold text-lg text-slate-700">Comparateur de Modèles</h3><div className="flex items-center gap-2 bg-slate-50 px-3 py-1 rounded-full border"><span className="text-xs font-bold text-slate-500">Marge Papier :</span><input type="number" value={paperMarginPercent} onChange={e => setPaperMarginPercent(Number(e.target.value))} className="w-12 bg-transparent text-right font-bold text-blue-600 outline-none"/><span className="text-xs font-bold text-slate-500">%</span></div></div>
-                        <div className="space-y-4">
-                            <div className="space-y-2"><div className="flex justify-between text-sm"><span className="text-slate-500">Marge Standard ({paperMarginPercent}%)</span> <span className="font-bold">{formatCurrency(paperProfit)}</span></div><div className="h-4 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-slate-400" style={{width: `${paperMarginPercent}%`}}></div></div></div>
-                            <div className="space-y-2"><div className="flex justify-between text-sm"><span className="text-slate-500">Marge Réelle (Arbitrage)</span> <span className="font-bold text-emerald-600">{formatCurrency(realProfit)}</span></div><div className="h-4 bg-emerald-100 rounded-full overflow-hidden"><div className="h-full bg-emerald-500" style={{width: `${Math.min((totalProjectedRevenue > 0 ? (realProfit / totalProjectedRevenue) * 100 : 0), 100)}%`}}></div></div></div>
-                        </div>
-                    </div>
-                    <div className="pt-6 border-t border-slate-100"><p className="text-center text-sm text-slate-500 mb-2 uppercase font-bold tracking-wider">Surplus de Trésorerie Généré</p><div className="text-center"><span className="text-5xl font-bold text-blue-600 block mb-2">{formatCurrency(profitDelta)}</span><span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-bold">+{formatCurrency(profitDelta / 12)} / mois (lissé)</span></div><p className="text-center text-xs text-slate-400 mt-4 px-10">C'est le montant net supplémentaire que vous gagnez grâce à votre optimisation des coûts d'achat par rapport à une commission fixe de {paperMarginPercent}%.</p></div>
-                </div>
-                <div className="bg-slate-900 text-white p-8 rounded-xl shadow-lg flex flex-col justify-between">
-                    <div><h3 className="font-bold text-lg mb-6 flex items-center gap-2"><Calculator className="text-blue-400"/> Synthèse Financière</h3><div className="space-y-6"><div className="flex justify-between items-center border-b border-slate-700 pb-4"><span className="text-slate-400">Total Budgets Clients (Projeté)</span><span className="text-2xl font-bold">{formatCurrency(totalProjectedRevenue)}</span></div><div className="flex justify-between items-center border-b border-slate-700 pb-4"><span className="text-slate-400">Total Coûts Média (Estimé)</span><span className="text-2xl font-bold text-red-300">-{formatCurrency(totalRealCost)}</span></div><div className="flex justify-between items-center pt-2"><span className="text-emerald-400 font-bold uppercase">Bénéfice Net Total</span><span className="text-4xl font-bold text-emerald-400">{formatCurrency(realProfit)}</span></div></div></div>
-                    <div className="mt-8 bg-slate-800 p-4 rounded-lg text-sm text-center text-slate-400"><p>Votre taux de marge réel moyen est de <span className="text-white font-bold text-lg">{(totalProjectedRevenue > 0 ? (realProfit / totalProjectedRevenue) * 100 : 0).toFixed(1)}%</span></p></div>
-                </div>
-            </div>
-        </div>
-    );
-  };
-
-  const renderProjections = () => {
+    // Logique du Simulateur
     const activeProduct = products.find(p => p.id === planProductId) || products[0];
-    let planStats = { volumeTotal: 0, costTotal: 0, profit: 0, dailyVolume: 0, dailyBudget: 0, margin: 0 };
+    let planStats = { volumeTotal: 0, costTotal: 0, profit: 0, dailyVolume: 0, dailyBudget: 0, margin: 0, fees: 0, arbitrage: 0 };
+    
     if (activeProduct && planBudget > 0 && activeProduct.price > 0) {
-        const volumeTotal = Math.floor(planBudget / activeProduct.price);
+        // 1. Frais de Gestion (35% fixe)
+        const fees = planBudget * 0.35;
+        // 2. Budget Média Client (65%)
+        const netMedia = planBudget * 0.65;
+        // 3. Volume à livrer = Net Media / CPL Vendu
+        const volumeTotal = Math.floor(netMedia / activeProduct.price);
+        // 4. Coût Réel = Volume * CPL Achat
         const costTotal = volumeTotal * Number(activeProduct.cost ?? 0);
-        const profit = planBudget - costTotal;
-        const margin = planBudget > 0 ? (profit / planBudget) * 100 : 0;
-        planStats = { volumeTotal, costTotal, profit, dailyVolume: volumeTotal/30, dailyBudget: costTotal/30, margin };
+        // 5. Arbitrage = Net Media - Coût Réel
+        const arbitrage = netMedia - costTotal;
+        // 6. Marge Totale = Frais + Arbitrage
+        const profit = fees + arbitrage;
+        
+        const margin = (profit / planBudget) * 100;
+        
+        planStats = { 
+            volumeTotal, 
+            costTotal, 
+            profit, 
+            dailyVolume: volumeTotal/30, 
+            dailyBudget: costTotal/30, 
+            margin,
+            fees,
+            arbitrage
+        };
     }
-    const projectionRows = contacts.map(contact => {
-       const product = products.find(p => p.id === contact.interestedProductId);
-       const budget = Number(contact.projectedBudget ?? 0);
-       let volume = 0, revenue = 0, cost = 0, profit = 0, marginPercent = 0;
-       if (product && budget > 0 && product.price > 0) {
-          volume = Math.floor(budget / product.price); 
-          revenue = volume * product.price; 
-          cost = volume * Number(product.cost ?? 0); 
-          profit = revenue - cost; 
-          marginPercent = revenue > 0 ? (profit / revenue) * 100 : 0;
-       }
-       return { contact, product, budget, volume, revenue, cost, profit, marginPercent };
-    });
 
     return (
       <div className="space-y-8 animate-fade-in pb-12">
+        
+        {/* KPI DASHBOARD */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                <p className="text-xs font-bold text-slate-500 uppercase mb-1">Marge Nette (Poche)</p>
+                <h3 className="text-2xl font-bold text-emerald-600">{formatCurrency(globalStats.profit)}</h3>
+            </div>
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                <p className="text-xs font-bold text-slate-500 uppercase mb-1">Budget Pub Réel</p>
+                <h3 className="text-2xl font-bold text-slate-800">{formatCurrency(globalStats.realSpend)}</h3>
+            </div>
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                <p className="text-xs font-bold text-slate-500 uppercase mb-1">Volume Leads Total</p>
+                <h3 className="text-2xl font-bold text-blue-600">{globalStats.volume}</h3>
+            </div>
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                <p className="text-xs font-bold text-slate-500 uppercase mb-1">Dépense / Jour (Global)</p>
+                <h3 className="text-2xl font-bold text-orange-600">{formatCurrency(globalStats.dailySpend)}</h3>
+            </div>
+        </div>
+
+        {/* SIMULATEUR AVEC ASSIGNATION */}
         <div className="bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
-           <div className="bg-slate-900 p-6 text-white flex justify-between items-center"><div><h2 className="text-xl font-bold flex items-center gap-2"><CalendarCheck className="text-blue-400"/> Planificateur Campagne 30 Jours</h2><p className="text-slate-400 text-sm">Calibrer votre budget média quotidien.</p></div></div>
+           <div className="bg-slate-900 p-6 text-white flex justify-between items-center"><div><h2 className="text-xl font-bold flex items-center gap-2"><CalendarCheck className="text-blue-400"/> Nouvelle Projection (35% + Arbitrage)</h2><p className="text-slate-400 text-sm">Estimez la rentabilité réelle d'une campagne.</p></div></div>
            <div className="p-6 grid grid-cols-1 lg:grid-cols-12 gap-8">
               <div className="lg:col-span-4 space-y-6 border-r border-slate-100 pr-6">
-                 <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2">1. Thématique</label><select value={planProductId} onChange={(e) => setPlanProductId(e.target.value)} className="w-full border border-slate-300 rounded-lg p-3 font-medium outline-none focus:ring-2 focus:ring-blue-500">{!planProductId && <option value="">-- Sélectionner --</option>}{products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
-                 <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2">2. Budget Client</label><div className="relative"><input type="number" value={planBudget} onChange={(e) => setPlanBudget(Number(e.target.value))} className="w-full border border-slate-300 rounded-lg p-3 pl-4 font-bold text-2xl outline-none focus:ring-2 focus:ring-blue-500 text-blue-600"/><span className="absolute right-4 top-4 text-sm text-slate-400 font-bold">CHF</span></div></div>
-                 <button onClick={() => handleSaveSimulation(planStats)} className="w-full bg-slate-800 text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-slate-700 transition-colors"><Plus size={18}/> Ajouter au tableau</button>
+                 <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2">1. Client (Optionnel)</label><select value={planClientId} onChange={(e) => setPlanClientId(e.target.value)} className="w-full border border-slate-300 rounded-lg p-3 font-medium outline-none focus:ring-2 focus:ring-blue-500"><option value="">-- Aucun --</option>{contacts.map(c => <option key={c.id} value={c.id}>{c.company}</option>)}</select></div>
+                 <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2">2. Thématique</label><select value={planProductId} onChange={(e) => setPlanProductId(e.target.value)} className="w-full border border-slate-300 rounded-lg p-3 font-medium outline-none focus:ring-2 focus:ring-blue-500">{!planProductId && <option value="">-- Sélectionner --</option>}{products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+                 <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2">3. Budget Client</label><div className="relative"><input type="number" value={planBudget} onChange={(e) => setPlanBudget(Number(e.target.value))} className="w-full border border-slate-300 rounded-lg p-3 pl-4 font-bold text-2xl outline-none focus:ring-2 focus:ring-blue-500 text-blue-600"/><span className="absolute right-4 top-4 text-sm text-slate-400 font-bold">CHF</span></div></div>
+                 <button onClick={() => handleSaveSimulation(planStats)} className="w-full bg-slate-800 text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-slate-700 transition-colors"><Plus size={18}/> Sauvegarder Projection</button>
               </div>
               <div className="lg:col-span-8 flex flex-col justify-center">
                  {!activeProduct ? <div className="text-center text-slate-400 italic py-10 flex flex-col items-center"><ArrowRight className="mb-2 opacity-50"/> Sélectionner une thématique.</div> : (
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                       <div className="bg-slate-50 p-5 rounded-xl border border-slate-200 flex flex-col justify-between"><p className="text-slate-500 text-xs font-bold uppercase mb-2">Objectif Livraison</p><div className="text-center py-2"><span className="text-4xl font-bold text-slate-800">{planStats.volumeTotal}</span><p className="text-sm text-slate-500">Leads à livrer</p></div></div>
-                       <div className="bg-blue-50 p-5 rounded-xl border border-blue-100 relative overflow-hidden flex flex-col justify-between shadow-sm"><p className="text-blue-800 text-xs font-bold uppercase mb-2">Budget Pub Journalier</p><div className="text-center py-2"><span className="text-3xl font-bold text-blue-700">{formatCurrency(planStats.dailyBudget)}</span><p className="text-sm text-blue-600">à régler / jour</p></div></div>
-                       <div className={`p-5 rounded-xl border flex flex-col justify-between shadow-sm ${planStats.margin >= 30 ? 'bg-emerald-50 border-emerald-100' : 'bg-orange-50 border-orange-100'}`}><p className={`${planStats.margin >= 30 ? 'text-emerald-800' : 'text-orange-800'} text-xs font-bold uppercase mb-2`}>Marge Nette</p><div className="text-center py-2"><span className={`text-3xl font-bold ${planStats.margin >= 30 ? 'text-emerald-700' : 'text-orange-700'}`}>{formatCurrency(planStats.profit)}</span><p className={`text-sm ${planStats.margin >= 30 ? 'text-emerald-600' : 'text-orange-600'}`}>Bénéfice</p></div></div>
+                       <div className="bg-slate-50 p-5 rounded-xl border border-slate-200 flex flex-col justify-between">
+                           <p className="text-slate-500 text-xs font-bold uppercase mb-2">Volume Leads</p>
+                           <div className="text-center py-2"><span className="text-4xl font-bold text-slate-800">{planStats.volumeTotal}</span></div>
+                           <div className="text-center border-t pt-2 mt-2 text-xs text-slate-400">Budget Net Média: {formatCurrency(planBudget * 0.65)}</div>
+                       </div>
+                       <div className="bg-blue-50 p-5 rounded-xl border border-blue-100 relative overflow-hidden flex flex-col justify-between shadow-sm">
+                           <p className="text-blue-800 text-xs font-bold uppercase mb-2">Coût Réel (Vous)</p>
+                           <div className="text-center py-2"><span className="text-3xl font-bold text-blue-700">{formatCurrency(planStats.costTotal)}</span></div>
+                           <div className="text-center border-t border-blue-200 pt-2 mt-2"><p className="text-xs text-blue-500 font-bold">~{formatCurrency(planStats.dailyBudget)} / jour</p></div>
+                       </div>
+                       <div className={`p-5 rounded-xl border flex flex-col justify-between shadow-sm ${planStats.margin >= 30 ? 'bg-emerald-50 border-emerald-100' : 'bg-orange-50 border-orange-100'}`}>
+                           <p className={`${planStats.margin >= 30 ? 'text-emerald-800' : 'text-orange-800'} text-xs font-bold uppercase mb-2`}>Marge Nette</p>
+                           <div className="text-center py-2"><span className={`text-3xl font-bold ${planStats.margin >= 30 ? 'text-emerald-700' : 'text-orange-700'}`}>{formatCurrency(planStats.profit)}</span></div>
+                           <div className="text-center border-t border-emerald-200 pt-2 mt-2 flex justify-between px-2">
+                               <p className="text-[10px] text-emerald-800">Frais: {formatCurrency(planStats.fees)}</p>
+                               <p className="text-[10px] text-emerald-800">Arb: {formatCurrency(planStats.arbitrage)}</p>
+                           </div>
+                       </div>
                     </div>
                  )}
               </div>
            </div>
         </div>
-        <div><h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><Save size={20}/> Simulations Enregistrées</h2><div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-8">{simulations.length === 0 ? (<div className="p-8 text-center text-slate-400 italic">Aucune simulation enregistrée.</div>) : (<table className="w-full text-sm text-left"><thead className="bg-slate-50 text-slate-500 uppercase font-bold text-xs border-b"><tr><th className="px-6 py-4">Thématique</th><th className="px-6 py-4">Budget</th><th className="px-6 py-4">Volume</th><th className="px-6 py-4">Marge</th><th className="px-6 py-4 text-right">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{simulations.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map(sim => (<tr key={sim.id} className="hover:bg-slate-50"><td className="px-6 py-4 font-bold text-slate-700">{sim.productName}</td><td className="px-6 py-4 font-mono">{formatCurrency(sim.budget)}</td><td className="px-6 py-4"><span className="bg-blue-50 text-blue-700 px-2 py-1 rounded font-bold">{sim.stats.volumeTotal}</span></td><td className="px-6 py-4"><span className={`font-bold ${sim.stats.margin >= 30 ? 'text-emerald-600' : 'text-orange-600'}`}>{formatCurrency(sim.stats.profit)} ({sim.stats.margin.toFixed(0)}%)</span></td><td className="px-6 py-4 text-right"><button onClick={() => handleDelete('simulations', sim.id)} className="text-slate-300 hover:text-red-500"><Trash2 size={16}/></button></td></tr>))}</tbody></table>)}</div></div>
-        <div>
-           <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><TrendingUp size={20}/> Détail par Client</h2>
-           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-              <table className="w-full text-sm text-left">
-                 <thead className="bg-slate-50 text-slate-500 uppercase font-bold text-xs border-b"><tr><th className="px-6 py-4">Client</th><th className="px-6 py-4 w-64">Thématique</th><th className="px-6 py-4 w-40">Budget (CHF)</th><th className="px-6 py-4 text-center">Volume</th><th className="px-6 py-4 text-right">Bénéfice</th></tr></thead>
-                 <tbody className="divide-y divide-slate-100">
-                    {projectionRows.map(({ contact, product, budget, volume, profit, marginPercent }) => (
-                       <tr key={contact.id} className="hover:bg-slate-50">
-                          <td className="px-6 py-4"><p className="font-bold text-slate-800">{contact.company}</p></td>
-                          <td className="px-6 py-4"><select value={contact.interestedProductId || ''} onChange={(e) => handleUpdate('contacts', contact.id, { interestedProductId: e.target.value })} className="w-full bg-white border border-slate-300 rounded p-1.5 text-xs font-medium focus:ring-blue-500"><option value="">-- Choix --</option>{products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></td>
-                          <td className="px-6 py-4"><input type="number" value={budget} onChange={(e) => handleUpdate('contacts', contact.id, { projectedBudget: Number(e.target.value) })} className="w-full border border-slate-300 rounded p-1.5 text-right font-mono font-bold"/></td>
-                          <td className="px-6 py-4 text-center">{product ? <span className="font-bold bg-blue-50 text-blue-700 px-2 py-1 rounded">{volume}</span> : '-'}</td>
-                          <td className="px-6 py-4 text-right">{product ? (<div><p className={`font-bold ${profit >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{formatCurrency(profit)}</p><p className="text-[10px] text-slate-400">{marginPercent.toFixed(0)}%</p></div>) : '-'}</td>
-                       </tr>
-                    ))}
-                 </tbody>
-              </table>
-           </div>
-        </div>
+        
+        {/* TABLEAU DES SIMULATIONS */}
+        <div><h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><Save size={20}/> Projections Enregistrées</h2><div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-8">{simulations.length === 0 ? (<div className="p-8 text-center text-slate-400 italic">Aucune projection enregistrée.</div>) : (<table className="w-full text-sm text-left"><thead className="bg-slate-50 text-slate-500 uppercase font-bold text-xs border-b"><tr><th className="px-6 py-4">Client</th><th className="px-6 py-4">Thématique</th><th className="px-6 py-4">Budget</th><th className="px-6 py-4">Volume</th><th className="px-6 py-4">Coût Réel</th><th className="px-6 py-4">Marge Nette</th><th className="px-6 py-4 text-right">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{simulations.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map(sim => (<tr key={sim.id} className="hover:bg-slate-50"><td className="px-6 py-4 font-bold text-blue-600">{sim.clientName || 'N/A'}</td><td className="px-6 py-4 font-bold text-slate-700">{sim.productName}</td><td className="px-6 py-4 font-mono">{formatCurrency(sim.budget)}</td><td className="px-6 py-4"><span className="bg-blue-50 text-blue-700 px-2 py-1 rounded font-bold">{sim.stats.volumeTotal}</span></td><td className="px-6 py-4 text-slate-500">{formatCurrency(sim.stats.costTotal)}</td><td className="px-6 py-4"><span className={`font-bold ${sim.stats.margin >= 30 ? 'text-emerald-600' : 'text-orange-600'}`}>{formatCurrency(sim.stats.profit)} ({sim.stats.margin.toFixed(0)}%)</span></td><td className="px-6 py-4 text-right"><button onClick={() => handleDelete('simulations', sim.id)} className="text-slate-300 hover:text-red-500"><Trash2 size={16}/></button></td></tr>))}</tbody></table>)}</div></div>
       </div>
-    );
-  };
-
-  const renderContactDetail = () => {
-    if (!selectedContact) return null;
-    const campaign = getCampaignProgress(selectedContact.campaignStartDate);
-    const clientStats = (() => {
-        const paidInvoices = invoices.filter(i => i.clientId === selectedContact.id && i.status === 'payee');
-        const totalCA = paidInvoices.reduce((sum, inv) => sum + Number(inv.amount || 0), 0);
-        const totalCost = paidInvoices.reduce((sum, inv) => { 
-            return sum + (inv.items?.reduce((isum, item) => isum + (Number(item.cost ?? 0) * item.qty), 0) || 0); 
-        }, 0);
-        const netProfit = totalCA - totalCost;
-        const margin = totalCA > 0 ? (netProfit / totalCA) * 100 : 0;
-        return { totalCA, totalCost, netProfit, margin, count: paidInvoices.length };
-    })();
-    const clientInvoices = invoices.filter(i => i.clientId === selectedContact.id).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-    return (
-      <div className="flex flex-col h-full bg-white animate-fade-in"><div className="border-b px-8 py-6 flex justify-between items-start bg-slate-50"><div className="flex items-center gap-4"><button onClick={() => setSelectedContactId(null)} className="p-2 hover:bg-slate-200 rounded-full"><ChevronLeft /></button><div><h2 className="text-2xl font-bold text-slate-800">{selectedContact.name}</h2><p className="text-slate-500 flex items-center gap-2"><Briefcase size={14}/> {selectedContact.company}</p></div></div><div className="flex gap-2"><button onClick={() => toggleCampaign(selectedContact)} className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 border ${selectedContact.campaignStartDate ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100' : 'bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100'}`}>{selectedContact.campaignStartDate ? <><StopCircle size={16}/> Arrêter</> : <><PlayCircle size={16}/> Campagne 30j</>}</button><button onClick={() => setShowModal('interaction')} className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-slate-700"><MessageSquare size={16}/> Note</button><button onClick={() => { setCurrentInvoice({ clientId: selectedContact.id, clientName: selectedContact.company } as any); if(selectedContact.projectedBudget) { setInvoiceBudget(selectedContact.projectedBudget); if(selectedContact.interestedProductId) setInvoiceThemeId(selectedContact.interestedProductId); } setShowModal('invoice'); }} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-blue-700"><FileText size={16}/> Facture</button></div></div>
-      <div className="flex-1 overflow-auto p-8 grid grid-cols-1 lg:grid-cols-2 gap-8">
-         <div className="space-y-6">
-            {/* CARD 1: INFO MODIFIABLES */}
-            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative group">
-                <div className="flex justify-between items-start mb-4"><h3 className="font-bold text-slate-800 flex items-center gap-2"><Briefcase size={18}/> Informations</h3>{!isEditingContact ? (<button onClick={() => { setEditContactData(selectedContact); setIsEditingContact(true); }} className="text-slate-400 hover:text-blue-600"><Edit2 size={16}/></button>) : (<div className="flex gap-2"><button onClick={() => setIsEditingContact(false)} className="text-xs text-slate-500 hover:underline">Annuler</button><button onClick={handleSaveContactEdit} className="text-xs font-bold text-blue-600 hover:underline">Sauvegarder</button></div>)}</div>
-                <div className="space-y-4 text-sm">
-                    {isEditingContact ? (
-                        <>
-                            <input className="w-full border p-2 rounded" placeholder="Nom" value={editContactData.name || ''} onChange={e => setEditContactData({...editContactData, name: e.target.value})}/>
-                            <input className="w-full border p-2 rounded" placeholder="Société" value={editContactData.company || ''} onChange={e => setEditContactData({...editContactData, company: e.target.value})}/>
-                            <input className="w-full border p-2 rounded" placeholder="Email" value={editContactData.email || ''} onChange={e => setEditContactData({...editContactData, email: e.target.value})}/>
-                            <input className="w-full border p-2 rounded" placeholder="Téléphone" value={editContactData.phone || ''} onChange={e => setEditContactData({...editContactData, phone: e.target.value})}/>
-                            <input className="w-full border p-2 rounded" type="number" placeholder="Budget" value={editContactData.projectedBudget || ''} onChange={e => setEditContactData({...editContactData, projectedBudget: Number(e.target.value)})}/>
-                        </>
-                    ) : (
-                        <>
-                            <div><label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Thématique d'intérêt</label><select value={selectedContact.interestedProductId || ''} onChange={(e) => handleUpdate('contacts', selectedContact.id, { interestedProductId: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none"><option value="">-- Non défini --</option>{products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
-                            <div className="flex justify-between border-b pb-2"><span className="text-slate-500">Email</span> <a href={`mailto:${selectedContact.email}`} className="text-blue-600 truncate">{selectedContact.email}</a></div>
-                            <div className="flex justify-between border-b pb-2"><span className="text-slate-500">Téléphone</span> <a href={`tel:${selectedContact.phone}`} className="text-slate-800">{selectedContact.phone || '-'}</a></div>
-                            <div className="flex justify-between pt-1"><span className="text-slate-500">Budget</span><span className="font-bold">{formatCurrency(selectedContact.projectedBudget)}</span></div>
-                            <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center text-xs">
-                                <span className={campaign?.finished ? "text-red-600 font-bold" : "text-emerald-600 font-bold"}>{campaign?.label} ({Math.round(campaign?.percent ?? 0)}%)</span>
-                                <div><span className="text-slate-400">Marge Client: </span><span className="font-bold text-slate-700">{clientStats.margin.toFixed(1)}%</span></div>
-                            </div>
-                        </>
-                    )}
-                </div>
-            </div>
-            
-            {/* CARD 2: FACTURES LIEES */}
-            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-                <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><FileText size={18}/> Factures ({clientInvoices.length})</h3>
-                <div className="space-y-2 max-h-48 overflow-auto">
-                    {clientInvoices.map(inv => (
-                        <div key={inv.id} className="flex justify-between items-center text-sm p-2 bg-slate-50 rounded hover:bg-slate-100 cursor-pointer" onClick={() => { setCurrentInvoice(inv); setShowModal('invoice'); }}>
-                            <span className="font-mono text-slate-500">{inv.id}</span>
-                            <span className="font-bold">{formatCurrency(inv.amount)}</span>
-                            <span className={`text-[10px] px-2 py-0.5 rounded uppercase font-bold ${INVOICE_STATUSES[inv.status].color.split(' ')[0]}`}>{inv.status}</span>
-                        </div>
-                    ))}
-                    {clientInvoices.length === 0 && <p className="text-slate-400 italic text-sm">Aucune facture.</p>}
-                </div>
-            </div>
-         </div>
-
-         <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col">
-             <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><Clock size={18}/> Activités & Notes</h3>
-             {/* QUICK NOTE INPUT */}
-             <div className="flex gap-2 mb-4">
-                 <input 
-                    className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" 
-                    placeholder="Écrire une note rapide..." 
-                    value={newNoteContent} 
-                    onChange={e => setNewNoteContent(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && handleAddQuickNote()}
-                 />
-                 <button onClick={handleAddQuickNote} className="bg-slate-900 text-white p-2 rounded-lg hover:bg-slate-700"><Send size={16}/></button>
-             </div>
-             <div className="space-y-4 flex-1 overflow-auto">
-                 {interactions.filter(i => i.contactId === selectedContact.id).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map(i => (<div key={i.id} className="bg-slate-50 p-3 rounded-lg text-sm border border-slate-100 relative group"><button onClick={() => handleDelete('interactions', i.id)} className="absolute top-2 right-2 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 size={14}/></button><div className="flex justify-between mb-1"><span className="font-bold capitalize">{i.type === 'call' ? 'Appel' : 'Note'}</span> <span className="text-slate-400 text-xs">{formatDate(i.createdAt)}</span></div><p className="text-slate-700 whitespace-pre-wrap">{i.content}</p></div>))}
-                 {interactions.filter(i => i.contactId === selectedContact.id).length === 0 && <p className="text-slate-400 italic text-center py-4">Vide.</p>}
-             </div>
-         </div>
-      </div></div>
     );
   };
 
@@ -699,7 +618,7 @@ export default function App() {
     <div className={`flex h-screen bg-slate-50 text-slate-900 font-sans`}>
       <style>{`@media print { body * { visibility: hidden; } #invoice-printable, #invoice-printable * { visibility: visible; } #invoice-printable { position: fixed; left:0; top:0; width:100%; height:100%; padding:0; background:white; z-index:9999; } .no-print { display: none !important; } }`}</style>
       <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col no-print shrink-0">
-        <div className="p-6"><div className="flex items-center gap-3 mb-10 text-white"><div className="h-9 w-9 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-lg">LP</div><div><span className="font-bold block">LeadPartner</span><span className="text-xs text-slate-500 uppercase">CRM V24 Final</span></div></div><nav className="space-y-1">{[{id: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard}, {id: 'contacts', label: 'Contacts', icon: Users}, {id: 'invoices', label: 'Factures', icon: FileText}, {id: 'products', label: 'Thématiques', icon: Package}, {id: 'projections', label: 'Projections', icon: Calculator}, {id: 'tresorerie', label: 'Trésorerie', icon: Lock}, {id: 'settings', label: 'Paramètres', icon: Settings}].map(item => (<button key={item.id} onClick={() => { setActiveView(item.id); setSelectedContactId(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg ${activeView === item.id ? 'bg-slate-800 text-white' : 'hover:bg-slate-800/50'}`}><item.icon size={18} className={activeView === item.id ? "text-blue-400" : "text-slate-500"}/> {item.label}</button>))}</nav></div>
+        <div className="p-6"><div className="flex items-center gap-3 mb-10 text-white"><div className="h-9 w-9 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-lg">LP</div><div><span className="font-bold block">LeadPartner</span><span className="text-xs text-slate-500 uppercase">CRM V28</span></div></div><nav className="space-y-1">{[{id: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard}, {id: 'contacts', label: 'Contacts', icon: Users}, {id: 'invoices', label: 'Factures', icon: FileText}, {id: 'products', label: 'Thématiques', icon: Package}, {id: 'projections', label: 'Projections (Privé)', icon: Lock}, {id: 'settings', label: 'Paramètres', icon: Settings}].map(item => (<button key={item.id} onClick={() => { setActiveView(item.id); setSelectedContactId(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg ${activeView === item.id ? 'bg-slate-800 text-white' : 'hover:bg-slate-800/50'}`}><item.icon size={18} className={activeView === item.id ? "text-blue-400" : "text-slate-500"}/> {item.label}</button>))}</nav></div>
       </aside>
       <div className="flex-1 flex flex-col overflow-hidden relative"><header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 no-print shrink-0"><div className="flex items-center gap-4 text-slate-400"><Search size={18}/><input type="text" placeholder="Rechercher..." className="bg-transparent outline-none text-sm text-slate-800 w-64" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}/></div></header>
         <main className="flex-1 overflow-auto bg-slate-50/50 p-6 relative">
@@ -708,7 +627,6 @@ export default function App() {
               {activeView === 'dashboard' && renderDashboard()}
               {activeView === 'settings' && renderSettings()}
               {activeView === 'projections' && renderProjections()}
-              {activeView === 'tresorerie' && renderTreasury()}
               {activeView === 'contacts' && (<div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full"><div className="flex border-b"><button onClick={() => setContactFilterType('all')} className={`px-6 py-4 text-sm font-bold border-b-2 transition-colors ${contactFilterType === 'all' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:bg-slate-50'}`}>Tous</button><button onClick={() => setContactFilterType('prospect')} className={`px-6 py-4 text-sm font-bold border-b-2 transition-colors ${contactFilterType === 'prospect' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:bg-slate-50'}`}>Prospects</button><button onClick={() => setContactFilterType('client')} className={`px-6 py-4 text-sm font-bold border-b-2 transition-colors ${contactFilterType === 'client' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:bg-slate-50'}`}>Clients</button><div className="ml-auto p-2"><button onClick={() => setShowModal('contact')} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-blue-700"><Plus size={16}/> Nouveau</button></div></div><div className="flex-1 overflow-auto"><table className="w-full text-sm text-left"><thead className="bg-slate-50 text-slate-500 uppercase font-bold text-xs border-b sticky top-0"><tr><th className="px-6 py-4">Société</th><th className="px-6 py-4">Status</th><th className="px-6 py-4">Thématique</th><th className="px-6 py-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-slate-100">{displayedContacts.map(c => { const p = products.find(prod => prod.id === c.interestedProductId); return (<tr key={c.id} onClick={() => setSelectedContactId(c.id)} className="hover:bg-blue-50/50 cursor-pointer group transition-colors"><td className="px-6 py-4"><p className="font-bold text-slate-800">{c.company}</p><p className="text-slate-500 text-xs">{c.name}</p></td><td className="px-6 py-4"><span className={`px-2 py-1 rounded-md text-xs font-bold border ${PIPELINE_STAGES.find(s=>s.id===c.status)?.color}`}>{PIPELINE_STAGES.find(s=>s.id===c.status)?.label || c.status}</span></td><td className="px-6 py-4 text-xs font-bold text-slate-600">{p ? p.name : '-'}</td><td className="px-6 py-4 text-right"><button onClick={(e) => { e.stopPropagation(); handleDelete('contacts', c.id); }} className="text-slate-300 hover:text-red-500 p-1"><Trash2 size={16}/></button></td></tr>)})}</tbody></table></div></div>)}
               {activeView === 'invoices' && (<div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden"><div className="p-4 border-b flex justify-between items-center bg-slate-50"><h3 className="font-bold">Factures</h3><button onClick={() => { setCurrentInvoice({ clientId: '', date: new Date().toISOString(), items: [], status: 'brouillon' }); setShowModal('invoice'); }} className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm font-bold flex items-center gap-2"><Plus size={16}/> Créer</button></div><table className="w-full text-sm text-left"><thead className="bg-slate-50 text-slate-500 uppercase font-bold text-xs border-b"><tr><th className="px-6 py-4">Client</th><th className="px-6 py-4">Date</th><th className="px-6 py-4">Montant</th><th className="px-6 py-4">Statut</th><th className="px-6 py-4 text-right">Action</th></tr></thead><tbody>{invoices.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(inv => (<tr key={inv.id} className="border-b last:border-0 hover:bg-slate-50"><td className="px-6 py-4 font-bold text-slate-700">{inv.clientName}</td><td className="px-6 py-4 text-slate-500">{formatDate(inv.date)}</td><td className="px-6 py-4 font-bold">{formatCurrency(inv.amount)}</td><td className="px-6 py-4"><span className={`px-2 py-1 rounded-full text-xs font-bold ${INVOICE_STATUSES[inv.status]?.color}`}>{INVOICE_STATUSES[inv.status]?.label || inv.status}</span></td><td className="px-6 py-4 text-right"><button onClick={() => { setCurrentInvoice(inv); setShowModal('invoice'); }} className="text-blue-600 hover:underline">Ouvrir</button></td></tr>))}</tbody></table></div>)}
               {activeView === 'products' && (<div className="grid grid-cols-1 md:grid-cols-3 gap-6"><button onClick={() => setShowModal('product')} className="border-2 border-dashed border-slate-300 rounded-xl flex flex-col items-center justify-center text-slate-400 hover:border-blue-500 hover:text-blue-500 transition-colors h-48"><Plus size={32} className="mb-2"/> <span className="font-bold">Ajouter Thématique</span></button>{products.map(p => (<div key={p.id} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm relative group"><div className="absolute top-4 right-4 flex gap-2"><button onClick={() => { setCurrentProduct(p); setShowModal('product'); }} className="p-1 text-slate-300 hover:text-blue-500"><Edit2 size={16}/></button><button onClick={() => handleDelete('products', p.id)} className="p-1 text-slate-300 hover:text-red-500"><Trash2 size={16}/></button></div><div className="absolute top-4 left-4 bg-slate-100 p-1.5 rounded-md text-slate-500">{p.platform === 'google' ? <Globe size={16}/> : <Share2 size={16}/>}</div><h4 className="font-bold text-slate-800 text-lg mb-2 mt-6">{p.name}</h4><p className="text-slate-500 text-sm mb-4 h-10 line-clamp-2">{p.description || 'Aucune description'}</p><div className="flex justify-between items-end border-t pt-4"><div><p className="text-[10px] text-slate-400 uppercase font-bold">Prix Vente</p><p className="font-bold text-xl text-blue-600">{formatCurrency(p.price)}</p></div><div className="text-right"><p className="text-[10px] text-slate-400 uppercase font-bold">Coût Achat (Est.)</p><p className="font-bold text-lg text-slate-600">{formatCurrency(p.cost)}</p></div></div></div>))}</div>)}
@@ -725,7 +643,7 @@ export default function App() {
               <div className="flex-1 overflow-auto bg-slate-200/50 p-8 flex justify-center">
                  <div id="invoice-printable" className="bg-white w-[21cm] min-h-[29.7cm] shadow-xl p-[2.5cm] flex flex-col text-slate-800 relative">
                     <div className="flex justify-between mb-12"><div><h1 className="text-4xl font-bold uppercase mb-2" style={{color: settings.primaryColor}}>Facture</h1><p className="font-mono">#{currentInvoice.id || 'BROUILLON'}</p><p className="text-sm mt-1">Date: {formatDate(currentInvoice.date)}</p></div><div className="text-right">{settings.logoUrl && <img src={settings.logoUrl} className="h-16 mb-2 ml-auto object-contain" alt="Logo"/>}<p className="font-bold text-lg">{settings.companyName}</p><p className="text-sm text-slate-500 whitespace-pre-wrap">{settings.address}</p><p className="text-sm text-slate-500">{settings.email} • {settings.phone}</p></div></div>
-                    <div className="mb-8"><p className="text-xs font-bold text-slate-400 uppercase mb-2">Facturé à</p>{currentInvoice.id ? <div className="font-bold text-lg">{currentInvoice.clientName}</div> : <select className="bg-slate-50 border p-2 rounded w-full font-bold no-print" onChange={e => { const c = contacts.find(co => co.id === e.target.value); setCurrentInvoice({...currentInvoice, clientId: c?.id, clientName: c?.company, } as any); if(c?.projectedBudget) { setInvoiceBudget(c.projectedBudget); if(c.interestedProductId) setInvoiceThemeId(c.interestedProductId); } }} value={currentInvoice.clientId}><option value="">-- Sélectionner Client --</option>{contacts.map(c => <option key={c.id} value={c.id}>{c.company}</option>)}</select>}{currentInvoice.clientName && !currentInvoice.id && <div className="font-bold text-lg mt-1">{currentInvoice.clientName}</div>}</div>
+                    <div className="mb-8"><p className="text-xs font-bold text-slate-400 uppercase mb-2">Facturé à</p>{currentInvoice.id ? <div className="font-bold text-lg">{currentInvoice.clientName}</div> : <select className="bg-slate-50 border p-2 rounded w-full font-bold no-print" onChange={e => { const c = contacts.find(co => co.id === e.target.value); setCurrentInvoice({...currentInvoice, clientId: c?.id, clientName: c?.company, projectedBudget: c?.projectedBudget, interestedProductId: c?.interestedProductId } as any); if(c?.projectedBudget) { setInvoiceBudget(c.projectedBudget); if(c.interestedProductId) setInvoiceThemeId(c.interestedProductId); } }} value={currentInvoice.clientId}><option value="">-- Sélectionner Client --</option>{contacts.map(c => <option key={c.id} value={c.id}>{c.company}</option>)}</select>}{currentInvoice.clientName && !currentInvoice.id && <div className="font-bold text-lg mt-1">{currentInvoice.clientName}</div>}</div>
                     
                     {/* GENERATEUR LEADGEN FLEXIBLE (V20) */}
                     {!currentInvoice.id && (
