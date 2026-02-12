@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   LayoutDashboard, Users, Settings, Plus, Search, 
   ChevronLeft, FileText, Package, Printer, Trash2, CheckCircle, Clock, 
   MessageSquare, Briefcase, PlayCircle, StopCircle, Target,
   TrendingUp, Calculator, ArrowRight,
-  CalendarCheck, Globe, Share2, Loader, Lock, Wallet, LogIn, Edit2, Save, Wand2, Send, X
+  CalendarCheck, Globe, Share2, Loader, LogIn, Edit2, Save, Wand2, Send, X
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -70,10 +70,19 @@ interface Simulation {
   productId: string;
   productName: string;
   productPlatform?: string;
-  stats: any;
-  createdAt: string;
   clientId?: string;
   clientName?: string;
+  stats: {
+    volumeTotal: number;
+    costTotal: number;
+    profit: number;
+    dailyVolume: number;
+    dailyBudget: number;
+    margin: number;
+    fees: number;
+    arbitrage: number;
+  };
+  createdAt: string;
 }
 
 interface AppSettings {
@@ -87,8 +96,9 @@ interface AppSettings {
   logoUrl: string;
 }
 
-// --- CONFIGURATION FIREBASE (HARDCODED FOR VERCEL) ---
-const firebaseConfig = {
+// --- CONFIGURATION FIREBASE ---
+// Configuration de secours pour le déploiement (Vercel/Netlify)
+const hardcodedConfig = {
   apiKey: "AIzaSyDY6zXLeebKhMxL_2_mfQOYV44JuoCArK0",
   authDomain: "crm-leadpartner.firebaseapp.com",
   projectId: "crm-leadpartner",
@@ -98,13 +108,22 @@ const firebaseConfig = {
   measurementId: "G-6QM0LM69Z1"
 };
 
-const APP_ID = 'leadpartner-crm-prod';
+// Utilise la config injectée par StackBlitz si dispo, sinon la config en dur
+const stackblitzConfig = JSON.parse((window as any).__firebase_config || '{}');
+const firebaseConfig = Object.keys(stackblitzConfig).length > 0 ? stackblitzConfig : hardcodedConfig;
+
+const RAW_APP_ID = (window as any).__app_id || 'leadpartner-crm-v34-prod';
+const APP_ID = RAW_APP_ID.replace(/[^a-zA-Z0-9-_]/g, '_');
 
 let app: any, db: any, auth: any;
 try {
-  app = initializeApp(firebaseConfig);
-  db = getFirestore(app);
-  auth = getAuth(app);
+  if (firebaseConfig && Object.keys(firebaseConfig).length > 0 && firebaseConfig.apiKey) {
+    app = initializeApp(firebaseConfig);
+    db = getFirestore(app);
+    auth = getAuth(app);
+  } else {
+    console.warn("Mode Hors-Ligne activé (Aucune config Firebase valide)");
+  }
 } catch (e) {
   console.error("Erreur init Firebase:", e);
 }
@@ -201,9 +220,13 @@ const LoginScreen = ({ onLogin }: { onLogin: () => void }) => {
               />
             </div>
             {error && <p className="text-red-500 text-sm font-medium">{error}</p>}
-            <button type="submit" className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2"><LogIn size={20}/> Se connecter</button>
+            <button type="submit" className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2">
+              <LogIn size={20}/> Se connecter
+            </button>
           </form>
-          <div className="mt-6 text-center"><p className="text-xs text-slate-400">Version 29.0 (Prod Fix) • TVA 0%</p></div>
+          <div className="mt-6 text-center">
+            <p className="text-xs text-slate-400">Version 34.0 (Prod)</p>
+          </div>
         </div>
       </div>
     </div>
@@ -259,45 +282,72 @@ export default function App() {
   const [planProductId, setPlanProductId] = useState('');
   const [planClientId, setPlanClientId] = useState('');
 
-  // Trésorerie
-  const [treasuryUnlocked, setTreasuryUnlocked] = useState(false);
-  const [treasuryPasswordInput, setTreasuryPasswordInput] = useState('');
-  const [paperMarginPercent, setPaperMarginPercent] = useState(35);
+  // Auto-Seed Ref
+  const hasCheckedDefaults = useRef(false);
 
   // --- AUTH ---
   useEffect(() => {
     const initAuth = async () => {
-      // Sur Vercel, window.__initial_auth_token n'existe pas, on utilise signInAnonymously direct
-      try {
-         await signInAnonymously(auth);
-      } catch(e) {
-         console.error("Erreur Auth:", e);
+      if (!auth) {
+         // Si pas d'auth Firebase dispo, on passe en mode offline simulé (lecture seule ou local)
          setIsOfflineMode(true);
          setUser({ uid: 'offline', email: 'demo@offline' } as User);
+         setLoading(false);
+         return;
+      }
+
+      if ((window as any).__initial_auth_token) {
+         await signInWithCustomToken(auth, (window as any).__initial_auth_token);
+      } else {
+         try { 
+             await signInAnonymously(auth); 
+         } catch(e) { 
+             console.warn("Auth Anonyme échoué, passage en mode offline", e);
+             setIsOfflineMode(true); 
+             setUser({ uid: 'offline', email: 'demo@offline' } as User); 
+         }
       }
     };
-    
+    initAuth();
     if(auth) {
-        initAuth();
         const unsubscribe = onAuthStateChanged(auth, (u) => { 
             if(u) { setUser(u); setIsOfflineMode(false); }
             setLoading(false); 
         });
         return () => unsubscribe();
-    } else {
-        setIsOfflineMode(true);
-        setLoading(false);
-    }
+    } else { setLoading(false); }
   }, []);
 
-  // --- SYNC ---
+  // --- SYNC & AUTO-SEED CAMPAGNES ---
   useEffect(() => {
     if (!user || isOfflineMode || !db) return;
     const basePath = `artifacts/${APP_ID}/users/${user.uid}`;
     try {
         const unsubs = [
         onSnapshot(collection(db, `${basePath}/contacts`), (s: any) => setContacts(s.docs.map((d: any) => ({id: d.id, ...d.data()} as Contact)))),
-        onSnapshot(collection(db, `${basePath}/products`), (s: any) => setProducts(s.docs.map((d: any) => ({id: d.id, ...d.data()} as Product)))),
+        onSnapshot(collection(db, `${basePath}/products`), (s: any) => {
+            const loaded = s.docs.map((d: any) => ({id: d.id, ...d.data()} as Product));
+            setProducts(loaded);
+            
+            // AUTO-SEED si vide (et non déjà checké)
+            if(s.empty && !hasCheckedDefaults.current) {
+                hasCheckedDefaults.current = true;
+                const batch = writeBatch(db);
+                // Campagnes par défaut
+                const p1 = doc(collection(db, `${basePath}/products`)); 
+                batch.set(p1, { name: "3P", price: 0, cost: 0, platform: "meta", description: "3ème Pilier (Meta)" });
+                const p2 = doc(collection(db, `${basePath}/products`)); 
+                batch.set(p2, { name: "LPP", price: 0, cost: 0, platform: "meta", description: "LPP (Meta)" });
+                const p3 = doc(collection(db, `${basePath}/products`)); 
+                batch.set(p3, { name: "CMU LAMal", price: 0, cost: 0, platform: "meta", description: "CMU (Meta)" });
+                const p4 = doc(collection(db, `${basePath}/products`)); 
+                batch.set(p4, { name: "LPP", price: 0, cost: 0, platform: "google", description: "LPP (Google Search)" });
+                
+                batch.commit().then(() => console.log("Campagnes par défaut créées"));
+            } else if (!s.empty) {
+                hasCheckedDefaults.current = true;
+            }
+        }),
         onSnapshot(collection(db, `${basePath}/invoices`), (s: any) => setInvoices(s.docs.map((d: any) => ({id: d.id, ...d.data()} as Invoice)))),
         onSnapshot(collection(db, `${basePath}/interactions`), (s: any) => setInteractions(s.docs.map((d: any) => ({id: d.id, ...d.data()} as Interaction)))),
         onSnapshot(collection(db, `${basePath}/simulations`), (s: any) => setSimulations(s.docs.map((d: any) => ({id: d.id, ...d.data()} as Simulation)))),
@@ -408,22 +458,16 @@ export default function App() {
   const loadDemoData = async (silent: boolean = false) => {
     if (isOfflineMode) return alert("Impossible en mode hors-ligne");
     if (!user) return;
-    if (!silent && !confirm("⚠️ Charger les données de démonstration ?")) return;
+    if (!silent && !confirm("⚠️ Charger les données de démonstration (Contacts/Factures seulement) ?")) return;
     try {
       const batch = writeBatch(db);
       const basePath = `artifacts/${APP_ID}/users/${user.uid}`;
-      const confRef = doc(db, `${basePath}/config/general`);
-      batch.set(confRef, { companyName: "LeadGen Performance", address: "Place de la Gare 4\n1003 Lausanne", email: "hello@leadgen-perf.ch", phone: "+41 21 000 00 00", iban: "CH50 0900 0000 0000 0000 0", invoiceFooter: "Non soumis à la TVA. Paiement net à 30 jours.", primaryColor: "#2563eb", logoUrl: "https://cdn-icons-png.flaticon.com/512/3135/3135715.png" });
-      const p1Ref = doc(collection(db, `${basePath}/products`)); batch.set(p1Ref, { name: "Leads 3ème Pilier", price: 120, cost: 35, platform: "meta", description: "Leads qualifiés 3A" });
-      const p2Ref = doc(collection(db, `${basePath}/products`)); batch.set(p2Ref, { name: "Assurance Maladie", price: 65, cost: 18, platform: "google", description: "Leads LAMal" });
-      const p3Ref = doc(collection(db, `${basePath}/products`)); batch.set(p3Ref, { name: "Gestion de Fortune", price: 250, cost: 80, platform: "meta", description: "Investisseurs qualifiés" });
-      const c1Ref = doc(collection(db, `${basePath}/contacts`)); batch.set(c1Ref, { name: "Jean Dupont", company: "Allianz Agence Dupont", email: "jean@dupont-assur.ch", phone: "079 123 45 67", status: "gagne", projectedBudget: 15000, interestedProductId: p1Ref.id, campaignStartDate: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(), createdAt: new Date().toISOString() });
-      const c2Ref = doc(collection(db, `${basePath}/contacts`)); batch.set(c2Ref, { name: "Marie Curie", company: "Curie Courtage", email: "marie@curie.ch", phone: "078 987 65 43", status: "negociation", projectedBudget: 5000, interestedProductId: p2Ref.id, createdAt: new Date().toISOString() });
-      const c3Ref = doc(collection(db, `${basePath}/contacts`)); batch.set(c3Ref, { name: "Banque Cantonale", company: "BCV (Private)", email: "private@bcv.ch", phone: "021 333 44 55", status: "gagne", projectedBudget: 30000, interestedProductId: p3Ref.id, createdAt: new Date().toISOString() });
-      const c4Ref = doc(collection(db, `${basePath}/contacts`)); batch.set(c4Ref, { name: "Paul Terner", company: "Terner Immo", email: "paul@terner.ch", status: "nouveau", projectedBudget: 2000, interestedProductId: p1Ref.id, createdAt: new Date().toISOString() });
-      const i1 = doc(collection(db, `${basePath}/invoices`)); batch.set(i1, { id: "INV-2024-001", date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(), clientId: c1Ref.id, clientName: "Allianz Agence Dupont", status: "payee", amount: 6000, items: [{ name: "Budget Net Investi - Leads 3ème Pilier (meta)", price: 3900, qty: 1 }, { name: "Frais de Gestion & Optimisation (35%)", price: 2100, qty: 1 }] });
+      // Juste contacts et factures, pas de produits (déjà fait par auto-seed)
+      const pRef = products.length > 0 ? products[0].id : 'temp';
+      const c1Ref = doc(collection(db, `${basePath}/contacts`)); batch.set(c1Ref, { name: "Jean Dupont", company: "Allianz Agence Dupont", email: "jean@dupont-assur.ch", phone: "079 123 45 67", status: "gagne", projectedBudget: 15000, interestedProductId: pRef, campaignStartDate: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(), createdAt: new Date().toISOString() });
+      const i1 = doc(collection(db, `${basePath}/invoices`)); batch.set(i1, { id: "INV-2024-001", date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(), clientId: c1Ref.id, clientName: "Allianz Agence Dupont", status: "payee", amount: 6000, items: [{ name: "Budget Net Investi - Campagne 3P (meta)", price: 3900, qty: 1 }, { name: "Frais de Gestion & Optimisation (35%)", price: 2100, qty: 1 }] });
       await batch.commit();
-      alert("✅ Données de démo chargées !");
+      alert("✅ Contacts de démo chargés !");
       setActiveView('dashboard');
     } catch (e) { console.error("Erreur demo:", e); }
   };
@@ -467,53 +511,12 @@ export default function App() {
     else await handleUpdate('contacts', contact.id, { campaignStartDate: new Date().toISOString() });
   };
 
-  const handleTreasuryUnlock = (e: React.FormEvent) => { e.preventDefault(); if (treasuryPasswordInput === 'Naha') { setTreasuryUnlocked(true); setTreasuryPasswordInput(''); } else alert("Mdp incorrect."); };
-
   // --- RENDERERS ---
-  const renderTreasury = () => {
-    if (!treasuryUnlocked) return (
-      <div className="flex items-center justify-center h-full bg-slate-50 animate-fade-in"><div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-sm text-center"><div className="mx-auto w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mb-4 text-slate-500"><Lock size={24}/></div><h3 className="font-bold text-lg mb-2">Accès Sécurisé</h3><form onSubmit={handleTreasuryUnlock}><input type="password" autoFocus placeholder="Mot de passe" className="w-full border p-3 rounded-lg mb-4 text-center tracking-widest outline-none focus:ring-2 focus:ring-blue-500" value={treasuryPasswordInput} onChange={e => setTreasuryPasswordInput(e.target.value)}/><button type="submit" className="w-full bg-slate-900 text-white py-3 rounded-lg font-bold">Déverrouiller</button></form></div></div>
-    );
-    const activeProjections = contacts.filter(c => Number(c.projectedBudget ?? 0) > 0 && c.interestedProductId);
-    const totalProjectedRevenue = activeProjections.reduce((acc, c) => acc + Number(c.projectedBudget ?? 0), 0);
-    const paperProfit = totalProjectedRevenue * (paperMarginPercent / 100);
-    let totalRealCost = 0;
-    activeProjections.forEach(c => { 
-        const product = products.find(p => p.id === c.interestedProductId); 
-        if (product && product.price > 0) { 
-            const volume = Math.floor(Number(c.projectedBudget ?? 0) / product.price); 
-            totalRealCost += volume * Number(product.cost ?? 0); 
-        } 
-    });
-    const realProfit = totalProjectedRevenue - totalRealCost;
-    const realMarginPercent = totalProjectedRevenue > 0 ? (realProfit / totalProjectedRevenue) * 100 : 0;
-    const profitDelta = realProfit - paperProfit;
-
-    return (
-        <div className="space-y-8 animate-fade-in pb-12">
-            <div className="flex justify-between items-center"><h2 className="text-2xl font-bold flex items-center gap-2 text-slate-900"><Wallet className="text-blue-600"/> Trésorerie & Marges</h2><button onClick={() => setTreasuryUnlocked(false)} className="text-xs font-bold text-slate-400 hover:text-red-500 flex items-center gap-1"><Lock size={12}/> Verrouiller</button></div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm space-y-8">
-                    <div><div className="flex justify-between items-center mb-4"><h3 className="font-bold text-lg text-slate-700">Comparateur de Modèles</h3><div className="flex items-center gap-2 bg-slate-50 px-3 py-1 rounded-full border"><span className="text-xs font-bold text-slate-500">Marge Papier :</span><input type="number" value={paperMarginPercent} onChange={e => setPaperMarginPercent(Number(e.target.value))} className="w-12 bg-transparent text-right font-bold text-blue-600 outline-none"/><span className="text-xs font-bold text-slate-500">%</span></div></div>
-                        <div className="space-y-4">
-                            <div className="space-y-2"><div className="flex justify-between text-sm"><span className="text-slate-500">Marge Standard ({paperMarginPercent}%)</span> <span className="font-bold">{formatCurrency(paperProfit)}</span></div><div className="h-4 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-slate-400" style={{width: `${paperMarginPercent}%`}}></div></div></div>
-                            <div className="space-y-2"><div className="flex justify-between text-sm"><span className="text-slate-500">Marge Réelle (Arbitrage)</span> <span className="font-bold text-emerald-600">{formatCurrency(realProfit)}</span></div><div className="h-4 bg-emerald-100 rounded-full overflow-hidden"><div className="h-full bg-emerald-500" style={{width: `${Math.min((totalProjectedRevenue > 0 ? (realProfit / totalProjectedRevenue) * 100 : 0), 100)}%`}}></div></div></div>
-                        </div>
-                    </div>
-                    <div className="pt-6 border-t border-slate-100"><p className="text-center text-sm text-slate-500 mb-2 uppercase font-bold tracking-wider">Surplus de Trésorerie Généré</p><div className="text-center"><span className="text-5xl font-bold text-blue-600 block mb-2">{formatCurrency(profitDelta)}</span><span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-bold">+{formatCurrency(profitDelta / 12)} / mois (lissé)</span></div><p className="text-center text-xs text-slate-400 mt-4 px-10">C'est le montant net supplémentaire que vous gagnez grâce à votre optimisation des coûts d'achat par rapport à une commission fixe de {paperMarginPercent}%.</p></div>
-                </div>
-                <div className="bg-slate-900 text-white p-8 rounded-xl shadow-lg flex flex-col justify-between">
-                    <div><h3 className="font-bold text-lg mb-6 flex items-center gap-2"><Calculator className="text-blue-400"/> Synthèse Financière</h3><div className="space-y-6"><div className="flex justify-between items-center border-b border-slate-700 pb-4"><span className="text-slate-400">Total Budgets Clients (Projeté)</span><span className="text-2xl font-bold">{formatCurrency(totalProjectedRevenue)}</span></div><div className="flex justify-between items-center border-b border-slate-700 pb-4"><span className="text-slate-400">Total Coûts Média (Estimé)</span><span className="text-2xl font-bold text-red-300">-{formatCurrency(totalRealCost)}</span></div><div className="flex justify-between items-center pt-2"><span className="text-emerald-400 font-bold uppercase">Bénéfice Net Total</span><span className="text-4xl font-bold text-emerald-400">{formatCurrency(realProfit)}</span></div></div></div>
-                    <div className="mt-8 bg-slate-800 p-4 rounded-lg text-sm text-center text-slate-400"><p>Votre taux de marge réel moyen est de <span className="text-white font-bold text-lg">{(totalProjectedRevenue > 0 ? (realProfit / totalProjectedRevenue) * 100 : 0).toFixed(1)}%</span></p></div>
-                </div>
-            </div>
-        </div>
-    );
-  };
-
+  
   const renderProjections = () => {
     const activeProduct = products.find(p => p.id === planProductId) || products[0];
     let planStats = { volumeTotal: 0, costTotal: 0, profit: 0, dailyVolume: 0, dailyBudget: 0, margin: 0, fees: 0, arbitrage: 0 };
+    
     if (activeProduct && planBudget > 0 && activeProduct.price > 0) {
         const fees = planBudget * 0.35;
         const netMedia = planBudget * 0.65;
@@ -522,19 +525,30 @@ export default function App() {
         const arbitrage = netMedia - costTotal;
         const profit = fees + arbitrage;
         const margin = (profit / planBudget) * 100;
+        
         planStats = { 
-            volumeTotal, costTotal, profit, dailyVolume: volumeTotal/30, dailyBudget: costTotal/30, margin, fees, arbitrage
+            volumeTotal, 
+            costTotal, 
+            profit, 
+            dailyVolume: volumeTotal/30, 
+            dailyBudget: costTotal/30, 
+            margin,
+            fees,
+            arbitrage
         };
     }
+    
     const projectionRows = contacts.map(contact => {
        const product = products.find(p => p.id === contact.interestedProductId);
        const budget = Number(contact.projectedBudget ?? 0);
-       let volume = 0, revenue = 0, cost = 0, profit = 0, marginPercent = 0, arbitrage = 0;
+       
+       let volume = 0, cost = 0, profit = 0, marginPercent = 0, arbitrage = 0;
+       
        if (product && budget > 0 && product.price > 0) {
           const fees = budget * 0.35;
           const netMedia = budget * 0.65;
           volume = Math.floor(netMedia / product.price);
-          cost = volume * Number(product.cost ?? 0); 
+          cost = volume * Number(product.cost ?? 0); // Coût réel
           arbitrage = netMedia - cost;
           profit = fees + arbitrage;
           marginPercent = (profit / budget) * 100;
@@ -545,16 +559,16 @@ export default function App() {
     return (
       <div className="space-y-8 animate-fade-in pb-12">
         <div className="bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
-           <div className="bg-slate-900 p-6 text-white flex justify-between items-center"><div><h2 className="text-xl font-bold flex items-center gap-2"><CalendarCheck className="text-blue-400"/> Planificateur Campagne 30 Jours</h2><p className="text-slate-400 text-sm">Calibrer votre budget média quotidien.</p></div></div>
+           <div className="bg-slate-900 p-6 text-white flex justify-between items-center"><div><h2 className="text-xl font-bold flex items-center gap-2"><CalendarCheck className="text-blue-400"/> Calculateur de Campagne (35% + Arbitrage)</h2><p className="text-slate-400 text-sm">Estimez la rentabilité réelle.</p></div></div>
            <div className="p-6 grid grid-cols-1 lg:grid-cols-12 gap-8">
               <div className="lg:col-span-4 space-y-6 border-r border-slate-100 pr-6">
                  <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2">1. Client</label><select value={planClientId} onChange={(e) => setPlanClientId(e.target.value)} className="w-full border border-slate-300 rounded-lg p-3 font-medium outline-none focus:ring-2 focus:ring-blue-500"><option value="">-- Aucun --</option>{contacts.map(c => <option key={c.id} value={c.id}>{c.company}</option>)}</select></div>
-                 <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2">2. Thématique</label><select value={planProductId} onChange={(e) => setPlanProductId(e.target.value)} className="w-full border border-slate-300 rounded-lg p-3 font-medium outline-none focus:ring-2 focus:ring-blue-500">{!planProductId && <option value="">-- Sélectionner --</option>}{products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+                 <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2">2. Campagne</label><select value={planProductId} onChange={(e) => setPlanProductId(e.target.value)} className="w-full border border-slate-300 rounded-lg p-3 font-medium outline-none focus:ring-2 focus:ring-blue-500">{!planProductId && <option value="">-- Sélectionner --</option>}{products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
                  <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2">3. Budget Client</label><div className="relative"><input type="number" value={planBudget} onChange={(e) => setPlanBudget(Number(e.target.value))} className="w-full border border-slate-300 rounded-lg p-3 pl-4 font-bold text-2xl outline-none focus:ring-2 focus:ring-blue-500 text-blue-600"/><span className="absolute right-4 top-4 text-sm text-slate-400 font-bold">CHF</span></div></div>
-                 <button onClick={() => handleSaveSimulation(planStats)} className="w-full bg-slate-800 text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-slate-700 transition-colors"><Plus size={18}/> Sauvegarder</button>
+                 <button onClick={() => handleSaveSimulation(planStats)} className="w-full bg-slate-800 text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-slate-700 transition-colors"><Plus size={18}/> Ajouter au tableau</button>
               </div>
               <div className="lg:col-span-8 flex flex-col justify-center">
-                 {!activeProduct ? <div className="text-center text-slate-400 italic py-10 flex flex-col items-center"><ArrowRight className="mb-2 opacity-50"/> Sélectionner une thématique.</div> : (
+                 {!activeProduct ? <div className="text-center text-slate-400 italic py-10 flex flex-col items-center"><ArrowRight className="mb-2 opacity-50"/> Sélectionner une campagne.</div> : (
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                        <div className="bg-slate-50 p-5 rounded-xl border border-slate-200 flex flex-col justify-between">
                            <p className="text-slate-500 text-xs font-bold uppercase mb-2">Leads à Livrer</p>
@@ -579,12 +593,12 @@ export default function App() {
               </div>
            </div>
         </div>
-        <div><h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><Save size={20}/> Simulations Enregistrées</h2><div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-8">{simulations.length === 0 ? (<div className="p-8 text-center text-slate-400 italic">Aucune simulation enregistrée.</div>) : (<table className="w-full text-sm text-left"><thead className="bg-slate-50 text-slate-500 uppercase font-bold text-xs border-b"><tr><th className="px-6 py-4">Client</th><th className="px-6 py-4">Thématique</th><th className="px-6 py-4">Budget</th><th className="px-6 py-4">Volume</th><th className="px-6 py-4">Coût Réel</th><th className="px-6 py-4">Marge Nette</th><th className="px-6 py-4 text-right">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{simulations.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map(sim => (<tr key={sim.id} className="hover:bg-slate-50"><td className="px-6 py-4 font-bold text-blue-600">{sim.clientName || 'N/A'}</td><td className="px-6 py-4 font-bold text-slate-700">{sim.productName}</td><td className="px-6 py-4 font-mono">{formatCurrency(sim.budget)}</td><td className="px-6 py-4"><span className="bg-blue-50 text-blue-700 px-2 py-1 rounded font-bold">{sim.stats.volumeTotal}</span></td><td className="px-6 py-4 text-slate-500">{formatCurrency(sim.stats.costTotal)}</td><td className="px-6 py-4"><span className={`font-bold ${sim.stats.margin >= 30 ? 'text-emerald-600' : 'text-orange-600'}`}>{formatCurrency(sim.stats.profit)} ({sim.stats.margin.toFixed(0)}%)</span></td><td className="px-6 py-4 text-right"><button onClick={() => handleDelete('simulations', sim.id)} className="text-slate-300 hover:text-red-500"><Trash2 size={16}/></button></td></tr>))}</tbody></table>)}</div></div>
+        <div><h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><Save size={20}/> Simulations Enregistrées</h2><div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-8">{simulations.length === 0 ? (<div className="p-8 text-center text-slate-400 italic">Aucune simulation enregistrée.</div>) : (<table className="w-full text-sm text-left"><thead className="bg-slate-50 text-slate-500 uppercase font-bold text-xs border-b"><tr><th className="px-6 py-4">Client</th><th className="px-6 py-4">Campagne</th><th className="px-6 py-4">Budget</th><th className="px-6 py-4">Volume</th><th className="px-6 py-4">Coût Réel</th><th className="px-6 py-4">Marge Nette</th><th className="px-6 py-4 text-right">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{simulations.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map(sim => (<tr key={sim.id} className="hover:bg-slate-50"><td className="px-6 py-4 font-bold text-blue-600">{sim.clientName || 'N/A'}</td><td className="px-6 py-4 font-bold text-slate-700">{sim.productName}</td><td className="px-6 py-4 font-mono">{formatCurrency(sim.budget)}</td><td className="px-6 py-4"><span className="bg-blue-50 text-blue-700 px-2 py-1 rounded font-bold">{sim.stats.volumeTotal}</span></td><td className="px-6 py-4 text-slate-500">{formatCurrency(sim.stats.costTotal)}</td><td className="px-6 py-4"><span className={`font-bold ${sim.stats.margin >= 30 ? 'text-emerald-600' : 'text-orange-600'}`}>{formatCurrency(sim.stats.profit)} ({sim.stats.margin.toFixed(0)}%)</span></td><td className="px-6 py-4 text-right"><button onClick={() => handleDelete('simulations', sim.id)} className="text-slate-300 hover:text-red-500"><Trash2 size={16}/></button></td></tr>))}</tbody></table>)}</div></div>
         <div>
            <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><TrendingUp size={20}/> Détail par Client (Réel)</h2>
            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
               <table className="w-full text-sm text-left">
-                 <thead className="bg-slate-50 text-slate-500 uppercase font-bold text-xs border-b"><tr><th className="px-6 py-4">Client</th><th className="px-6 py-4 w-64">Thématique</th><th className="px-6 py-4 w-40">Budget (CHF)</th><th className="px-6 py-4 text-center">Volume</th><th className="px-6 py-4 text-right">Marge Totale</th></tr></thead>
+                 <thead className="bg-slate-50 text-slate-500 uppercase font-bold text-xs border-b"><tr><th className="px-6 py-4">Client</th><th className="px-6 py-4 w-64">Campagne</th><th className="px-6 py-4 w-40">Budget (CHF)</th><th className="px-6 py-4 text-center">Volume</th><th className="px-6 py-4 text-right">Marge Totale</th></tr></thead>
                  <tbody className="divide-y divide-slate-100">
                     {projectionRows.map(({ contact, product, budget, volume, profit, marginPercent, arbitrage }) => (
                        <tr key={contact.id} className="hover:bg-slate-50">
@@ -637,7 +651,7 @@ export default function App() {
                         </>
                     ) : (
                         <>
-                            <div><label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Thématique d'intérêt</label><select value={selectedContact.interestedProductId || ''} onChange={(e) => handleUpdate('contacts', selectedContact.id, { interestedProductId: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none"><option value="">-- Non défini --</option>{products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+                            <div><label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Campagne d'intérêt</label><select value={selectedContact.interestedProductId || ''} onChange={(e) => handleUpdate('contacts', selectedContact.id, { interestedProductId: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none"><option value="">-- Non défini --</option>{products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
                             <div className="flex justify-between border-b pb-2"><span className="text-slate-500">Email</span> <a href={`mailto:${selectedContact.email}`} className="text-blue-600 truncate">{selectedContact.email}</a></div>
                             <div className="flex justify-between border-b pb-2"><span className="text-slate-500">Téléphone</span> <a href={`tel:${selectedContact.phone}`} className="text-slate-800">{selectedContact.phone || '-'}</a></div>
                             <div className="flex justify-between pt-1"><span className="text-slate-500">Budget</span><span className="font-bold">{formatCurrency(selectedContact.projectedBudget)}</span></div>
@@ -689,7 +703,7 @@ export default function App() {
   };
 
   const renderDashboard = () => (
-    <div className="space-y-6 animate-fade-in"><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"><div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm"><p className="text-slate-500 text-xs font-bold uppercase">CA ce mois</p><h3 className="text-2xl font-bold text-slate-800 mt-1">{formatCurrency(stats.caMensuel)}</h3></div><div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm"><p className="text-slate-500 text-xs font-bold uppercase">CA Total</p><h3 className="text-2xl font-bold text-emerald-600 mt-1">{formatCurrency(stats.caTotal)}</h3></div></div><div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm"><h3 className="font-bold text-slate-800 mb-4">Produits & Arbitrage</h3><div className="grid grid-cols-1 md:grid-cols-3 gap-4">{products.map(p => (<div key={p.id} className="bg-slate-50 p-4 rounded-lg border border-slate-100 relative group"><div className="absolute top-2 right-2 flex gap-1"><button onClick={() => { setCurrentProduct(p); setShowModal('product'); }} className="p-1 text-slate-300 hover:text-blue-500"><Edit2 size={14}/></button><button onClick={() => handleDelete('products', p.id)} className="p-1 text-slate-300 hover:text-red-500"><Trash2 size={14}/></button></div><p className="font-bold text-slate-700">{p.name}</p><div className="flex justify-between mt-2 text-xs"><span>Vente: <b>{p.price}</b></span><span>Coût: <b>{p.cost}</b></span></div></div>))}</div></div></div>
+    <div className="space-y-6 animate-fade-in"><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"><div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm"><p className="text-slate-500 text-xs font-bold uppercase">CA ce mois</p><h3 className="text-2xl font-bold text-slate-800 mt-1">{formatCurrency(stats.caMensuel)}</h3></div><div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm"><p className="text-slate-500 text-xs font-bold uppercase">CA Total</p><h3 className="text-2xl font-bold text-emerald-600 mt-1">{formatCurrency(stats.caTotal)}</h3></div></div><div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm"><h3 className="font-bold text-slate-800 mb-4">Campagnes & Arbitrage</h3><div className="grid grid-cols-1 md:grid-cols-3 gap-4">{products.map(p => (<div key={p.id} className="bg-slate-50 p-4 rounded-lg border border-slate-100 relative group"><div className="absolute top-2 right-2 flex gap-1"><button onClick={() => { setCurrentProduct(p); setShowModal('product'); }} className="p-1 text-slate-300 hover:text-blue-500"><Edit2 size={14}/></button><button onClick={() => handleDelete('products', p.id)} className="p-1 text-slate-300 hover:text-red-500"><Trash2 size={14}/></button></div><p className="font-bold text-slate-700">{p.name}</p><div className="flex justify-between mt-2 text-xs"><span>Vente: <b>{p.price}</b></span><span>Coût: <b>{p.cost}</b></span></div></div>))}</div></div></div>
   );
 
   const renderSettings = () => (
@@ -708,7 +722,7 @@ export default function App() {
           <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><FileText size={20}/> Personnalisation Facture</h3>
           <div><label className="text-xs font-bold text-slate-500 uppercase">IBAN</label><input name="iban" defaultValue={settings.iban} className="w-full border p-2 rounded mt-1"/></div>
           <div><label className="text-xs font-bold text-slate-500 uppercase">Pied de page</label><textarea name="invoiceFooter" defaultValue={settings.invoiceFooter} className="w-full border p-2 rounded mt-1 h-24"/></div>
-          <div className="pt-4 flex gap-4"><button type="submit" className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700">Sauvegarder</button></div>
+          <div className="pt-4 flex gap-4"><button type="submit" className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700">Sauvegarder</button><button type="button" onClick={() => loadDemoData(false)} className="flex-1 bg-slate-800 text-white py-3 rounded-lg font-bold hover:bg-slate-700 flex items-center justify-center gap-2"><Loader size={16}/> Réinitialiser Démo</button></div>
         </div>
       </form>
     </div>
@@ -721,7 +735,7 @@ export default function App() {
     <div className={`flex h-screen bg-slate-50 text-slate-900 font-sans`}>
       <style>{`@media print { body * { visibility: hidden; } #invoice-printable, #invoice-printable * { visibility: visible; } #invoice-printable { position: fixed; left:0; top:0; width:100%; height:100%; padding:0; background:white; z-index:9999; } .no-print { display: none !important; } }`}</style>
       <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col no-print shrink-0">
-        <div className="p-6"><div className="flex items-center gap-3 mb-10 text-white"><div className="h-9 w-9 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-lg">LP</div><div><span className="font-bold block">LeadPartner</span><span className="text-xs text-slate-500 uppercase">CRM V28</span></div></div><nav className="space-y-1">{[{id: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard}, {id: 'contacts', label: 'Contacts', icon: Users}, {id: 'invoices', label: 'Factures', icon: FileText}, {id: 'products', label: 'Thématiques', icon: Package}, {id: 'projections', label: 'Projections (Privé)', icon: Lock}, {id: 'settings', label: 'Paramètres', icon: Settings}].map(item => (<button key={item.id} onClick={() => { setActiveView(item.id); setSelectedContactId(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg ${activeView === item.id ? 'bg-slate-800 text-white' : 'hover:bg-slate-800/50'}`}><item.icon size={18} className={activeView === item.id ? "text-blue-400" : "text-slate-500"}/> {item.label}</button>))}</nav></div>
+        <div className="p-6"><div className="flex items-center gap-3 mb-10 text-white"><div className="h-9 w-9 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-lg">LP</div><div><span className="font-bold block">LeadPartner</span><span className="text-xs text-slate-500 uppercase">CRM V33 Final</span></div></div><nav className="space-y-1">{[{id: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard}, {id: 'contacts', label: 'Contacts', icon: Users}, {id: 'invoices', label: 'Factures', icon: FileText}, {id: 'products', label: 'Campagnes', icon: Package}, {id: 'projections', label: 'Projections', icon: Calculator}, {id: 'settings', label: 'Paramètres', icon: Settings}].map(item => (<button key={item.id} onClick={() => { setActiveView(item.id); setSelectedContactId(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg ${activeView === item.id ? 'bg-slate-800 text-white' : 'hover:bg-slate-800/50'}`}><item.icon size={18} className={activeView === item.id ? "text-blue-400" : "text-slate-500"}/> {item.label}</button>))}</nav></div>
       </aside>
       <div className="flex-1 flex flex-col overflow-hidden relative"><header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 no-print shrink-0"><div className="flex items-center gap-4 text-slate-400"><Search size={18}/><input type="text" placeholder="Rechercher..." className="bg-transparent outline-none text-sm text-slate-800 w-64" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}/></div></header>
         <main className="flex-1 overflow-auto bg-slate-50/50 p-6 relative">
@@ -730,15 +744,15 @@ export default function App() {
               {activeView === 'dashboard' && renderDashboard()}
               {activeView === 'settings' && renderSettings()}
               {activeView === 'projections' && renderProjections()}
-              {activeView === 'contacts' && (<div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full"><div className="flex border-b"><button onClick={() => setContactFilterType('all')} className={`px-6 py-4 text-sm font-bold border-b-2 transition-colors ${contactFilterType === 'all' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:bg-slate-50'}`}>Tous</button><button onClick={() => setContactFilterType('prospect')} className={`px-6 py-4 text-sm font-bold border-b-2 transition-colors ${contactFilterType === 'prospect' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:bg-slate-50'}`}>Prospects</button><button onClick={() => setContactFilterType('client')} className={`px-6 py-4 text-sm font-bold border-b-2 transition-colors ${contactFilterType === 'client' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:bg-slate-50'}`}>Clients</button><div className="ml-auto p-2"><button onClick={() => setShowModal('contact')} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-blue-700"><Plus size={16}/> Nouveau</button></div></div><div className="flex-1 overflow-auto"><table className="w-full text-sm text-left"><thead className="bg-slate-50 text-slate-500 uppercase font-bold text-xs border-b sticky top-0"><tr><th className="px-6 py-4">Société</th><th className="px-6 py-4">Status</th><th className="px-6 py-4">Thématique</th><th className="px-6 py-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-slate-100">{displayedContacts.map(c => { const p = products.find(prod => prod.id === c.interestedProductId); return (<tr key={c.id} onClick={() => setSelectedContactId(c.id)} className="hover:bg-blue-50/50 cursor-pointer group transition-colors"><td className="px-6 py-4"><p className="font-bold text-slate-800">{c.company}</p><p className="text-slate-500 text-xs">{c.name}</p></td><td className="px-6 py-4"><span className={`px-2 py-1 rounded-md text-xs font-bold border ${PIPELINE_STAGES.find(s=>s.id===c.status)?.color}`}>{PIPELINE_STAGES.find(s=>s.id===c.status)?.label || c.status}</span></td><td className="px-6 py-4 text-xs font-bold text-slate-600">{p ? p.name : '-'}</td><td className="px-6 py-4 text-right"><button onClick={(e) => { e.stopPropagation(); handleDelete('contacts', c.id); }} className="text-slate-300 hover:text-red-500 p-1"><Trash2 size={16}/></button></td></tr>)})}</tbody></table></div></div>)}
+              {activeView === 'contacts' && (<div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full"><div className="flex border-b"><button onClick={() => setContactFilterType('all')} className={`px-6 py-4 text-sm font-bold border-b-2 transition-colors ${contactFilterType === 'all' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:bg-slate-50'}`}>Tous</button><button onClick={() => setContactFilterType('prospect')} className={`px-6 py-4 text-sm font-bold border-b-2 transition-colors ${contactFilterType === 'prospect' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:bg-slate-50'}`}>Prospects</button><button onClick={() => setContactFilterType('client')} className={`px-6 py-4 text-sm font-bold border-b-2 transition-colors ${contactFilterType === 'client' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:bg-slate-50'}`}>Clients</button><div className="ml-auto p-2"><button onClick={() => setShowModal('contact')} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-blue-700"><Plus size={16}/> Nouveau</button></div></div><div className="flex-1 overflow-auto"><table className="w-full text-sm text-left"><thead className="bg-slate-50 text-slate-500 uppercase font-bold text-xs border-b sticky top-0"><tr><th className="px-6 py-4">Société</th><th className="px-6 py-4">Status</th><th className="px-6 py-4">Campagne</th><th className="px-6 py-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-slate-100">{displayedContacts.map(c => { const p = products.find(prod => prod.id === c.interestedProductId); return (<tr key={c.id} onClick={() => setSelectedContactId(c.id)} className="hover:bg-blue-50/50 cursor-pointer group transition-colors"><td className="px-6 py-4"><p className="font-bold text-slate-800">{c.company}</p><p className="text-slate-500 text-xs">{c.name}</p></td><td className="px-6 py-4"><span className={`px-2 py-1 rounded-md text-xs font-bold border ${PIPELINE_STAGES.find(s=>s.id===c.status)?.color}`}>{PIPELINE_STAGES.find(s=>s.id===c.status)?.label || c.status}</span></td><td className="px-6 py-4 text-xs font-bold text-slate-600">{p ? p.name : '-'}</td><td className="px-6 py-4 text-right"><button onClick={(e) => { e.stopPropagation(); handleDelete('contacts', c.id); }} className="text-slate-300 hover:text-red-500 p-1"><Trash2 size={16}/></button></td></tr>)})}</tbody></table></div></div>)}
               {activeView === 'invoices' && (<div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden"><div className="p-4 border-b flex justify-between items-center bg-slate-50"><h3 className="font-bold">Factures</h3><button onClick={() => { setCurrentInvoice({ clientId: '', date: new Date().toISOString(), items: [], status: 'brouillon' }); setShowModal('invoice'); }} className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm font-bold flex items-center gap-2"><Plus size={16}/> Créer</button></div><table className="w-full text-sm text-left"><thead className="bg-slate-50 text-slate-500 uppercase font-bold text-xs border-b"><tr><th className="px-6 py-4">Client</th><th className="px-6 py-4">Date</th><th className="px-6 py-4">Montant</th><th className="px-6 py-4">Statut</th><th className="px-6 py-4 text-right">Action</th></tr></thead><tbody>{invoices.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(inv => (<tr key={inv.id} className="border-b last:border-0 hover:bg-slate-50"><td className="px-6 py-4 font-bold text-slate-700">{inv.clientName}</td><td className="px-6 py-4 text-slate-500">{formatDate(inv.date)}</td><td className="px-6 py-4 font-bold">{formatCurrency(inv.amount)}</td><td className="px-6 py-4"><span className={`px-2 py-1 rounded-full text-xs font-bold ${INVOICE_STATUSES[inv.status]?.color}`}>{INVOICE_STATUSES[inv.status]?.label || inv.status}</span></td><td className="px-6 py-4 text-right"><button onClick={() => { setCurrentInvoice(inv); setShowModal('invoice'); }} className="text-blue-600 hover:underline">Ouvrir</button></td></tr>))}</tbody></table></div>)}
-              {activeView === 'products' && (<div className="grid grid-cols-1 md:grid-cols-3 gap-6"><button onClick={() => setShowModal('product')} className="border-2 border-dashed border-slate-300 rounded-xl flex flex-col items-center justify-center text-slate-400 hover:border-blue-500 hover:text-blue-500 transition-colors h-48"><Plus size={32} className="mb-2"/> <span className="font-bold">Ajouter Thématique</span></button>{products.map(p => (<div key={p.id} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm relative group"><div className="absolute top-4 right-4 flex gap-2"><button onClick={() => { setCurrentProduct(p); setShowModal('product'); }} className="p-1 text-slate-300 hover:text-blue-500"><Edit2 size={16}/></button><button onClick={() => handleDelete('products', p.id)} className="p-1 text-slate-300 hover:text-red-500"><Trash2 size={16}/></button></div><div className="absolute top-4 left-4 bg-slate-100 p-1.5 rounded-md text-slate-500">{p.platform === 'google' ? <Globe size={16}/> : <Share2 size={16}/>}</div><h4 className="font-bold text-slate-800 text-lg mb-2 mt-6">{p.name}</h4><p className="text-slate-500 text-sm mb-4 h-10 line-clamp-2">{p.description || 'Aucune description'}</p><div className="flex justify-between items-end border-t pt-4"><div><p className="text-[10px] text-slate-400 uppercase font-bold">Prix Vente</p><p className="font-bold text-xl text-blue-600">{formatCurrency(p.price)}</p></div><div className="text-right"><p className="text-[10px] text-slate-400 uppercase font-bold">Coût Achat (Est.)</p><p className="font-bold text-lg text-slate-600">{formatCurrency(p.cost)}</p></div></div></div>))}</div>)}
+              {activeView === 'products' && (<div className="grid grid-cols-1 md:grid-cols-3 gap-6"><button onClick={() => setShowModal('product')} className="border-2 border-dashed border-slate-300 rounded-xl flex flex-col items-center justify-center text-slate-400 hover:border-blue-500 hover:text-blue-500 transition-colors h-48"><Plus size={32} className="mb-2"/> <span className="font-bold">Ajouter Campagne</span></button>{products.map(p => (<div key={p.id} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm relative group"><div className="absolute top-4 right-4 flex gap-2"><button onClick={() => { setCurrentProduct(p); setShowModal('product'); }} className="p-1 text-slate-300 hover:text-blue-500"><Edit2 size={16}/></button><button onClick={() => handleDelete('products', p.id)} className="p-1 text-slate-300 hover:text-red-500"><Trash2 size={16}/></button></div><div className="absolute top-4 left-4 bg-slate-100 p-1.5 rounded-md text-slate-500">{p.platform === 'google' ? <Globe size={16}/> : <Share2 size={16}/>}</div><h4 className="font-bold text-slate-800 text-lg mb-2 mt-6">{p.name}</h4><p className="text-slate-500 text-sm mb-4 h-10 line-clamp-2">{p.description || 'Aucune description'}</p><div className="flex justify-between items-end border-t pt-4"><div><p className="text-[10px] text-slate-400 uppercase font-bold">Prix Vente</p><p className="font-bold text-xl text-blue-600">{formatCurrency(p.price)}</p></div><div className="text-right"><p className="text-[10px] text-slate-400 uppercase font-bold">Coût Achat (Est.)</p><p className="font-bold text-lg text-slate-600">{formatCurrency(p.cost)}</p></div></div></div>))}</div>)}
             </>
           )}
         </main>
       </div>
       {showModal === 'contact' && (<div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"><div className="bg-white p-8 rounded-2xl w-full max-w-md shadow-2xl"><h3 className="text-xl font-bold mb-6">Ajouter une personne</h3><form onSubmit={(e) => { e.preventDefault(); const fd = new FormData(e.target); handleCreate('contacts', { name: fd.get('name'), company: fd.get('company'), email: fd.get('email'), phone: fd.get('phone'), status: fd.get('status') }); }} className="space-y-4"><div className="bg-slate-50 p-2 rounded-lg border border-slate-200 flex gap-2"><select name="status" className="w-full bg-transparent font-bold text-slate-700 outline-none p-1"><option value="nouveau">👤 Prospect (En cours)</option><option value="gagne">✅ Client (Gagné)</option></select></div><input name="company" required className="w-full border p-3 rounded-lg" placeholder="Nom de la Société"/><input name="name" required className="w-full border p-3 rounded-lg" placeholder="Nom du Contact (Ex: Jean Dupont)"/><div className="grid grid-cols-2 gap-4"><input name="email" type="email" className="w-full border p-3 rounded-lg" placeholder="Email"/><input name="phone" className="w-full border p-3 rounded-lg" placeholder="Téléphone"/></div><div className="pt-4 flex gap-3"><button type="button" onClick={() => setShowModal(null)} className="flex-1 py-3 text-slate-500 hover:bg-slate-100 rounded-lg">Annuler</button><button type="submit" className="flex-1 py-3 bg-blue-600 text-white rounded-lg font-bold">Valider</button></div></form></div></div>)}
-      {showModal === 'product' && (<div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"><div className="bg-white p-8 rounded-2xl w-full max-w-md shadow-2xl"><h3 className="text-xl font-bold mb-6">{currentProduct ? 'Modifier Thématique' : 'Nouvelle Thématique'}</h3><form onSubmit={handleSaveProductForm} className="space-y-4"><input name="name" defaultValue={currentProduct?.name} required placeholder="Nom (ex: 3ème Pilier)" className="w-full border p-3 rounded-lg"/><textarea name="description" defaultValue={currentProduct?.description} placeholder="Description courte" className="w-full border p-3 rounded-lg h-20"></textarea><div className="grid grid-cols-2 gap-4"><div><label className="text-xs font-bold uppercase text-slate-500">Prix Vente (CHF)</label><input name="price" defaultValue={currentProduct?.price} type="number" step="0.01" required className="w-full border p-3 rounded-lg mt-1" placeholder="80.00"/></div><div><label className="text-xs font-bold uppercase text-slate-500">Coût Achat Cible</label><input name="cost" defaultValue={currentProduct?.cost} type="number" step="0.01" required className="w-full border p-3 rounded-lg mt-1" placeholder="25.00"/></div></div><div><label className="text-xs font-bold uppercase text-slate-500">Plateforme Pub</label><select name="platform" defaultValue={currentProduct?.platform} className="w-full border p-3 rounded-lg mt-1"><option value="meta">Meta Ads (Facebook/Insta)</option><option value="google">Google Ads</option><option value="tiktok">TikTok Ads</option></select></div><div className="pt-4 flex gap-3"><button type="button" onClick={() => { setShowModal(null); setCurrentProduct(null); }} className="flex-1 py-3 text-slate-500 hover:bg-slate-100 rounded-lg">Annuler</button><button type="submit" className="flex-1 py-3 bg-blue-600 text-white rounded-lg font-bold">{currentProduct ? 'Mettre à jour' : 'Ajouter'}</button></div></form></div></div>)}
+      {showModal === 'product' && (<div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"><div className="bg-white p-8 rounded-2xl w-full max-w-md shadow-2xl"><h3 className="text-xl font-bold mb-6">{currentProduct ? 'Modifier Campagne' : 'Nouvelle Campagne'}</h3><form onSubmit={handleSaveProductForm} className="space-y-4"><input name="name" defaultValue={currentProduct?.name} required placeholder="Nom (ex: 3ème Pilier)" className="w-full border p-3 rounded-lg"/><textarea name="description" defaultValue={currentProduct?.description} placeholder="Description courte" className="w-full border p-3 rounded-lg h-20"></textarea><div className="grid grid-cols-2 gap-4"><div><label className="text-xs font-bold uppercase text-slate-500">Prix Vente (CHF)</label><input name="price" defaultValue={currentProduct?.price} type="number" step="0.01" required className="w-full border p-3 rounded-lg mt-1" placeholder="80.00"/></div><div><label className="text-xs font-bold uppercase text-slate-500">Coût Achat Cible</label><input name="cost" defaultValue={currentProduct?.cost} type="number" step="0.01" required className="w-full border p-3 rounded-lg mt-1" placeholder="25.00"/></div></div><div><label className="text-xs font-bold uppercase text-slate-500">Plateforme Pub</label><select name="platform" defaultValue={currentProduct?.platform} className="w-full border p-3 rounded-lg mt-1"><option value="meta">Meta Ads (Facebook/Insta)</option><option value="google">Google Ads</option><option value="tiktok">TikTok Ads</option></select></div><div className="pt-4 flex gap-3"><button type="button" onClick={() => { setShowModal(null); setCurrentProduct(null); }} className="flex-1 py-3 text-slate-500 hover:bg-slate-100 rounded-lg">Annuler</button><button type="submit" className="flex-1 py-3 bg-blue-600 text-white rounded-lg font-bold">{currentProduct ? 'Mettre à jour' : 'Ajouter'}</button></div></form></div></div>)}
       {showModal === 'invoice' && currentInvoice && (
         <div className="fixed inset-0 bg-slate-900/95 z-[100] flex items-center justify-center p-4">
            <div className="bg-white w-full max-w-5xl h-[95vh] rounded-xl flex flex-col shadow-2xl overflow-hidden">
