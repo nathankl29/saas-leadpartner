@@ -19,6 +19,9 @@ import {
   signInWithEmailAndPassword, signOut // Remplacement de GoogleAuthProvider
 } from 'firebase/auth';
 
+// --- VERSION DU CRM ---
+const APP_VERSION = '43.1';
+
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
 
@@ -145,7 +148,7 @@ const LoginScreen = ({ onLogin, addNotification }: { onLogin: () => void; addNot
             <span className="text-3xl font-bold font-poppins" style={{ color: BRAND_COLOR }}>LP</span>
           </div>
           <h1 className="text-2xl font-bold text-white font-poppins tracking-wide">LeadPartner CRM</h1>
-          <p className="text-blue-200 text-sm mt-2 font-inter font-medium">Espace Privé</p>
+          <p className="text-blue-200 text-sm mt-2 font-inter font-medium">Espace Privé <span className="opacity-70 text-xs ml-1 font-mono">v{APP_VERSION}</span></p>
         </div>
         <div className="p-8">
           
@@ -806,6 +809,9 @@ export default function App() {
             <button onClick={() => { setEditContactData(selectedContact); setIsEditingContact(true); }} className="px-6 py-3 bg-white border border-slate-200 shadow-sm rounded-xl font-bold text-slate-600 hover:bg-slate-50 transition-colors flex items-center justify-center gap-2">
               <Edit2 size={16}/> Modifier Profil
             </button>
+            <button onClick={() => handleDelete('contacts', selectedContact.id)} className="px-6 py-3 bg-white border border-slate-200 shadow-sm rounded-xl font-bold text-red-500 hover:bg-red-50 transition-colors flex items-center justify-center gap-2">
+              <Trash2 size={16}/> Supprimer Client
+            </button>
             {selectedContact.email && (
                <a href={`mailto:${selectedContact.email}`} className="px-6 py-3 text-white rounded-xl font-bold hover:shadow-lg hover:-translate-y-0.5 flex items-center justify-center gap-2 transition-all" style={{ backgroundColor: BRAND_COLOR }}>
                  <Send size={16}/> Écrire Email
@@ -1324,9 +1330,11 @@ export default function App() {
                           <div>
                               <p className="font-bold mb-1">Variables disponibles dans les modèles :</p>
                               <div className="flex gap-3 font-mono text-xs flex-wrap">
+                                  <span className="bg-white px-2 py-1 rounded border border-blue-200">{`{{nom_contact}}`}</span>
+                                  <span className="bg-white px-2 py-1 rounded border border-blue-200">{`{{prenom_contact}}`}</span>
+                                  <span className="bg-white px-2 py-1 rounded border border-blue-200">{`{{societe}}`}</span>
                                   <span className="bg-white px-2 py-1 rounded border border-blue-200">{`{{facture}}`}</span>
                                   <span className="bg-white px-2 py-1 rounded border border-blue-200">{`{{montant}}`}</span>
-                                  <span className="bg-white px-2 py-1 rounded border border-blue-200">{`{{client}}`}</span>
                                   <span className="bg-white px-2 py-1 rounded border border-blue-200">{`{{agence}}`}</span>
                               </div>
                           </div>
@@ -1334,52 +1342,20 @@ export default function App() {
 
                       <div className="space-y-6 flex-1 overflow-auto pr-2 custom-scrollbar">
                           {(settings.emailTemplates || []).map((tpl, i) => (
-                              <div key={tpl.id} className="p-5 border-2 border-slate-100 rounded-2xl bg-slate-50 relative group">
-                                  <button 
-                                    onClick={() => {
-                                        const templates = [...(settings.emailTemplates || [])];
-                                        templates.splice(i, 1);
-                                        handleSaveSettingsDirect({ emailTemplates: templates });
-                                    }}
-                                    className="absolute top-4 right-4 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                                  ><Trash2 size={18}/></button>
-
-                                  <div className="space-y-4">
-                                      <div><label className="text-[10px] font-bold text-slate-500 uppercase">Nom du modèle (Interne)</label>
-                                          <input 
-                                            value={tpl.name} 
-                                            onChange={(e) => {
-                                                const tpls = [...(settings.emailTemplates || [])];
-                                                tpls[i].name = e.target.value;
-                                                handleSaveSettingsDirect({ emailTemplates: tpls });
-                                            }}
-                                            className="w-full bg-white border border-slate-200 p-2.5 rounded-lg mt-1 font-bold outline-none focus:border-[#01189B]" 
-                                          />
-                                      </div>
-                                      <div><label className="text-[10px] font-bold text-slate-500 uppercase">Sujet du mail</label>
-                                          <input 
-                                            value={tpl.subject} 
-                                            onChange={(e) => {
-                                                const tpls = [...(settings.emailTemplates || [])];
-                                                tpls[i].subject = e.target.value;
-                                                handleSaveSettingsDirect({ emailTemplates: tpls });
-                                            }}
-                                            className="w-full bg-white border border-slate-200 p-2.5 rounded-lg mt-1 font-medium outline-none focus:border-[#01189B]" 
-                                          />
-                                      </div>
-                                      <div><label className="text-[10px] font-bold text-slate-500 uppercase">Corps du message</label>
-                                          <textarea 
-                                            value={tpl.body} 
-                                            onChange={(e) => {
-                                                const tpls = [...(settings.emailTemplates || [])];
-                                                tpls[i].body = e.target.value;
-                                                handleSaveSettingsDirect({ emailTemplates: tpls });
-                                            }}
-                                            className="w-full bg-white border border-slate-200 p-3 rounded-lg mt-1 font-medium outline-none focus:border-[#01189B] h-32 resize-none text-sm leading-relaxed" 
-                                          />
-                                      </div>
-                                  </div>
-                              </div>
+                              <EmailTemplateEditor 
+                                  key={tpl.id} 
+                                  tpl={tpl} 
+                                  onSave={(updatedTpl: any) => {
+                                      const copy = [...(settings.emailTemplates || [])];
+                                      copy[i] = updatedTpl;
+                                      handleSaveSettingsDirect({ emailTemplates: copy });
+                                  }}
+                                  onDelete={() => {
+                                      const copy = [...(settings.emailTemplates || [])];
+                                      copy.splice(i, 1);
+                                      handleSaveSettingsDirect({ emailTemplates: copy });
+                                  }}
+                              />
                           ))}
                       </div>
                   </div>
