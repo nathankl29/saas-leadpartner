@@ -49,8 +49,8 @@ interface Notification { id: string; type: 'success' | 'error' | 'info'; message
 interface ConfirmState { isOpen: boolean; title: string; message: string; onConfirm: () => void; }
 
 // --- CONFIGURATION FIREBASE ---
-const stackblitzConfig = JSON.parse((window as any).__firebase_config || '{}');
-const firebaseConfig = Object.keys(stackblitzConfig).length > 0 ? stackblitzConfig : {
+// Forçage de VOTRE configuration de production (désactive le bypass automatique de l'environnement de test)
+const firebaseConfig = {
   apiKey: 'AIzaSyDY6zXLeebKhMxL_2_mfQOYV44JuoCArK0',
   authDomain: 'crm-leadpartner.firebaseapp.com',
   projectId: 'crm-leadpartner',
@@ -59,12 +59,11 @@ const firebaseConfig = Object.keys(stackblitzConfig).length > 0 ? stackblitzConf
   appId: '1:588502456936:web:5c509a0c418f34f77239dd',
 };
 
-const RAW_APP_ID = (window as any).__app_id || 'leadpartner-crm-v43-prod';
-const APP_ID = RAW_APP_ID.replace(/[^a-zA-Z0-9-_]/g, '_');
+const APP_ID = 'leadpartner-crm-v43-prod';
 
 let app: any, db: any, auth: any;
 try {
-  if (firebaseConfig && Object.keys(firebaseConfig).length > 0 && firebaseConfig.apiKey) {
+  if (firebaseConfig && firebaseConfig.apiKey) {
     app = initializeApp(firebaseConfig);
     db = getFirestore(app);
     auth = getAuth(app);
@@ -212,6 +211,52 @@ const LoginScreen = ({ onLogin, addNotification }: { onLogin: () => void; addNot
   );
 };
 
+// --- COMPOSANT EMAIL EDITOR ---
+const EmailTemplateEditor = ({ tpl, onSave, onDelete }: any) => {
+    const [name, setName] = useState(tpl.name || '');
+    const [subject, setSubject] = useState(tpl.subject || '');
+    const [body, setBody] = useState(tpl.body || '');
+
+    return (
+        <div className="p-5 border-2 border-slate-100 rounded-2xl bg-slate-50 relative group">
+            <button 
+              onClick={onDelete}
+              className="absolute top-4 right-4 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+            ><Trash2 size={18}/></button>
+
+            <div className="space-y-4">
+                <div>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">Nom du modèle (Interne)</label>
+                    <input 
+                      value={name} 
+                      onChange={(e) => setName(e.target.value)}
+                      className="w-full bg-white border border-slate-200 p-2.5 rounded-lg mt-1 font-bold outline-none focus:border-[#01189B]" 
+                    />
+                </div>
+                <div>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">Sujet du mail</label>
+                    <input 
+                      value={subject} 
+                      onChange={(e) => setSubject(e.target.value)}
+                      className="w-full bg-white border border-slate-200 p-2.5 rounded-lg mt-1 font-medium outline-none focus:border-[#01189B]" 
+                    />
+                </div>
+                <div>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">Corps du message</label>
+                    <textarea 
+                      value={body} 
+                      onChange={(e) => setBody(e.target.value)}
+                      className="w-full bg-white border border-slate-200 p-3 rounded-lg mt-1 font-medium outline-none focus:border-[#01189B] h-32 resize-none text-sm leading-relaxed" 
+                    />
+                </div>
+                <div className="flex justify-end pt-2">
+                    <button onClick={() => onSave({ ...tpl, name, subject, body })} className="bg-emerald-500 text-white px-4 py-2 rounded-lg text-xs font-bold hover:shadow-md flex items-center gap-1"><Save size={14}/> Enregistrer ce modèle</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // --- COMPOSANT PRINCIPAL ---
 export default function App() {
   const [activeView, setActiveView] = useState('dashboard');
@@ -306,23 +351,17 @@ export default function App() {
         return;
     }
 
-    const unsubscribe = onAuthStateChanged(auth, async (u) => {
+    // Écoute stricte de votre authentification par email/mot de passe
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
         if (u) {
             setUser(u);
             setIsAppAuthenticated(true);
             setIsOfflineMode(false);
-            setLoading(false);
         } else {
-            if ((window as any).__initial_auth_token) {
-                try {
-                    await signInWithCustomToken(auth, (window as any).__initial_auth_token);
-                } catch (e) {
-                    setLoading(false);
-                }
-            } else {
-                setLoading(false);
-            }
+            setUser(null);
+            setIsAppAuthenticated(false);
         }
+        setLoading(false);
     });
 
     return () => unsubscribe();
