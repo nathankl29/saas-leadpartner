@@ -16,11 +16,11 @@ import {
 } from 'firebase/firestore';
 import {
   getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken,
-  signInWithEmailAndPassword, signOut // Remplacement de GoogleAuthProvider
+  signInWithEmailAndPassword, signOut 
 } from 'firebase/auth';
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '43.4';
+const APP_VERSION = '43.5';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -88,12 +88,13 @@ const INVOICE_STATUSES: Record<string, { label: string; color: string }> = {
   envoyee: { label: 'Envoyée', color: 'bg-blue-100 text-[#01189B]' },
   payee: { label: 'Payée', color: 'bg-emerald-100 text-emerald-600' },
   retard: { label: 'En retard', color: 'bg-orange-100 text-orange-600' },
-  archive: { label: 'Archivée', color: 'bg-slate-800 text-white' }, // Nouveau statut
+  annulee: { label: 'Annulée / Perdue', color: 'bg-red-100 text-red-700' },
+  archive: { label: 'Archivée', color: 'bg-slate-800 text-white' },
 };
 
 const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
-  { id: 'std', name: 'Standard (Envoi de Facture)', subject: 'Nouvelle Facture {{facture}} - {{agence}}', body: "Bonjour {{client}},\n\nVeuillez trouver ci-joint votre facture {{facture}} d'un montant de {{montant}} concernant nos prestations.\n\nNous restons à votre entière disposition pour toute question.\n\nCordialement,\nL'équipe {{agence}}" },
-  { id: 'relance_1', name: 'Relance Aimable', subject: 'Relance : Facture {{facture}} en attente', body: "Bonjour {{client}},\n\nSauf erreur ou omission de notre part, le règlement de la facture {{facture}} d'un montant de {{montant}} ne nous est pas encore parvenu.\n\nNous vous prions de bien vouloir procéder à son règlement.\n\nCordialement,\nL'équipe {{agence}}" }
+  { id: 'std', name: 'Standard (Envoi de Facture)', subject: 'Nouvelle Facture {{facture}} - {{agence}}', body: "Bonjour {{prenom_contact}},\n\nVeuillez trouver ci-joint votre facture {{facture}} d'un montant de {{montant}} concernant nos prestations.\n\nNous restons à votre entière disposition pour toute question.\n\nCordialement,\nL'équipe {{agence}}" },
+  { id: 'relance_1', name: 'Relance Aimable', subject: 'Relance : Facture {{facture}} en attente', body: "Bonjour {{prenom_contact}},\n\nSauf erreur ou omission de notre part, le règlement de la facture {{facture}} d'un montant de {{montant}} ne nous est pas encore parvenu.\n\nNous vous prions de bien vouloir procéder à son règlement.\n\nCordialement,\nL'équipe {{agence}}" }
 ];
 
 const formatDate = (dateStr?: string) => {
@@ -130,7 +131,6 @@ const LoginScreen = ({ onLogin, addNotification }: { onLogin: () => void; addNot
 
     setIsLoggingIn(true);
     try {
-      // Tente de connecter l'utilisateur avec l'email et le mot de passe créés dans Firebase
       await signInWithEmailAndPassword(auth, email, password);
       addNotification('success', 'Connexion réussie !');
       onLogin();
@@ -284,7 +284,7 @@ export default function App() {
     legalNotice: 'Entreprise individuelle non soumise à la TVA',
     primaryColor: BRAND_COLOR,
     monthlyGoal: 50000,
-    dashboardLayout: ['objective', 'stat_ca_month', 'stat_ca_total', 'stat_pipeline', 'stat_campaigns', 'reminders', 'invoices', 'activity'],
+    dashboardLayout: ['objective', 'stat_ca_month', 'stat_ca_total', 'stat_ca_potentiel', 'stat_pipeline', 'stat_campaigns', 'reminders', 'invoices', 'activity'],
     webhookUrl: '', 
     emailTemplates: DEFAULT_EMAIL_TEMPLATES,
   });
@@ -356,7 +356,6 @@ export default function App() {
         return;
     }
 
-    // Écoute stricte de votre authentification par email/mot de passe
     const unsubscribe = onAuthStateChanged(auth, (u) => {
         if (u) {
             setUser(u);
@@ -412,7 +411,6 @@ export default function App() {
         onSnapshot(doc(db, `${basePath}/config`, 'general'), (s: any) => { 
             if (s.exists()) {
                 const data = s.data();
-                // Assurer que les templates existent toujours
                 if (!data.emailTemplates || data.emailTemplates.length === 0) {
                     data.emailTemplates = DEFAULT_EMAIL_TEMPLATES;
                 }
@@ -440,12 +438,22 @@ export default function App() {
     const currentMonth = new Date().getMonth();
     const currentYear = new Date().getFullYear();
 
-    let monthlyInvoicesAmount = 0, totalPaidInvoices = 0;
+    let monthlyInvoicesAmount = 0, totalPaidInvoices = 0, caPotentielInvoices = 0;
+    
     invoices.forEach((i) => {
       const amt = Number(i.amount ?? 0);
-      if (i.status === 'payee') totalPaidInvoices += amt;
-      const d = new Date(i.date);
-      if (d.getMonth() === currentMonth && d.getFullYear() === currentYear) monthlyInvoicesAmount += amt;
+      // CA Encaissé (uniquement les factures PAYÉES)
+      if (i.status === 'payee') {
+          totalPaidInvoices += amt;
+          const d = new Date(i.date);
+          if (d.getMonth() === currentMonth && d.getFullYear() === currentYear) {
+              monthlyInvoicesAmount += amt;
+          }
+      } 
+      // CA Potentiel (factures en cours, brouillons, en retard - tout sauf payée, annulée et archivée)
+      else if (i.status !== 'annulee' && i.status !== 'archive') {
+          caPotentielInvoices += amt;
+      }
     });
 
     let monthlySimulationsAmount = 0, totalSimulations = 0;
@@ -461,6 +469,7 @@ export default function App() {
     return {
       caMensuel: monthlyInvoicesAmount + monthlySimulationsAmount,
       caTotal: totalPaidInvoices + totalSimulations,
+      caPotentiel: caPotentielInvoices,
       pipelineValue,
       activeCampaigns: simulations.length,
     };
@@ -620,15 +629,25 @@ export default function App() {
     addNotification('success', 'Lignes calculées et ajoutées.');
   };
 
-  const handleSaveInvoice = async () => {
-    if (!user || !currentInvoice || (!currentInvoice.clientId && !currentInvoice.clientName)) return addNotification('error', 'Veuillez renseigner ou lier un client.');
+  const handleSaveInvoice = async (closeModal = true) => {
+    const shouldClose = typeof closeModal === 'boolean' ? closeModal : true;
+    if (!user || !currentInvoice || (!currentInvoice.clientId && !currentInvoice.clientName)) {
+        addNotification('error', 'Veuillez renseigner ou lier un client.');
+        return false;
+    }
     const cleanInvoiceData = JSON.parse(JSON.stringify(currentInvoice));
     const amount = (cleanInvoiceData.items || []).reduce((acc: number, item: any) => acc + Number(item.price) * (item.qty || 1), 0);
     const invData = { ...cleanInvoiceData, amount, clientName: cleanInvoiceData.clientName || 'Client Inconnu' };
+    
     try {
       await setDoc(doc(db, `artifacts/${APP_ID}/users/${user.uid}/invoices`, invData.id), invData);
-      setShowModal(null); addNotification('success', 'Facture sauvegardée avec succès');
-    } catch (e) { addNotification('error', 'Erreur lors de la sauvegarde'); }
+      if (shouldClose) setShowModal(null); 
+      addNotification('success', 'Facture sauvegardée avec succès');
+      return true;
+    } catch (e) { 
+      addNotification('error', 'Erreur lors de la sauvegarde'); 
+      return false;
+    }
   };
 
   const handleDownloadPDF = () => {
@@ -709,10 +728,14 @@ export default function App() {
       });
   };
 
-  const handleEmailInvoice = () => {
+  const handleEmailInvoice = async () => {
       if (!currentInvoice) return addNotification('error', 'Erreur facture.');
-      const clientEmail = contacts.find(c => c.id === currentInvoice.clientId)?.email || '';
       
+      // Sauvegarde automatique et silencieuse avant d'envoyer
+      const saved = await handleSaveInvoice(false);
+      if (!saved) return;
+      
+      const clientEmail = contacts.find(c => c.id === currentInvoice.clientId)?.email || '';
       applyEmailTemplate(settings.emailTemplates?.[0]?.id || 'std', currentInvoice, clientEmail);
       setShowEmailModal(true);
   };
@@ -1315,7 +1338,6 @@ export default function App() {
   };
 
   const renderDashboard = () => {
-    // ... [Code inchangé, voir structure globale pour Dashboard, Calendar, Projections]
     const goal = settings.monthlyGoal || 50000;
     const progressGoal = Math.min((stats.caMensuel / goal) * 100, 100);
 
@@ -1332,12 +1354,18 @@ export default function App() {
       .sort((a,b) => new Date(a.nextContactDate!).getTime() - new Date(b.nextContactDate!).getTime())
       .slice(0, 5);
 
-    const defaultLayout = ['objective', 'stat_ca_month', 'stat_ca_total', 'stat_pipeline', 'stat_campaigns', 'reminders', 'invoices', 'activity'];
+    const defaultLayout = ['objective', 'stat_ca_month', 'stat_ca_total', 'stat_ca_potentiel', 'stat_pipeline', 'stat_campaigns', 'reminders', 'invoices', 'activity'];
     let currentLayout = settings.dashboardLayout && settings.dashboardLayout.length > 0 ? settings.dashboardLayout : defaultLayout;
     
-    // Injection automatique du nouveau widget si l'utilisateur a un ancien layout sauvegardé
-    if (!currentLayout.includes('reminders')) {
-        currentLayout = [...currentLayout, 'reminders'];
+    // Auto-migration pour inclure les nouveaux widgets s'ils n'y sont pas
+    if (!currentLayout.includes('reminders')) currentLayout = [...currentLayout, 'reminders'];
+    if (!currentLayout.includes('stat_ca_potentiel')) {
+        const insertIdx = currentLayout.indexOf('stat_ca_total') + 1;
+        currentLayout = [
+            ...currentLayout.slice(0, insertIdx > 0 ? insertIdx : 3), 
+            'stat_ca_potentiel', 
+            ...currentLayout.slice(insertIdx > 0 ? insertIdx : 3)
+        ];
     }
 
     const handleDragStart = (e: React.DragEvent, id: string) => {
@@ -1372,6 +1400,7 @@ export default function App() {
         objective: 'col-span-1 md:col-span-2 lg:col-span-4',
         stat_ca_month: 'col-span-1',
         stat_ca_total: 'col-span-1',
+        stat_ca_potentiel: 'col-span-1',
         stat_pipeline: 'col-span-1',
         stat_campaigns: 'col-span-1',
         reminders: 'col-span-1 md:col-span-2',
@@ -1405,15 +1434,22 @@ export default function App() {
         stat_ca_month: (
             <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] h-full">
                 <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center mb-4"><Wallet size={24} style={{ color: BRAND_COLOR }}/></div>
-                <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">CA ce mois</p>
+                <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">CA Encaissé (Mois)</p>
                 <h3 className="text-3xl font-extrabold mt-1 font-poppins" style={{ color: BRAND_COLOR }}>{renderCurrency(stats.caMensuel)}</h3>
             </div>
         ),
         stat_ca_total: (
             <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] h-full">
                 <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center mb-4"><CheckCircle size={24} className="text-emerald-500"/></div>
-                <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">CA Total Encaissé</p>
+                <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">CA Encaissé (Total)</p>
                 <h3 className="text-3xl font-extrabold text-emerald-500 mt-1 font-poppins">{renderCurrency(stats.caTotal)}</h3>
+            </div>
+        ),
+        stat_ca_potentiel: (
+            <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] h-full">
+                <div className="w-12 h-12 rounded-xl bg-purple-50 flex items-center justify-center mb-4"><TrendingUp size={24} className="text-purple-500"/></div>
+                <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">CA Potentiel (Attente)</p>
+                <h3 className="text-3xl font-extrabold text-purple-500 mt-1 font-poppins">{renderCurrency(stats.caPotentiel)}</h3>
             </div>
         ),
         stat_pipeline: (
@@ -1470,7 +1506,7 @@ export default function App() {
                         {recentInvoices.map(inv => (
                             <div key={inv.id} className="flex justify-between items-center p-3 hover:bg-slate-50 rounded-xl transition-colors cursor-pointer" onClick={() => { setCurrentInvoice(inv); setShowModal('invoice'); }}>
                                 <div className="flex items-center gap-3">
-                                    <div className={`w-2 h-2 rounded-full ${inv.status === 'payee' ? 'bg-emerald-500' : inv.status === 'retard' ? 'bg-orange-500' : inv.status === 'archive' ? 'bg-slate-500' : 'bg-blue-400'}`}></div>
+                                    <div className={`w-2 h-2 rounded-full ${inv.status === 'payee' ? 'bg-emerald-500' : inv.status === 'retard' ? 'bg-orange-500' : inv.status === 'archive' || inv.status === 'annulee' ? 'bg-slate-500' : 'bg-blue-400'}`}></div>
                                     <div>
                                         <p className="font-bold text-slate-800 text-sm">{inv.clientName}</p>
                                         <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{formatDate(inv.date)}</p>
@@ -1718,7 +1754,7 @@ export default function App() {
              </div>
              <div>
                 <span className="font-extrabold text-xl font-poppins tracking-wide block leading-tight" style={{ color: BRAND_COLOR }}>LeadPartner</span>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">CRM Cloud</span>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">CRM Cloud v{APP_VERSION}</span>
              </div>
           </div>
           <nav className="space-y-2">
@@ -1991,7 +2027,15 @@ export default function App() {
                               <td className="px-8 py-5 font-extrabold text-slate-800 font-poppins">{inv.clientName}</td>
                               <td className="px-8 py-5 font-medium text-slate-500">{formatDate(inv.date)}</td>
                               <td className="px-8 py-5 font-extrabold font-mono text-lg text-slate-800">{renderCurrency(inv.amount)}</td>
-                              <td className="px-8 py-5"><span className={`px-3 py-1.5 rounded-lg text-xs font-extrabold uppercase tracking-wide border ${INVOICE_STATUSES[inv.status]?.color || 'bg-white text-slate-500'}`}>{INVOICE_STATUSES[inv.status]?.label || inv.status}</span></td>
+                              <td className="px-8 py-5" onClick={(e) => e.stopPropagation()}>
+                                <select 
+                                    value={inv.status} 
+                                    onChange={(e) => handleUpdate('invoices', inv.id, { status: e.target.value })}
+                                    className={`px-2 py-1.5 rounded-md text-[10px] font-extrabold uppercase tracking-wide border outline-none cursor-pointer ${INVOICE_STATUSES[inv.status]?.color || 'bg-slate-100 text-slate-600'}`}
+                                >
+                                    {Object.entries(INVOICE_STATUSES).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}
+                                </select>
+                              </td>
                               <td className="px-8 py-5 text-right"><span className="text-[#01189B] font-bold text-xs uppercase tracking-wide opacity-0 group-hover:opacity-100 transition-opacity flex justify-end items-center gap-1">Ouvrir <ArrowRight size={14}/></span></td>
                             </tr>
                           ))}
@@ -2175,21 +2219,21 @@ export default function App() {
           <div className="bg-slate-100 w-full max-w-6xl h-[95vh] md:h-[90vh] rounded-3xl flex flex-col shadow-2xl overflow-hidden animate-fade-in border border-slate-700">
             <div className="h-20 border-b border-slate-200 flex justify-between items-center px-8 bg-white no-print shrink-0 z-10 shadow-sm">
               <h3 className="font-extrabold text-xl font-poppins text-slate-800 flex items-center gap-3"><FileText style={{ color: BRAND_COLOR }} size={24}/> Éditeur de Facture</h3>
-              <div className="flex gap-4">
-                <div className="flex items-center gap-3 mr-6 border-r border-slate-200 pr-6 hidden lg:flex">
+              <div className="flex gap-2">
+                <div className="flex items-center gap-2 mr-2 border-r border-slate-200 pr-2 hidden lg:flex">
                   <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">État</span>
                   <select 
                     value={currentInvoice.status || 'brouillon'} 
                     onChange={e => setCurrentInvoice({...currentInvoice, status: e.target.value})}
-                    className="border-2 border-slate-100 p-2.5 rounded-xl bg-slate-50 hover:bg-white text-sm font-bold text-slate-700 outline-none focus:border-[#01189B] cursor-pointer transition-colors"
+                    className="border-2 border-slate-100 p-1.5 rounded-lg bg-slate-50 hover:bg-white text-xs font-bold text-slate-700 outline-none focus:border-[#01189B] cursor-pointer transition-colors"
                   >
                     {Object.entries(INVOICE_STATUSES).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}
                   </select>
                 </div>
-                <button onClick={handleDownloadPDF} className="px-5 py-2.5 bg-slate-100 text-slate-600 rounded-xl flex gap-2 items-center font-bold hover:bg-slate-200 transition-colors"><Download size={18} /> Télécharger PDF</button>
-                <button onClick={handleEmailInvoice} className="px-5 py-2.5 bg-orange-100 text-orange-700 rounded-xl flex gap-2 items-center font-bold hover:bg-orange-200 transition-colors"><Mail size={18} /> Gérer Envoi Email</button>
-                <button onClick={handleSaveInvoice} className="px-6 py-2.5 text-white rounded-xl flex gap-2 items-center font-bold hover:shadow-lg transition-all" style={{ backgroundColor: BRAND_COLOR }}><CheckCircle size={18} /> <span className="hidden md:block">Sauvegarder</span></button>
-                <button onClick={() => setShowModal(null)} className="p-3 bg-white border border-slate-200 hover:text-red-500 hover:border-red-200 rounded-xl transition-colors"><X size={20} /></button>
+                <button onClick={handleDownloadPDF} className="px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg flex gap-1.5 items-center font-bold hover:bg-slate-200 transition-colors text-xs whitespace-nowrap"><Download size={14} /> PDF</button>
+                <button onClick={handleEmailInvoice} className="px-3 py-1.5 bg-orange-100 text-orange-700 rounded-lg flex gap-1.5 items-center font-bold hover:bg-orange-200 transition-colors text-xs whitespace-nowrap"><Mail size={14} /> Email</button>
+                <button onClick={() => handleSaveInvoice(true)} className="px-3 py-1.5 text-white rounded-lg flex gap-1.5 items-center font-bold hover:shadow-lg transition-all text-xs whitespace-nowrap" style={{ backgroundColor: BRAND_COLOR }}><CheckCircle size={14} /> <span className="hidden md:inline">Enregistrer</span></button>
+                <button onClick={() => setShowModal(null)} className="p-1.5 bg-white border border-slate-200 hover:text-red-500 hover:border-red-200 rounded-lg transition-colors"><X size={16} /></button>
               </div>
             </div>
             
@@ -2247,6 +2291,11 @@ export default function App() {
                         {currentInvoice.status === 'archive' && (
                             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-12 opacity-10 pointer-events-none select-none">
                                 <span className="text-8xl font-extrabold uppercase tracking-widest text-slate-900">Archivée</span>
+                            </div>
+                        )}
+                        {currentInvoice.status === 'annulee' && (
+                            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-12 opacity-10 pointer-events-none select-none">
+                                <span className="text-8xl font-extrabold uppercase tracking-widest text-red-900">Annulée</span>
                             </div>
                         )}
                         <div className="flex justify-between mb-8 border-b-4 pb-4" style={{ borderColor: BRAND_COLOR }}>
