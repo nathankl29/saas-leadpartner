@@ -655,16 +655,21 @@ export default function App() {
             });
         }
 
-        const pdfBase64 = await (window as any).html2pdf().set(opt).from(element).outputPdf('datauristring');
+        const rawPdfBase64 = await (window as any).html2pdf().set(opt).from(element).outputPdf('datauristring');
+        // Nettoyage strict du préfixe pour envoyer uniquement le code pur du fichier à Make.com
+        const cleanBase64 = rawPdfBase64.includes('base64,') ? rawPdfBase64.split('base64,')[1] : rawPdfBase64;
+
+        // Conversion des sauts de ligne textuels en balises HTML <br> pour l'affichage email
+        const formattedMessage = emailData.body.replace(/\n/g, '<br>');
 
         const payload = {
             to_email: emailData.to,
             subject: emailData.subject,
-            message: emailData.body,
+            message: formattedMessage,
             reply_to: settings.email,
             invoice_id: currentInvoice?.id || 'Facture',
             client_name: currentInvoice?.clientName || 'Client',
-            pdf_attachment_base64: pdfBase64
+            pdf_attachment_base64: cleanBase64
         };
 
         const response = await fetch(settings.webhookUrl, {
