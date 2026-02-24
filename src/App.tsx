@@ -20,7 +20,7 @@ import {
 } from 'firebase/auth';
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '43.2';
+const APP_VERSION = '43.4';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -676,9 +676,17 @@ export default function App() {
       if (!template) return;
 
       const invId = invoice.id || 'N/A';
-      const amount = formatCurrency(invoice.amount || 0);
+      
+      // Calcul du montant en temps réel (même si la facture n'est pas encore sauvegardée)
+      const invoiceTotal = invoice.amount || (invoice.items || []).reduce((acc: number, item: any) => acc + Number(item.price) * (item.qty || 1), 0);
+      const amount = formatCurrency(invoiceTotal);
+      
       const company = settings.companyName;
       const clientName = invoice.clientName || 'Client';
+
+      const contactAssocie = contacts.find(c => c.id === invoice.clientId);
+      const nomCompletContact = contactAssocie?.name || '';
+      const prenomContact = nomCompletContact.split(' ')[0] || '';
 
       // Remplacement des variables dynamiques
       const replaceVars = (str: string) => {
@@ -686,7 +694,10 @@ export default function App() {
             .replace(/\{\{facture\}\}/g, invId)
             .replace(/\{\{montant\}\}/g, amount)
             .replace(/\{\{agence\}\}/g, company)
-            .replace(/\{\{client\}\}/g, clientName);
+            .replace(/\{\{client\}\}/g, clientName)
+            .replace(/\{\{societe\}\}/g, clientName)
+            .replace(/\{\{nom_contact\}\}/g, nomCompletContact)
+            .replace(/\{\{prenom_contact\}\}/g, prenomContact);
       };
 
       setEmailData({ 
@@ -2083,22 +2094,13 @@ export default function App() {
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
           <div className="bg-white p-10 rounded-3xl w-full max-w-md shadow-2xl border border-slate-100 animate-fade-in overflow-y-auto max-h-[90vh]">
             <h3 className="text-2xl font-extrabold mb-8 font-poppins text-slate-800 flex items-center gap-3"><Users style={{ color: BRAND_COLOR }} size={24}/> Créer une fiche CRM</h3>
-            <form onSubmit={(e) => { e.preventDefault(); const fd = new FormData(e.target as any); handleCreate('contacts', { name: fd.get('name'), company: fd.get('company'), email: fd.get('email'), phone: fd.get('phone'), address: fd.get('address'), status: fd.get('status'), type: fd.get('type'), source: fd.get('source'), sourceDetails: fd.get('sourceDetails') }); }} className="space-y-5">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
+            <form onSubmit={(e) => { e.preventDefault(); const fd = new FormData(e.target as any); handleCreate('contacts', { name: fd.get('name'), company: fd.get('company'), email: fd.get('email'), phone: fd.get('phone'), address: fd.get('address'), status: fd.get('type') === 'client' ? 'gagne' : 'nouveau', type: fd.get('type'), source: fd.get('source'), sourceDetails: fd.get('sourceDetails') }); }} className="space-y-5">
+              <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Type</label>
                   <select name="type" className="w-full border-2 border-slate-100 bg-slate-50 p-3.5 rounded-xl font-bold outline-none focus:border-[#01189B] focus:bg-white transition-colors">
                     <option value="prospect">Prospect</option>
                     <option value="client">Client</option>
                   </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Statut Initial</label>
-                  <select name="status" className="w-full border-2 border-slate-100 bg-slate-50 p-3.5 rounded-xl font-bold text-[#01189B] outline-none focus:border-[#01189B] focus:bg-white transition-colors">
-                    <option value="nouveau">👤 Nouveau Prospect</option>
-                    <option value="gagne">✅ Client Signé</option>
-                  </select>
-                </div>
               </div>
               <div><label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Raison Sociale / Société</label><input name="company" required className="w-full border-2 border-slate-100 bg-slate-50 p-3.5 rounded-xl outline-none focus:border-[#01189B] focus:bg-white font-bold text-slate-800 transition-colors" placeholder="Société ABC" /></div>
               <div><label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Interlocuteur</label><input name="name" required className="w-full border-2 border-slate-100 bg-slate-50 p-3.5 rounded-xl outline-none focus:border-[#01189B] focus:bg-white font-medium text-slate-800 transition-colors" placeholder="Nom Prénom" /></div>
