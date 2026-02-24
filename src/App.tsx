@@ -212,7 +212,7 @@ export default function App() {
     legalNotice: 'Entreprise individuelle non soumise à la TVA',
     primaryColor: BRAND_COLOR,
     monthlyGoal: 50000,
-    dashboardLayout: ['objective', 'stat_ca_month', 'stat_ca_total', 'stat_pipeline', 'stat_campaigns', 'invoices', 'activity'],
+    dashboardLayout: ['objective', 'stat_ca_month', 'stat_ca_total', 'stat_pipeline', 'stat_campaigns', 'reminders', 'invoices', 'activity'],
     webhookUrl: '', 
     emailTemplates: DEFAULT_EMAIL_TEMPLATES,
   });
@@ -740,7 +740,7 @@ export default function App() {
         
         {/* BANNIÈRE DE RAPPEL */}
         {hasReminder && (
-            <div className={`px-8 py-3 flex justify-between items-center text-sm font-bold ${isReminderDue ? 'bg-red-500 text-white' : 'bg-orange-100 text-orange-800'}`}>
+            <div className={`px-8 py-3 flex justify-between items-center text-sm font-bold shrink-0 ${isReminderDue ? 'bg-red-500 text-white' : 'bg-orange-100 text-orange-800'}`}>
                 <div className="flex items-center gap-2">
                     <Bell size={18} className={isReminderDue ? 'animate-bounce' : ''} />
                     <span>
@@ -755,7 +755,7 @@ export default function App() {
         )}
 
         {/* Header Contact */}
-        <div className="p-8 border-b border-slate-100 bg-white/50 backdrop-blur-sm flex justify-between items-start relative">
+        <div className="p-8 border-b border-slate-100 bg-white/50 backdrop-blur-sm flex justify-between items-start relative shrink-0">
           <div className="absolute top-0 right-0 w-64 h-64 bg-slate-50 rounded-full blur-3xl opacity-50 pointer-events-none -mr-20 -mt-20"></div>
           <div className="flex gap-6 relative z-10">
             <button onClick={() => setSelectedContactId(null)} className="mt-1 p-3 bg-white border border-slate-200 shadow-sm rounded-xl hover:bg-slate-50 transition-colors text-slate-500 h-fit">
@@ -805,7 +805,7 @@ export default function App() {
 
         {/* Panneau d'édition (si actif) */}
         {isEditingContact && (
-          <div className="p-8 bg-slate-50 border-b border-slate-200 shadow-inner animate-fade-in z-20 relative">
+          <div className="p-8 bg-slate-50 border-b border-slate-200 shadow-inner animate-fade-in z-20 relative shrink-0 overflow-y-auto max-h-[50vh] custom-scrollbar">
              <div className="flex justify-between items-center mb-6">
                  <h4 className="font-bold text-slate-800 font-poppins text-lg flex items-center gap-2"><Settings size={20}/> Mode Édition</h4>
                  <button onClick={() => setIsEditingContact(false)} className="text-slate-400 hover:text-slate-600"><X size={24}/></button>
@@ -1025,8 +1025,18 @@ export default function App() {
       .sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime())
       .slice(0, 4);
 
-    const defaultLayout = ['objective', 'stat_ca_month', 'stat_ca_total', 'stat_pipeline', 'stat_campaigns', 'invoices', 'activity'];
-    const currentLayout = settings.dashboardLayout && settings.dashboardLayout.length > 0 ? settings.dashboardLayout : defaultLayout;
+    const activeReminders = contacts
+      .filter(c => c.nextContactDate)
+      .sort((a,b) => new Date(a.nextContactDate!).getTime() - new Date(b.nextContactDate!).getTime())
+      .slice(0, 5);
+
+    const defaultLayout = ['objective', 'stat_ca_month', 'stat_ca_total', 'stat_pipeline', 'stat_campaigns', 'reminders', 'invoices', 'activity'];
+    let currentLayout = settings.dashboardLayout && settings.dashboardLayout.length > 0 ? settings.dashboardLayout : defaultLayout;
+    
+    // Injection automatique du nouveau widget si l'utilisateur a un ancien layout sauvegardé
+    if (!currentLayout.includes('reminders')) {
+        currentLayout = [...currentLayout, 'reminders'];
+    }
 
     const handleDragStart = (e: React.DragEvent, id: string) => {
         e.dataTransfer.setData('widget_id', id);
@@ -1062,6 +1072,7 @@ export default function App() {
         stat_ca_total: 'col-span-1',
         stat_pipeline: 'col-span-1',
         stat_campaigns: 'col-span-1',
+        reminders: 'col-span-1 md:col-span-2',
         invoices: 'col-span-1 md:col-span-2',
         activity: 'col-span-1 md:col-span-2',
     };
@@ -1115,6 +1126,33 @@ export default function App() {
                 <div className="w-12 h-12 rounded-xl bg-indigo-50 flex items-center justify-center mb-4"><PlayCircle size={24} className="text-indigo-600"/></div>
                 <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">Campagnes Actives</p>
                 <h3 className="text-3xl font-extrabold text-indigo-600 mt-1 font-poppins">{renderNumber(stats.activeCampaigns)} <span className="text-sm font-medium text-slate-400 font-inter">en prod.</span></h3>
+            </div>
+        ),
+        reminders: (
+            <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] h-full">
+                <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
+                    <h3 className="font-extrabold text-slate-800 font-poppins text-lg flex items-center gap-2"><Bell className="text-orange-500" size={20}/> Rappels & Relances</h3>
+                    <span className="text-xs font-bold text-slate-400 bg-slate-100 px-3 py-1 rounded-full">{activeReminders.length} à venir</span>
+                </div>
+                {activeReminders.length === 0 ? (
+                    <p className="text-slate-400 text-sm italic text-center py-6">Aucun rappel programmé.</p>
+                ) : (
+                    <div className="space-y-4">
+                        {activeReminders.map(contact => {
+                            const date = new Date(contact.nextContactDate!);
+                            const isOverdue = date <= new Date();
+                            return (
+                                <div key={contact.id} onClick={() => setSelectedContactId(contact.id)} className={`flex flex-col p-3 rounded-xl cursor-pointer hover:shadow-sm transition-all border ${isOverdue ? 'bg-red-50/50 border-red-100 hover:border-red-300' : 'bg-slate-50 border-slate-100 hover:border-[#01189B]'}`}>
+                                    <div className="flex justify-between items-center mb-1">
+                                        <p className="font-bold text-slate-800 text-sm">{contact.company}</p>
+                                        <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-md ${isOverdue ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>{isOverdue ? 'Échu !' : formatDate(contact.nextContactDate!)}</span>
+                                    </div>
+                                    <p className="text-xs text-slate-500 line-clamp-1">{contact.nextContactNote || 'Relance planifiée'}</p>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
             </div>
         ),
         invoices: (
