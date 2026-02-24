@@ -655,9 +655,15 @@ export default function App() {
             });
         }
 
-        const rawPdfBase64 = await (window as any).html2pdf().set(opt).from(element).outputPdf('datauristring');
+        // Extraction sécurisée du PDF
+        const rawPdfBase64 = await new Promise<string>((resolve) => {
+             (window as any).html2pdf().set(opt).from(element).toPdf().get('pdf').then((pdf: any) => {
+                  resolve(pdf.output('datauristring'));
+             });
+        });
+        
         // Nettoyage strict du préfixe pour envoyer uniquement le code pur du fichier à Make.com
-        const cleanBase64 = rawPdfBase64.includes('base64,') ? rawPdfBase64.split('base64,')[1] : rawPdfBase64;
+        const cleanBase64 = rawPdfBase64.includes('base64,') ? rawPdfBase64.substring(rawPdfBase64.indexOf('base64,') + 7) : rawPdfBase64;
 
         // Conversion des sauts de ligne textuels en balises HTML <br> pour l'affichage email
         const formattedMessage = emailData.body.replace(/\n/g, '<br>');
