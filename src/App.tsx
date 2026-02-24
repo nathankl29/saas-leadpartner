@@ -20,7 +20,7 @@ import {
 } from 'firebase/auth';
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '43.1';
+const APP_VERSION = '43.2';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -114,11 +114,18 @@ const formatCurrency = (amount?: number) => {
 const LoginScreen = ({ onLogin, addNotification }: { onLogin: () => void; addNotification: (t: any, m: string) => void }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [localError, setLocalError] = useState('');
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password) return addNotification('error', 'Veuillez remplir les champs');
+    setLocalError('');
+    
+    if (!email || !password) {
+        setLocalError('Veuillez remplir tous les champs.');
+        return addNotification('error', 'Veuillez remplir les champs');
+    }
     if (!auth) return addNotification('error', 'Firebase non initialisé.');
 
     setIsLoggingIn(true);
@@ -133,6 +140,7 @@ const LoginScreen = ({ onLogin, addNotification }: { onLogin: () => void; addNot
       if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
         errorMsg = 'Email ou mot de passe incorrect.';
       }
+      setLocalError(errorMsg);
       addNotification('error', errorMsg);
     } finally {
       setIsLoggingIn(false);
@@ -153,6 +161,12 @@ const LoginScreen = ({ onLogin, addNotification }: { onLogin: () => void; addNot
         <div className="p-8">
           
           <form onSubmit={handleLoginSubmit} className="space-y-4">
+            {localError && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2 animate-fade-in">
+                    <AlertTriangle size={18} className="shrink-0" />
+                    {localError}
+                </div>
+            )}
             <div>
               <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Email autorisé</label>
               <input 
@@ -165,13 +179,22 @@ const LoginScreen = ({ onLogin, addNotification }: { onLogin: () => void; addNot
             </div>
             <div>
               <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Mot de passe</label>
-              <input 
-                type="password" 
-                value={password} 
-                onChange={(e) => setPassword(e.target.value)} 
-                className="w-full border-2 border-slate-100 bg-slate-50 rounded-xl p-3.5 outline-none focus:border-[#01189B] focus:bg-white transition-colors" 
-                placeholder="••••••••" 
-              />
+              <div className="relative">
+                  <input 
+                    type={showPassword ? "text" : "password"} 
+                    value={password} 
+                    onChange={(e) => setPassword(e.target.value)} 
+                    className="w-full border-2 border-slate-100 bg-slate-50 rounded-xl p-3.5 pr-12 outline-none focus:border-[#01189B] focus:bg-white transition-colors" 
+                    placeholder="••••••••" 
+                  />
+                  <button 
+                    type="button" 
+                    onClick={() => setShowPassword(!showPassword)} 
+                    className="absolute right-4 top-3.5 text-slate-400 hover:text-[#01189B] transition-colors"
+                  >
+                      {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                  </button>
+              </div>
             </div>
             <button 
                 type="submit" 
@@ -276,26 +299,33 @@ export default function App() {
 
   // --- AUTH ---
   useEffect(() => {
-    const initAuth = async () => {
-      if (!auth) {
-        setIsOfflineMode(true); setUser({ uid: 'offline', email: 'demo@offline' }); setLoading(false); return;
-      }
-      if ((window as any).__initial_auth_token) {
-        await signInWithCustomToken(auth, (window as any).__initial_auth_token);
-      } else {
-        try { await signInAnonymously(auth); } catch (e) {
-          setIsOfflineMode(true); setUser({ uid: 'offline', email: 'demo@offline' });
+    if (!auth) {
+        setIsOfflineMode(true); 
+        setUser({ uid: 'offline', email: 'demo@offline' }); 
+        setLoading(false); 
+        return;
+    }
+
+    const unsubscribe = onAuthStateChanged(auth, async (u) => {
+        if (u) {
+            setUser(u);
+            setIsAppAuthenticated(true);
+            setIsOfflineMode(false);
+            setLoading(false);
+        } else {
+            if ((window as any).__initial_auth_token) {
+                try {
+                    await signInWithCustomToken(auth, (window as any).__initial_auth_token);
+                } catch (e) {
+                    setLoading(false);
+                }
+            } else {
+                setLoading(false);
+            }
         }
-      }
-    };
-    initAuth();
-    if (auth) {
-      const unsubscribe = onAuthStateChanged(auth, (u) => {
-        if (u) { setUser(u); setIsOfflineMode(false); }
-        setLoading(false);
-      });
-      return () => unsubscribe();
-    } else setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, []);
 
   // --- SYNC DB & AUTO-SEED PRODUCTS/CONTACTS ---
@@ -306,14 +336,7 @@ export default function App() {
       const unsubs = [
         onSnapshot(collection(db, `${basePath}/contacts`), (s: any) => {
           const loadedContacts = s.docs.map((d: any) => ({ id: d.id, ...d.data() }));
-          if (s.empty) {
-             const fakeClient = {
-                name: 'Elon Musk', company: 'Tesla Suisse SA', email: 'elon@tesla.com', phone: '+41 79 123 45 67', status: 'gagne', projectedBudget: 15000, createdAt: new Date().toISOString()
-             };
-             addDoc(collection(db, `${basePath}/contacts`), fakeClient).then(() => console.log('Client de test généré.'));
-          } else {
-             setContacts(loadedContacts);
-          }
+          setContacts(loadedContacts);
         }),
         
         onSnapshot(collection(db, `${basePath}/products`), (s: any) => {
@@ -359,26 +382,42 @@ export default function App() {
 
   // --- FILTRES & STATS ---
   const displayedContacts = useMemo(() => {
-    let filtered = contacts.filter((c) => c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || c.company?.toLowerCase().includes(searchTerm.toLowerCase()));
-    if (contactFilterType === 'client') filtered = filtered.filter((c) => c.status === 'gagne');
-    else if (contactFilterType === 'prospect') filtered = filtered.filter((c) => c.status !== 'gagne' && c.status !== 'perdu');
-    return filtered;
+    const searchLower = searchTerm.toLowerCase();
+    return contacts.filter((c) => {
+      const matchSearch = c.name?.toLowerCase().includes(searchLower) || c.company?.toLowerCase().includes(searchLower);
+      if (!matchSearch) return false;
+      if (contactFilterType === 'client') return c.status === 'gagne';
+      if (contactFilterType === 'prospect') return c.status !== 'gagne' && c.status !== 'perdu';
+      return true;
+    });
   }, [contacts, searchTerm, contactFilterType]);
 
   const stats = useMemo(() => {
     const currentMonth = new Date().getMonth();
     const currentYear = new Date().getFullYear();
-    const monthInvoices = invoices.filter((i) => { const d = new Date(i.date); return d.getMonth() === currentMonth && d.getFullYear() === currentYear; });
-    const totalPaidInvoices = invoices.reduce((acc, i) => (i.status === 'payee' ? acc + Number(i.amount ?? 0) : acc), 0);
-    const monthlyInvoicesAmount = monthInvoices.reduce((acc, i) => acc + Number(i.amount ?? 0), 0);
-    const totalSimulations = simulations.reduce((acc, s) => acc + Number(s.budget ?? 0), 0);
-    const monthSimulations = simulations.filter((s) => { const d = new Date(s.createdAt); return d.getMonth() === currentMonth && d.getFullYear() === currentYear; });
-    const monthlySimulationsAmount = monthSimulations.reduce((acc, s) => acc + Number(s.budget ?? 0), 0);
+
+    let monthlyInvoicesAmount = 0, totalPaidInvoices = 0;
+    invoices.forEach((i) => {
+      const amt = Number(i.amount ?? 0);
+      if (i.status === 'payee') totalPaidInvoices += amt;
+      const d = new Date(i.date);
+      if (d.getMonth() === currentMonth && d.getFullYear() === currentYear) monthlyInvoicesAmount += amt;
+    });
+
+    let monthlySimulationsAmount = 0, totalSimulations = 0;
+    simulations.forEach((s) => {
+      const budget = Number(s.budget ?? 0);
+      totalSimulations += budget;
+      const d = new Date(s.createdAt);
+      if (d.getMonth() === currentMonth && d.getFullYear() === currentYear) monthlySimulationsAmount += budget;
+    });
+
+    const pipelineValue = contacts.reduce((acc, c) => (c.status !== 'gagne' && c.status !== 'perdu') ? acc + Number(c.projectedBudget ?? 0) : acc, 0);
 
     return {
       caMensuel: monthlyInvoicesAmount + monthlySimulationsAmount,
       caTotal: totalPaidInvoices + totalSimulations,
-      pipelineValue: contacts.reduce((acc, c) => c.status !== 'gagne' && c.status !== 'perdu' ? acc + Number(c.projectedBudget ?? 0) : acc, 0),
+      pipelineValue,
       activeCampaigns: simulations.length,
     };
   }, [invoices, contacts, simulations]);
@@ -1029,6 +1068,103 @@ export default function App() {
     );
   };
 
+  const renderProjections = () => {
+    const activeProduct = products.find((p) => p.id === planProductId) || products[0];
+    let planStats = { volumeTotal: 0, costTotal: 0, profit: 0, dailyVolume: 0, dailyBudget: 0, margin: 0, fees: 0, arbitrage: 0 };
+    if (activeProduct && planBudget > 0 && activeProduct.price > 0) {
+      const fees = planBudget * 0.35; const netMedia = planBudget * 0.65; const volumeTotal = Math.floor(netMedia / activeProduct.price); const costTotal = volumeTotal * Number(activeProduct.cost ?? 0);
+      const arbitrage = netMedia - costTotal; const profit = fees + arbitrage; planStats = { volumeTotal, costTotal, profit, dailyVolume: volumeTotal / 30, dailyBudget: costTotal / 30, margin: (profit / planBudget) * 100, fees, arbitrage };
+    }
+
+    const totalSimulations = simulations.length;
+    const globalStats = simulations.reduce((acc, sim) => ({ totalBudget: acc.totalBudget + sim.budget, totalMediaSpend: acc.totalMediaSpend + sim.stats.costTotal, totalProfit: acc.totalProfit + sim.stats.profit, totalLeads: acc.totalLeads + sim.stats.volumeTotal }), { totalBudget: 0, totalMediaSpend: 0, totalProfit: 0, totalLeads: 0 });
+    const globalMarginPercent = globalStats.totalBudget > 0 ? (globalStats.totalProfit / globalStats.totalBudget) * 100 : 0;
+
+    return (
+      <div className="space-y-8 animate-fade-in pb-12">
+        <div className="space-y-6 max-w-7xl mx-auto">
+          <h2 className="text-3xl font-extrabold flex items-center gap-3 text-slate-800 font-poppins"><Target style={{ color: BRAND_COLOR }} size={32} /> Pilotage Mensuel Média</h2>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] hover:-translate-y-1 transition-transform cursor-default"><p className="text-xs font-bold text-slate-400 uppercase mb-2 tracking-wide flex justify-between">CA Signé <Wallet style={{ color: BRAND_COLOR }} size={18} /></p><p className="text-3xl font-extrabold text-slate-800 font-poppins">{renderCurrency(globalStats.totalBudget)}</p><p className="text-xs font-bold text-[#01189B] mt-2 bg-blue-50 inline-block px-2 py-1 rounded-md">{renderNumber(totalSimulations)} contrats validés</p></div>
+            <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] hover:-translate-y-1 transition-transform cursor-default"><p className="text-xs font-bold text-slate-400 uppercase mb-2 tracking-wide flex justify-between">Budget Média <PieChart className="text-orange-400" size={18} /></p><p className="text-3xl font-extrabold text-orange-500 font-poppins">{renderCurrency(globalStats.totalMediaSpend)}</p><p className="text-xs font-medium text-slate-500 mt-2">Dépense publicitaire max</p></div>
+            <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] hover:-translate-y-1 transition-transform cursor-default"><p className="text-xs font-bold text-slate-400 uppercase mb-2 tracking-wide flex justify-between">Marge Nette <TrendingUp className="text-emerald-500" size={18} /></p><p className="text-3xl font-extrabold text-emerald-500 font-poppins">{renderCurrency(globalStats.totalProfit)}</p><p className="text-xs text-emerald-700 font-extrabold mt-2 bg-emerald-50 inline-block px-2 py-1 rounded-md">{renderNumber(globalMarginPercent.toFixed(1))}% rentabilité</p></div>
+            <div className="p-6 rounded-2xl shadow-lg hover:-translate-y-1 transition-transform cursor-default relative overflow-hidden" style={{ backgroundColor: BRAND_COLOR }}>
+              <div className="absolute top-0 right-0 p-16 bg-white rounded-full blur-3xl opacity-10 -mr-8 -mt-8"></div>
+              <p className="text-xs font-bold text-blue-200 uppercase mb-2 tracking-wide flex justify-between relative z-10">Volume Leads <Users size={18} /></p>
+              <p className="text-4xl font-extrabold font-poppins text-white relative z-10">{renderNumber(globalStats.totalLeads)}</p>
+              <p className="text-xs text-blue-200 mt-2 font-medium relative z-10">À produire ce mois-ci</p>
+            </div>
+          </div>
+          
+          <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden mt-8">
+            <div className="bg-slate-50 p-6 border-b border-slate-100">
+              <h2 className="text-lg font-extrabold flex items-center gap-2 font-poppins text-slate-800"><Calculator style={{ color: BRAND_COLOR }} size={20} /> Convertir Contrat en Production Média</h2>
+              <p className="text-slate-500 text-sm mt-1">Ajoutez un contrat signé pour l'activer dans les cycles (Cela générera les graphiques dans le calendrier).</p>
+            </div>
+            <div className="p-8 grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
+              <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2 tracking-wide">1. Choix Client</label><select value={planClientId} onChange={(e) => setPlanClientId(e.target.value)} className="w-full border-2 border-slate-200 bg-slate-50 focus:bg-white p-3.5 rounded-xl font-medium outline-none focus:border-[#01189B] transition-colors"><option value="">-- Aucun --</option>{contacts.map((c) => (<option key={c.id} value={c.id}>{c.company}</option>))}</select></div>
+              <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2 tracking-wide">2. Thématique</label><select value={planProductId} onChange={(e) => setPlanProductId(e.target.value)} className="w-full border-2 border-slate-200 bg-slate-50 focus:bg-white p-3.5 rounded-xl font-medium outline-none focus:border-[#01189B] transition-colors"><option value="">-- Choisir --</option>{products.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}</select></div>
+              <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2 tracking-wide">3. Budget Signé</label><input type="number" value={planBudget} onChange={(e) => setPlanBudget(Number(e.target.value))} className="w-full border-2 border-slate-200 bg-slate-50 focus:bg-white p-3.5 rounded-xl font-extrabold text-lg text-[#01189B] outline-none focus:border-[#01189B] transition-colors" /></div>
+              <button onClick={() => handleSaveSimulation(planStats)} className="w-full text-white py-3.5 rounded-xl font-bold flex items-center justify-center gap-2 hover:shadow-lg hover:-translate-y-0.5 transition-all text-lg" style={{ backgroundColor: BRAND_COLOR }}><Plus size={20} /> Démarrer la prod.</button>
+            </div>
+          </div>
+
+          <h2 className="text-2xl font-extrabold text-slate-800 mb-6 mt-12 flex items-center gap-3 font-poppins"><Save size={24} style={{ color: BRAND_COLOR }} /> Carnet de Production Actuel</h2>
+          {simulations.length === 0 ? (
+            <div className="bg-white p-12 text-center rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] text-slate-400 font-medium">Aucun contrat en production. Remplissez le convertisseur ci-dessus.</div>
+          ) : (
+            <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-slate-50 text-slate-500 uppercase font-extrabold text-[10px] tracking-wider border-b border-slate-100">
+                    <tr><th className="px-6 py-5">Client / Thématique</th><th className="px-6 py-5">Progression Temps</th><th className="px-6 py-5">Budget Facturé</th><th className="px-6 py-5">Objectif Leads</th><th className="px-6 py-5">Bénéfice Prévu</th><th className="px-6 py-5 text-right">Action</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {simulations.map((sim) => {
+                      const start = new Date(sim.createdAt);
+                      const diffDays = Math.max(0, Math.floor((new Date().getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+                      const day = Math.min(diffDays, 30);
+                      const daysPercent = (day / 30) * 100;
+                      const isFinished = day >= 30;
+
+                      return (
+                      <tr key={sim.id} className="hover:bg-blue-50/30 transition-colors">
+                        <td className="px-6 py-5">
+                          <p className="font-extrabold text-slate-800 font-poppins">{sim.clientName || 'N/A'}</p>
+                          <p className="font-bold text-xs mt-1 text-[#01189B] flex items-center gap-1"><Package size={12}/> {sim.productName}</p>
+                        </td>
+                        <td className="px-6 py-5 w-48">
+                          <div className="flex justify-between text-[10px] font-bold text-slate-400 mb-1">
+                            <span>J-{day}</span><span>30 J</span>
+                          </div>
+                          <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                            <div className={`h-full rounded-full transition-all ${isFinished ? 'bg-emerald-500' : 'bg-blue-500'}`} style={{ width: `${daysPercent}%` }}></div>
+                          </div>
+                          {isFinished && <span className="text-[10px] text-emerald-600 font-bold mt-1 inline-block">Terminé</span>}
+                        </td>
+                        <td className="px-6 py-5 font-mono font-bold text-slate-600">{renderCurrency(sim.budget)}</td>
+                        <td className="px-6 py-5">
+                          <div className="bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg font-extrabold inline-flex items-center gap-2">
+                            <Target size={14}/> {renderNumber(sim.stats?.volumeTotal)}
+                          </div>
+                        </td>
+                        <td className="px-6 py-5">
+                          <span className={`font-extrabold px-3 py-1.5 rounded-lg font-mono ${(sim.stats?.margin || 0) >= 30 ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700'}`}>
+                            {renderCurrency(sim.stats?.profit)} <span className="text-[10px] ml-1">({renderNumber((sim.stats?.margin || 0).toFixed(0))}%)</span>
+                          </span>
+                        </td>
+                        <td className="px-6 py-5 text-right"><button onClick={() => handleDelete('simulations', sim.id)} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={18} /></button></td>
+                      </tr>
+                    )})}
+                  </tbody>
+                </table>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const renderDashboard = () => {
     // ... [Code inchangé, voir structure globale pour Dashboard, Calendar, Projections]
     const goal = settings.monthlyGoal || 50000;
@@ -1561,88 +1697,8 @@ export default function App() {
                     </div>
               )}
               {activeView === 'settings' && renderSettings()}
-              {activeView === 'projections' && (
-                  // ... [Code inchangé de Projections, c.f. global app]
-                  <div className="space-y-8 animate-fade-in pb-12">
-                      <div className="space-y-6 max-w-7xl mx-auto">
-                        <h2 className="text-3xl font-extrabold flex items-center gap-3 text-slate-800 font-poppins"><Target style={{ color: BRAND_COLOR }} size={32} /> Pilotage Mensuel Média</h2>
-                        
-                        <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden mt-8">
-                          <div className="bg-slate-50 p-6 border-b border-slate-100">
-                            <h2 className="text-lg font-extrabold flex items-center gap-2 font-poppins text-slate-800"><Calculator style={{ color: BRAND_COLOR }} size={20} /> Convertir Contrat en Production Média</h2>
-                            <p className="text-slate-500 text-sm mt-1">Ajoutez un contrat signé pour l'activer dans les cycles (Cela générera les graphiques dans le calendrier).</p>
-                          </div>
-                          <div className="p-8 grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
-                            <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2 tracking-wide">1. Choix Client</label><select value={planClientId} onChange={(e) => setPlanClientId(e.target.value)} className="w-full border-2 border-slate-200 bg-slate-50 focus:bg-white p-3.5 rounded-xl font-medium outline-none focus:border-[#01189B] transition-colors"><option value="">-- Aucun --</option>{contacts.map((c) => (<option key={c.id} value={c.id}>{c.company}</option>))}</select></div>
-                            <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2 tracking-wide">2. Thématique</label><select value={planProductId} onChange={(e) => setPlanProductId(e.target.value)} className="w-full border-2 border-slate-200 bg-slate-50 focus:bg-white p-3.5 rounded-xl font-medium outline-none focus:border-[#01189B] transition-colors"><option value="">-- Choisir --</option>{products.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}</select></div>
-                            <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2 tracking-wide">3. Budget Signé</label><input type="number" value={planBudget} onChange={(e) => setPlanBudget(Number(e.target.value))} className="w-full border-2 border-slate-200 bg-slate-50 focus:bg-white p-3.5 rounded-xl font-extrabold text-lg text-[#01189B] outline-none focus:border-[#01189B] transition-colors" /></div>
-                            <button onClick={() => {
-                                const activeProduct = products.find((p) => p.id === planProductId) || products[0];
-                                let planStats = { volumeTotal: 0, costTotal: 0, profit: 0, dailyVolume: 0, dailyBudget: 0, margin: 0, fees: 0, arbitrage: 0 };
-                                if (activeProduct && planBudget > 0 && activeProduct.price > 0) {
-                                  const fees = planBudget * 0.35; const netMedia = planBudget * 0.65; const volumeTotal = Math.floor(netMedia / activeProduct.price); const costTotal = volumeTotal * Number(activeProduct.cost ?? 0);
-                                  const arbitrage = netMedia - costTotal; const profit = fees + arbitrage; planStats = { volumeTotal, costTotal, profit, dailyVolume: volumeTotal / 30, dailyBudget: costTotal / 30, margin: (profit / planBudget) * 100, fees, arbitrage };
-                                }
-                                handleSaveSimulation(planStats)
-                            }} className="w-full text-white py-3.5 rounded-xl font-bold flex items-center justify-center gap-2 hover:shadow-lg hover:-translate-y-0.5 transition-all text-lg" style={{ backgroundColor: BRAND_COLOR }}><Plus size={20} /> Démarrer la prod.</button>
-                          </div>
-                        </div>
-
-                        <h2 className="text-2xl font-extrabold text-slate-800 mb-6 mt-12 flex items-center gap-3 font-poppins"><Save size={24} style={{ color: BRAND_COLOR }} /> Carnet de Production Actuel</h2>
-                        {simulations.length === 0 ? (
-                          <div className="bg-white p-12 text-center rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] text-slate-400 font-medium">Aucun contrat en production. Remplissez le convertisseur ci-dessus.</div>
-                        ) : (
-                          <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
-                              <table className="w-full text-sm text-left">
-                                <thead className="bg-slate-50 text-slate-500 uppercase font-extrabold text-[10px] tracking-wider border-b border-slate-100">
-                                  <tr><th className="px-6 py-5">Client / Thématique</th><th className="px-6 py-5">Progression Temps</th><th className="px-6 py-5">Budget Facturé</th><th className="px-6 py-5">Objectif Leads</th><th className="px-6 py-5">Bénéfice Prévu</th><th className="px-6 py-5 text-right">Action</th></tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-50">
-                                  {simulations.map((sim) => {
-                                    const start = new Date(sim.createdAt);
-                                    const diffDays = Math.max(0, Math.floor((new Date().getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
-                                    const day = Math.min(diffDays, 30);
-                                    const daysPercent = (day / 30) * 100;
-                                    const isFinished = day >= 30;
-
-                                    return (
-                                    <tr key={sim.id} className="hover:bg-blue-50/30 transition-colors">
-                                      <td className="px-6 py-5">
-                                        <p className="font-extrabold text-slate-800 font-poppins">{sim.clientName || 'N/A'}</p>
-                                        <p className="font-bold text-xs mt-1 text-[#01189B] flex items-center gap-1"><Package size={12}/> {sim.productName}</p>
-                                      </td>
-                                      <td className="px-6 py-5 w-48">
-                                        <div className="flex justify-between text-[10px] font-bold text-slate-400 mb-1">
-                                          <span>J-{day}</span><span>30 J</span>
-                                        </div>
-                                        <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                                          <div className={`h-full rounded-full transition-all ${isFinished ? 'bg-emerald-500' : 'bg-blue-500'}`} style={{ width: `${daysPercent}%` }}></div>
-                                        </div>
-                                        {isFinished && <span className="text-[10px] text-emerald-600 font-bold mt-1 inline-block">Terminé</span>}
-                                      </td>
-                                      <td className="px-6 py-5 font-mono font-bold text-slate-600">{renderCurrency(sim.budget)}</td>
-                                      <td className="px-6 py-5">
-                                        <div className="bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg font-extrabold inline-flex items-center gap-2">
-                                          <Target size={14}/> {renderNumber(sim.stats?.volumeTotal)}
-                                        </div>
-                                      </td>
-                                      <td className="px-6 py-5">
-                                        <span className={`font-extrabold px-3 py-1.5 rounded-lg font-mono ${(sim.stats?.margin || 0) >= 30 ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700'}`}>
-                                          {renderCurrency(sim.stats?.profit)} <span className="text-[10px] ml-1">({renderNumber((sim.stats?.margin || 0).toFixed(0))}%)</span>
-                                        </span>
-                                      </td>
-                                      <td className="px-6 py-5 text-right"><button onClick={() => handleDelete('simulations', sim.id)} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={18} /></button></td>
-                                    </tr>
-                                  )})}
-                                </tbody>
-                              </table>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-              )}
+              {activeView === 'projections' && renderProjections()}
               {activeView === 'target-tool' && (
-                  // ... [Code inchangé de Target tool]
                   <div className="max-w-6xl mx-auto animate-fade-in space-y-8 pb-12">
                       <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center gap-4">
