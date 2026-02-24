@@ -6,7 +6,7 @@ import {
   Wallet, PieChart, Globe, Share2, Loader, LogIn, Edit2, Save,
   Wand2, Send, X, Layers, AlertTriangle, Info, Rocket, Calendar as CalendarIcon,
   Mail, Percent, Download, MapPin, Eye, EyeOff, Activity, ShieldCheck,
-  Paperclip, Bell, CalendarClock, RefreshCcw, GripHorizontal, Link, Archive
+  Paperclip, Bell, CalendarClock, RefreshCcw, GripHorizontal, Link, Archive, Upload
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -32,6 +32,7 @@ interface Contact {
   address?: string; targetAudience?: string; offeredProducts?: string[];
   projectedBudget?: number; interestedProductId?: string; campaignStartDate?: string | null; createdAt?: string; 
   nextContactDate?: string | null; nextContactNote?: string;
+  type?: 'prospect' | 'client'; source?: string; sourceDetails?: string;
 }
 interface InvoiceItem { name: string; description?: string; price: number; qty: number; cost?: number; }
 interface Invoice { id: string; date: string; clientId: string; clientName: string; clientAddress?: string; status: string; amount: number; items: InvoiceItem[]; }
@@ -300,6 +301,7 @@ export default function App() {
   const [isEditingContact, setIsEditingContact] = useState(false);
   const [editContactData, setEditContactData] = useState<Partial<Contact>>({});
   const [newNoteContent, setNewNoteContent] = useState('');
+  const [newContactSource, setNewContactSource] = useState('');
   
   // États de rappel (Fiche client)
   const [reminderNote, setReminderNote] = useState('');
@@ -321,6 +323,9 @@ export default function App() {
   // Modale d'envoi d'email
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [emailData, setEmailData] = useState({ to: '', subject: '', body: '', isSending: false, selectedTemplate: 'std' });
+
+  // Import CSV Modal
+  const [showImportModal, setShowImportModal] = useState<string | null>(null);
 
   // Settings Tabs
   const [settingsActiveTab, setSettingsActiveTab] = useState('general');
@@ -425,8 +430,8 @@ export default function App() {
     return contacts.filter((c) => {
       const matchSearch = c.name?.toLowerCase().includes(searchLower) || c.company?.toLowerCase().includes(searchLower);
       if (!matchSearch) return false;
-      if (contactFilterType === 'client') return c.status === 'gagne';
-      if (contactFilterType === 'prospect') return c.status !== 'gagne' && c.status !== 'perdu';
+      if (contactFilterType === 'client') return c.type === 'client' || c.status === 'gagne';
+      if (contactFilterType === 'prospect') return c.type === 'prospect' || (c.status !== 'gagne' && c.status !== 'perdu');
       return true;
     });
   }, [contacts, searchTerm, contactFilterType]);
@@ -811,6 +816,68 @@ export default function App() {
       addNotification('success', 'Export de vos données réussi !');
   };
 
+  const handleImportCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file || !user) return;
+      
+      const type = showImportModal;
+      const reader = new FileReader();
+      
+      reader.onload = async (event) => {
+          const text = event.target?.result as string;
+          if (!text) return;
+          
+          const lines = text.split('\n').filter(l => l.trim().length > 0);
+          if (lines.length < 2) return addNotification('error', 'Fichier vide ou invalide (manque d\'en-tête).');
+
+          const batch = writeBatch(db);
+          let count = 0;
+
+          // On boucle sur chaque ligne (en ignorant la première ligne qui contient les en-têtes)
+          for (let i = 1; i < lines.length; i++) {
+              // Séparateur intelligent (virgule ou point-virgule) qui ignore ce qui est entre guillemets
+              const row = lines[i].split(/[,;](?=(?:(?:[^"]*"){2})*[^"]*$)/).map(v => v.trim().replace(/^"|"$/g, ''));
+              if (row.length < 2) continue;
+
+              if (type === 'contacts') {
+                  const company = row[0] || 'Inconnu';
+                  const name = row[1] || '';
+                  const email = row[2] || '';
+                  const phone = row[3] || '';
+                  const address = row[4] || '';
+                  const status = row[5]?.toLowerCase() || 'nouveau';
+                  const projectedBudget = Number(row[6]) || 0;
+
+                  const docRef = doc(collection(db, `artifacts/${APP_ID}/users/${user.uid}/contacts`));
+                  batch.set(docRef, { company, name, email, phone, address, status, projectedBudget, createdAt: new Date().toISOString() });
+                  count++;
+              } else if (type === 'invoices') {
+                  const id = row[0] || `FAC-IMPORT-${Date.now()}-${i}`;
+                  const clientName = row[1] || 'Inconnu';
+                  const amount = Number(row[2]) || 0;
+                  const status = row[3]?.toLowerCase() || 'brouillon';
+                  const dateStr = row[4] || new Date().toISOString();
+                  const date = isNaN(Date.parse(dateStr)) ? new Date().toISOString() : new Date(dateStr).toISOString();
+
+                  const docRef = doc(db, `artifacts/${APP_ID}/users/${user.uid}/invoices`, id);
+                  batch.set(docRef, { id, clientName, amount, status, date, items: [], clientId: '' });
+                  count++;
+              }
+          }
+
+          try {
+              await batch.commit();
+              addNotification('success', `${count} éléments importés avec succès !`);
+              setShowImportModal(null);
+          } catch (err) {
+              addNotification('error', 'Erreur lors de l\'importation vers la base de données.');
+          }
+      };
+      reader.readAsText(file);
+      // Reset input value pour permettre d'importer le même fichier deux fois de suite si besoin
+      e.target.value = '';
+  };
+
   // --- RENDERERS (Vues de l'application) ---
 
   const renderContactDetail = () => {
@@ -864,6 +931,14 @@ export default function App() {
               {selectedContact.address && <p className="text-slate-400 flex items-center gap-2 font-medium mt-1 text-sm"><MapPin size={16}/> {selectedContact.address}</p>}
 
               <div className="flex flex-wrap gap-2 mt-5">
+                  <span className={`px-3 py-1.5 border rounded-lg text-xs font-bold uppercase tracking-wide flex items-center gap-1.5 ${selectedContact.type === 'client' || selectedContact.status === 'gagne' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
+                      <Users size={14}/> {selectedContact.type === 'client' || selectedContact.status === 'gagne' ? 'Client' : 'Prospect'}
+                  </span>
+                  {selectedContact.source && (
+                      <span className="px-3 py-1.5 bg-slate-100 text-slate-600 border border-slate-200 rounded-lg text-xs font-bold uppercase tracking-wide flex items-center gap-1.5">
+                          <Globe size={14}/> Source : {selectedContact.source} {selectedContact.source === 'Recommandation' && selectedContact.sourceDetails ? `(${selectedContact.sourceDetails})` : ''}
+                      </span>
+                  )}
                   {selectedContact.targetAudience && (
                       <span className="px-3 py-1.5 bg-purple-50 text-purple-700 border border-purple-200 rounded-lg text-xs font-bold uppercase tracking-wide flex items-center gap-1.5">
                           <Target size={14}/> {selectedContact.targetAudience}
@@ -911,6 +986,30 @@ export default function App() {
                 <div><label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Email</label><input className="w-full border-2 border-slate-200 p-3 rounded-xl focus:border-[#01189B] outline-none mt-1 transition-colors" value={editContactData.email} onChange={e => setEditContactData({...editContactData, email: e.target.value})} /></div>
                 <div><label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Téléphone</label><input className="w-full border-2 border-slate-200 p-3 rounded-xl focus:border-[#01189B] outline-none mt-1 transition-colors" value={editContactData.phone} onChange={e => setEditContactData({...editContactData, phone: e.target.value})} /></div>
                 <div className="md:col-span-2"><label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Adresse complète (Facturation)</label><textarea className="w-full border-2 border-slate-200 p-3 rounded-xl focus:border-[#01189B] outline-none mt-1 transition-colors resize-none h-14" value={editContactData.address || ''} onChange={e => setEditContactData({...editContactData, address: e.target.value})} /></div>
+
+                <div><label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Type de Contact</label>
+                  <select className="w-full border-2 border-slate-200 p-3 rounded-xl focus:border-[#01189B] outline-none mt-1 font-bold transition-colors" value={editContactData.type || 'prospect'} onChange={e => setEditContactData({...editContactData, type: e.target.value as any})}>
+                    <option value="prospect">Prospect</option>
+                    <option value="client">Client</option>
+                  </select>
+                </div>
+
+                <div><label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Provenance / Source</label>
+                  <select className="w-full border-2 border-slate-200 p-3 rounded-xl focus:border-[#01189B] outline-none mt-1 font-medium transition-colors" value={editContactData.source || ''} onChange={e => setEditContactData({...editContactData, source: e.target.value})}>
+                    <option value="">-- Non définie --</option>
+                    <option value="Recommandation">Recommandation</option>
+                    <option value="Call froid">Call froid</option>
+                    <option value="Lead site internet">Lead site internet</option>
+                    <option value="LinkedIn">LinkedIn</option>
+                    <option value="Autre">Autre</option>
+                  </select>
+                </div>
+
+                {editContactData.source === 'Recommandation' && (
+                    <div><label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Nom de la Recommandation</label>
+                        <input className="w-full border-2 border-slate-200 p-3 rounded-xl focus:border-[#01189B] outline-none mt-1 transition-colors" value={editContactData.sourceDetails || ''} onChange={e => setEditContactData({...editContactData, sourceDetails: e.target.value})} placeholder="Recommandé par..." />
+                    </div>
+                )}
 
                 <div><label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Statut Pipeline</label>
                   <select className="w-full border-2 border-slate-200 p-3 rounded-xl focus:border-[#01189B] outline-none mt-1 font-bold text-[#01189B] transition-colors" value={editContactData.status} onChange={e => setEditContactData({...editContactData, status: e.target.value})}>
@@ -1855,13 +1954,16 @@ export default function App() {
                 <div className="max-w-6xl mx-auto space-y-6 animate-fade-in pb-12">
                   <div className="flex justify-between items-center mb-6">
                     <h2 className="text-3xl font-extrabold text-slate-800 flex items-center gap-3 font-poppins"><FileText style={{ color: BRAND_COLOR }} size={32}/> Facturation</h2>
-                    <button onClick={() => { 
-                      const nextId = generateNextInvoiceId();
-                      setCurrentInvoice({ id: nextId, clientId: '', clientName: '', date: new Date().toISOString(), items: [], status: 'brouillon' }); 
-                      setShowModal('invoice'); 
-                    }} className="text-white px-6 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:shadow-lg hover:-translate-y-0.5 transition-all" style={{ backgroundColor: BRAND_COLOR }}>
-                      <Plus size={18} /> Créer une Facture
-                    </button>
+                    <div className="flex gap-3">
+                        <button onClick={() => setShowImportModal('invoices')} className="bg-slate-100 text-slate-600 px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-200 transition-all"><Upload size={18} /> Importer (CSV)</button>
+                        <button onClick={() => { 
+                          const nextId = generateNextInvoiceId();
+                          setCurrentInvoice({ id: nextId, clientId: '', clientName: '', date: new Date().toISOString(), items: [], status: 'brouillon' }); 
+                          setShowModal('invoice'); 
+                        }} className="text-white px-6 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:shadow-lg hover:-translate-y-0.5 transition-all" style={{ backgroundColor: BRAND_COLOR }}>
+                          <Plus size={18} /> Créer une Facture
+                        </button>
+                    </div>
                   </div>
                   <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
                     {invoices.length === 0 ? (
@@ -1892,7 +1994,10 @@ export default function App() {
                 <div className="flex flex-col h-full animate-fade-in pb-8">
                   <div className="flex justify-between items-center mb-8">
                      <h2 className="text-3xl font-extrabold text-slate-800 flex items-center gap-3 font-poppins"><Users style={{ color: BRAND_COLOR }} size={32}/> Base CRM & Pipeline</h2>
-                     <button onClick={() => setShowModal('contact')} className="text-white px-6 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:shadow-lg hover:-translate-y-0.5 transition-all" style={{ backgroundColor: BRAND_COLOR }}><Plus size={18} /> Nouveau Contact</button>
+                     <div className="flex gap-3">
+                         <button onClick={() => setShowImportModal('contacts')} className="bg-slate-100 text-slate-600 px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-200 transition-all"><Upload size={18} /> Importer (CSV)</button>
+                         <button onClick={() => { setShowModal('contact'); setNewContactSource(''); }} className="text-white px-6 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:shadow-lg hover:-translate-y-0.5 transition-all" style={{ backgroundColor: BRAND_COLOR }}><Plus size={18} /> Nouveau Contact</button>
+                     </div>
                   </div>
                   <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden flex flex-col flex-1">
                     <div className="flex border-b border-slate-100 bg-slate-50/50 p-2 gap-2">
@@ -1912,11 +2017,15 @@ export default function App() {
                             {displayedContacts.map((c) => {
                               const hasReminder = !!c.nextContactDate;
                               const isReminderDue = hasReminder && new Date(c.nextContactDate!) <= new Date();
+                              const typeBadge = c.type === 'client' || c.status === 'gagne' ? 'Client' : 'Prospect';
 
                               return (
                                 <tr key={c.id} onClick={() => setSelectedContactId(c.id)} className="bg-white hover:bg-blue-50/40 cursor-pointer group transition-colors">
                                   <td className="px-8 py-5">
-                                    <p className="font-extrabold text-slate-800 font-poppins text-lg">{c.company}</p>
+                                    <div className="flex items-center gap-2 mb-1">
+                                      <p className="font-extrabold text-slate-800 font-poppins text-lg">{c.company}</p>
+                                      <span className={`px-2 py-0.5 rounded-md text-[9px] uppercase font-bold tracking-widest ${typeBadge === 'Client' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>{typeBadge}</span>
+                                    </div>
                                     <p className="text-slate-500 text-sm font-medium flex items-center gap-1"><Users size={14}/> {c.name}</p>
                                   </td>
                                   <td className="px-8 py-5"><span className={`px-3 py-1.5 rounded-lg text-[10px] uppercase font-bold tracking-wide border ${PIPELINE_STAGES.find((s) => s.id === c.status)?.color}`}>{PIPELINE_STAGES.find((s) => s.id === c.status)?.label || c.status}</span></td>
@@ -1974,16 +2083,46 @@ export default function App() {
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
           <div className="bg-white p-10 rounded-3xl w-full max-w-md shadow-2xl border border-slate-100 animate-fade-in overflow-y-auto max-h-[90vh]">
             <h3 className="text-2xl font-extrabold mb-8 font-poppins text-slate-800 flex items-center gap-3"><Users style={{ color: BRAND_COLOR }} size={24}/> Créer une fiche CRM</h3>
-            <form onSubmit={(e) => { e.preventDefault(); const fd = new FormData(e.target as any); handleCreate('contacts', { name: fd.get('name'), company: fd.get('company'), email: fd.get('email'), phone: fd.get('phone'), address: fd.get('address'), status: fd.get('status') }); }} className="space-y-5">
-              <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Statut Initial</label>
-                <select name="status" className="w-full border-2 border-slate-100 bg-slate-50 p-3.5 rounded-xl font-bold text-[#01189B] outline-none focus:border-[#01189B] focus:bg-white transition-colors">
-                  <option value="nouveau">👤 Nouveau Prospect</option>
-                  <option value="gagne">✅ Client Signé</option>
-                </select>
+            <form onSubmit={(e) => { e.preventDefault(); const fd = new FormData(e.target as any); handleCreate('contacts', { name: fd.get('name'), company: fd.get('company'), email: fd.get('email'), phone: fd.get('phone'), address: fd.get('address'), status: fd.get('status'), type: fd.get('type'), source: fd.get('source'), sourceDetails: fd.get('sourceDetails') }); }} className="space-y-5">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Type</label>
+                  <select name="type" className="w-full border-2 border-slate-100 bg-slate-50 p-3.5 rounded-xl font-bold outline-none focus:border-[#01189B] focus:bg-white transition-colors">
+                    <option value="prospect">Prospect</option>
+                    <option value="client">Client</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Statut Initial</label>
+                  <select name="status" className="w-full border-2 border-slate-100 bg-slate-50 p-3.5 rounded-xl font-bold text-[#01189B] outline-none focus:border-[#01189B] focus:bg-white transition-colors">
+                    <option value="nouveau">👤 Nouveau Prospect</option>
+                    <option value="gagne">✅ Client Signé</option>
+                  </select>
+                </div>
               </div>
               <div><label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Raison Sociale / Société</label><input name="company" required className="w-full border-2 border-slate-100 bg-slate-50 p-3.5 rounded-xl outline-none focus:border-[#01189B] focus:bg-white font-bold text-slate-800 transition-colors" placeholder="Société ABC" /></div>
               <div><label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Interlocuteur</label><input name="name" required className="w-full border-2 border-slate-100 bg-slate-50 p-3.5 rounded-xl outline-none focus:border-[#01189B] focus:bg-white font-medium text-slate-800 transition-colors" placeholder="Nom Prénom" /></div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Source / Provenance</label>
+                    <select name="source" value={newContactSource} onChange={(e) => setNewContactSource(e.target.value)} className="w-full border-2 border-slate-100 bg-slate-50 p-3.5 rounded-xl font-bold outline-none focus:border-[#01189B] focus:bg-white transition-colors">
+                      <option value="">-- Non définie --</option>
+                      <option value="Recommandation">Recommandation</option>
+                      <option value="Call froid">Call froid</option>
+                      <option value="Lead site internet">Lead site internet</option>
+                      <option value="LinkedIn">LinkedIn</option>
+                      <option value="Autre">Autre</option>
+                    </select>
+                  </div>
+                  {newContactSource === 'Recommandation' && (
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Nom de la reco</label>
+                      <input name="sourceDetails" className="w-full border-2 border-slate-100 bg-slate-50 p-3.5 rounded-xl outline-none focus:border-[#01189B] focus:bg-white font-medium text-slate-800 transition-colors" placeholder="Par qui ?" />
+                    </div>
+                  )}
+              </div>
+
               <div>
                 <label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Adresse</label>
                 <textarea name="address" className="w-full border-2 border-slate-100 bg-slate-50 p-3.5 rounded-xl outline-none focus:border-[#01189B] focus:bg-white transition-colors h-20 resize-none" placeholder="Rue, N°, Code Postal, Ville..."></textarea>
@@ -2313,6 +2452,35 @@ export default function App() {
                   {emailData.isSending ? <><Loader size={18} className="animate-spin"/> Transmission API...</> : <><Send size={18}/> Envoyer le message</>}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL D'IMPORT CSV --- */}
+      {showImportModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-[200] p-4">
+          <div className="bg-white p-8 rounded-3xl w-full max-w-lg shadow-2xl border border-slate-100 animate-fade-in relative">
+            <button onClick={() => setShowImportModal(null)} className="absolute top-6 right-6 text-slate-400 hover:text-slate-600"><X size={24}/></button>
+            <h3 className="text-2xl font-extrabold mb-4 font-poppins text-slate-800 flex items-center gap-3"><Upload style={{ color: BRAND_COLOR }} size={24}/> Importer des {showImportModal === 'contacts' ? 'Clients' : 'Factures'}</h3>
+            
+            <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 text-sm text-blue-800 mb-6 space-y-2">
+                <p className="font-bold flex items-center gap-2"><Info size={16}/> Instructions (Google Sheets / Excel) :</p>
+                <p>1. Préparez vos colonnes exactement dans cet ordre :</p>
+                {showImportModal === 'contacts' ? (
+                    <code className="block bg-white p-2 rounded border border-blue-200 text-xs font-mono">Société, Contact, Email, Téléphone, Adresse, Statut, Budget</code>
+                ) : (
+                    <code className="block bg-white p-2 rounded border border-blue-200 text-xs font-mono">ID Facture, Client, Montant, Statut, Date</code>
+                )}
+                <p>2. Cliquez sur <b>Fichier &gt; Télécharger &gt; Valeurs séparées par des virgules (.csv)</b>.</p>
+                <p>3. Uploadez le fichier ci-dessous.</p>
+            </div>
+
+            <div className="border-2 border-dashed border-slate-200 rounded-2xl p-8 text-center hover:bg-slate-50 transition-colors relative cursor-pointer group">
+                <input type="file" accept=".csv" onChange={handleImportCSV} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+                <Upload size={32} className="mx-auto text-slate-400 mb-3 group-hover:text-[#01189B] transition-colors" />
+                <p className="font-bold text-slate-600">Cliquez ou glissez votre fichier .CSV ici</p>
+                <p className="text-xs text-slate-400 mt-1">Séparateur : Virgule (,) ou Point-virgule (;)</p>
             </div>
           </div>
         </div>
