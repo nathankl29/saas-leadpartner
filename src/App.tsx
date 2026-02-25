@@ -4,9 +4,9 @@ import {
   FileText, Package, Trash2, CheckCircle, Clock, MessageSquare,
   Briefcase, PlayCircle, Target, TrendingUp, Calculator, ArrowRight,
   Wallet, PieChart, Globe, Share2, Loader, LogIn, LogOut, Edit2, Save,
-  Wand2, Send, X, Layers, AlertTriangle, Info, Rocket, Calendar as CalendarIcon,
+  Wand2, Send, X, AlertTriangle, Info, Rocket, Calendar as CalendarIcon,
   Mail, Percent, Download, MapPin, Eye, EyeOff, Activity, ShieldCheck,
-  Paperclip, Bell, CalendarClock, RefreshCcw, GripHorizontal, Link, Archive, Upload, Moon, Sun
+  Paperclip, Bell, CalendarClock, RefreshCcw, GripHorizontal, Link, Archive, Upload, Moon, Sun, Zap
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -20,7 +20,7 @@ import {
 } from 'firebase/auth';
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '45.2';
+const APP_VERSION = '45.6';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -1435,7 +1435,7 @@ export default function App() {
   };
 
   const renderDashboard = () => {
-    const goal = settings.monthlyGoal || 50000;
+    const goal = Number(settings.monthlyGoal || 50000);
     const progressGoal = Math.min((stats.caMensuel / goal) * 100, 100);
 
     const recentActivity = [...interactions]
@@ -1451,21 +1451,16 @@ export default function App() {
       .sort((a,b) => new Date(a.nextContactDate!).getTime() - new Date(b.nextContactDate!).getTime())
       .slice(0, 5);
 
-    const defaultLayout = ['objective', 'chart_annual', 'stat_ca_month', 'stat_ca_total', 'stat_ca_potentiel', 'stat_pipeline', 'stat_campaigns', 'reminders', 'invoices', 'activity'];
+    const defaultLayout = ['objective', 'chart_annual', 'stat_ca_month', 'stat_ca_total', 'stat_campaigns', 'reminders', 'invoices', 'activity'];
     let currentLayout = settings.dashboardLayout && settings.dashboardLayout.length > 0 ? settings.dashboardLayout : defaultLayout;
     
+    // Suppression des anciens widgets (Pipeline et CA Potentiel) si présents
+    currentLayout = currentLayout.filter(id => id !== 'stat_ca_potentiel' && id !== 'stat_pipeline');
+
     // Auto-migration pour inclure les nouveaux widgets s'ils n'y sont pas
     if (!currentLayout.includes('reminders')) currentLayout = [...currentLayout, 'reminders'];
     if (!currentLayout.includes('chart_annual')) {
         currentLayout = ['objective', 'chart_annual', ...currentLayout.filter(id => id !== 'objective' && id !== 'chart_annual')];
-    }
-    if (!currentLayout.includes('stat_ca_potentiel')) {
-        const insertIdx = currentLayout.indexOf('stat_ca_total') + 1;
-        currentLayout = [
-            ...currentLayout.slice(0, insertIdx > 0 ? insertIdx : 3), 
-            'stat_ca_potentiel', 
-            ...currentLayout.slice(insertIdx > 0 ? insertIdx : 3)
-        ];
     }
 
     const handleDragStart = (e: React.DragEvent, id: string) => {
@@ -1499,11 +1494,9 @@ export default function App() {
     const widgetSpans: Record<string, string> = {
         objective: 'col-span-1 md:col-span-2 lg:col-span-4',
         chart_annual: 'col-span-1 md:col-span-2 lg:col-span-4',
-        stat_ca_month: 'col-span-1',
-        stat_ca_total: 'col-span-1',
-        stat_ca_potentiel: 'col-span-1',
-        stat_pipeline: 'col-span-1',
-        stat_campaigns: 'col-span-1',
+        stat_ca_month: 'col-span-1 md:col-span-2 lg:col-span-2',
+        stat_ca_total: 'col-span-1 lg:col-span-1',
+        stat_campaigns: 'col-span-1 lg:col-span-1',
         reminders: 'col-span-1 md:col-span-2',
         invoices: 'col-span-1 md:col-span-2',
         activity: 'col-span-1 md:col-span-2',
@@ -1511,44 +1504,49 @@ export default function App() {
 
     const widgets: Record<string, React.ReactNode> = {
         chart_annual: (
-            <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] h-full flex flex-col">
-                <div className="flex justify-between items-start mb-6">
+            <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] h-full flex flex-col relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-32 bg-blue-50/30 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
+                <div className="flex justify-between items-center mb-8 relative z-10">
                     <div>
-                        <h3 className="font-extrabold text-slate-800 font-poppins text-lg flex items-center gap-2"><TrendingUp style={{ color: BRAND_COLOR }} size={20}/> CA & Bénéfices Annuels</h3>
-                        <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mt-1">Année {new Date().getFullYear()}</p>
+                        <h3 className="font-extrabold text-slate-800 font-poppins text-xl flex items-center gap-3"><TrendingUp style={{ color: BRAND_COLOR }} size={24}/> CA & Bénéfices</h3>
+                        <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mt-1">Exercice {new Date().getFullYear()}</p>
                     </div>
-                    <div className="text-right">
-                        <p className="text-3xl font-extrabold font-poppins text-[#01189B]">{renderCurrency(stats.caAnnuel)}</p>
-                        <p className="text-xs text-slate-500 font-bold uppercase tracking-wider mt-1">CA Encaissé</p>
-                    </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-6 mb-8">
-                    <div className="p-5 bg-orange-50 rounded-2xl border border-orange-100 relative overflow-hidden shadow-sm">
-                        <div className="absolute top-0 left-0 w-1 h-full bg-orange-400"></div>
-                        <p className="text-[10px] text-orange-600 font-bold uppercase tracking-wider mb-2 flex items-center gap-1">1. Bénéfice (Gestion)</p>
-                        <p className="text-2xl font-extrabold text-orange-700 font-mono">{renderCurrency(stats.beneficePapierTotal)}</p>
-                    </div>
-                    <div className="p-5 bg-emerald-50 rounded-2xl border border-emerald-100 relative overflow-hidden shadow-sm">
-                        <div className="absolute top-0 left-0 w-1 h-full bg-emerald-400"></div>
-                        <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider mb-2 flex items-center gap-1">2. Bénéfice (Arbitrage)</p>
-                        <p className="text-2xl font-extrabold text-emerald-700 font-mono">{renderCurrency(stats.beneficeReelTotal)}</p>
+                    <div className="bg-white border-2 border-[#01189B]/10 px-5 py-3 rounded-2xl shadow-sm">
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-0.5">CA Total Encaissé</p>
+                        <p className="text-3xl font-black font-poppins text-[#01189B]">{renderCurrency(stats.caAnnuel)}</p>
                     </div>
                 </div>
 
-                <div className="flex-1 flex items-end gap-3 h-48 mt-auto border-b border-slate-100 pb-2">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8 relative z-10">
+                    <div className="p-5 bg-gradient-to-br from-orange-50 to-orange-50/30 rounded-2xl border border-orange-100 flex items-center justify-between">
+                        <div>
+                            <p className="text-[10px] text-orange-600 font-bold uppercase tracking-wider mb-1 flex items-center gap-1"><Briefcase size={14}/> 1. Marge de Gestion</p>
+                            <p className="text-2xl font-extrabold text-orange-700 font-mono">{renderCurrency(stats.beneficePapierTotal)}</p>
+                        </div>
+                        <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center shadow-sm text-orange-300"><Briefcase size={20}/></div>
+                    </div>
+                    <div className="p-5 bg-gradient-to-br from-emerald-50 to-emerald-50/30 rounded-2xl border border-emerald-100 flex items-center justify-between">
+                        <div>
+                            <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider mb-1 flex items-center gap-1"><Zap size={14}/> 2. Marge d'Arbitrage</p>
+                            <p className="text-2xl font-extrabold text-emerald-700 font-mono">{renderCurrency(stats.beneficeReelTotal)}</p>
+                        </div>
+                        <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center shadow-sm text-emerald-300"><Target size={20}/></div>
+                    </div>
+                </div>
+
+                <div className="flex-1 flex items-end gap-3 h-56 mt-auto border-b border-slate-100 pb-2 relative z-10">
                     {stats.monthlyCA.map((val, idx) => {
                         const max = Math.max(...stats.monthlyCA, 1);
                         const height = `${(val / max) * 100}%`;
-                        const months = ['Jan','Fév','Mar','Avr','Mai','Juin','Juil','Aoû','Sep','Oct','Nov','Déc'];
+                        const months = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
                         return (
                             <div key={idx} className="flex-1 flex flex-col items-center justify-end h-full group relative">
-                                <div className="w-full bg-blue-100 rounded-t-lg relative hover:bg-[#01189B] transition-colors" style={{ height: height === '0%' ? '4px' : height, backgroundColor: val > 0 ? '' : '#f1f5f9' }}>
-                                    <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[10px] font-bold py-1.5 px-2.5 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none shadow-lg">
+                                <div className="w-full bg-blue-100/50 rounded-t-xl relative hover:bg-[#01189B] transition-all duration-300 cursor-pointer" style={{ height: height === '0%' ? '4px' : height, backgroundColor: val > 0 ? '' : '#f1f5f9' }}>
+                                    <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-xs font-bold py-2 px-3 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none shadow-xl">
                                         {renderCurrency(val)}
                                     </div>
                                 </div>
-                                <span className="text-[10px] font-bold text-slate-400 mt-3">{months[idx]}</span>
+                                <span className="text-[10px] font-bold text-slate-400 mt-3 uppercase tracking-widest">{months[idx]}</span>
                             </div>
                         );
                     })}
@@ -1560,20 +1558,12 @@ export default function App() {
                 <div className="w-24 h-24 rounded-full flex items-center justify-center shadow-inner shrink-0" style={{ background: `linear-gradient(135deg, ${BRAND_COLOR}22 0%, ${BRAND_COLOR}11 100%)` }}>
                     <TrendingUp size={40} style={{ color: BRAND_COLOR }} />
                 </div>
-                <div className="flex-1 w-full">
-                    <div className="flex justify-between items-end mb-3">
-                        <div>
-                            <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-1">Objectif Mensuel Agence</p>
-                            <h2 className="text-3xl font-extrabold font-poppins text-slate-800">{renderCurrency(stats.caMensuel)} <span className="text-lg text-slate-400 font-medium">/ {renderCurrency(goal)}</span></h2>
-                        </div>
-                        <div className="text-right">
-                            <span className="text-2xl font-extrabold font-poppins" style={{ color: BRAND_COLOR }}>{renderNumber(progressGoal.toFixed(1))}%</span>
-                        </div>
-                    </div>
-                    <div className="w-full bg-slate-100 rounded-full h-4 overflow-hidden shadow-inner">
+                <div className="flex-1 w-full text-center md:text-left">
+                    <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-1">Objectif Mensuel Encaissé</p>
+                    <h2 className="text-3xl font-extrabold font-poppins text-slate-800">{renderCurrency(stats.caMensuel)} <span className="text-lg text-slate-400 font-medium">/ {renderCurrency(goal)}</span></h2>
+                    <div className="w-full bg-slate-100 rounded-full h-4 overflow-hidden shadow-inner mt-4">
                         <div className="h-full rounded-full transition-all duration-1000 ease-out" style={{ width: `${progressGoal}%`, backgroundColor: BRAND_COLOR }}></div>
                     </div>
-                    <p className="text-xs text-slate-500 mt-3 font-medium flex items-center gap-1"><Info size={12}/> L'objectif est modifiable dans les paramètres.</p>
                 </div>
             </div>
         ),
@@ -1589,20 +1579,6 @@ export default function App() {
                 <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center mb-4"><CheckCircle size={24} className="text-emerald-500"/></div>
                 <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">CA Encaissé (Total)</p>
                 <h3 className="text-3xl font-extrabold text-emerald-500 mt-1 font-poppins">{renderCurrency(stats.caTotal)}</h3>
-            </div>
-        ),
-        stat_ca_potentiel: (
-            <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] h-full">
-                <div className="w-12 h-12 rounded-xl bg-purple-50 flex items-center justify-center mb-4"><TrendingUp size={24} className="text-purple-500"/></div>
-                <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">CA Potentiel (Attente)</p>
-                <h3 className="text-3xl font-extrabold text-purple-500 mt-1 font-poppins">{renderCurrency(stats.caPotentiel)}</h3>
-            </div>
-        ),
-        stat_pipeline: (
-            <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] h-full">
-                <div className="w-12 h-12 rounded-xl bg-orange-50 flex items-center justify-center mb-4"><Layers size={24} className="text-orange-500"/></div>
-                <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">Valeur Pipeline</p>
-                <h3 className="text-3xl font-extrabold text-orange-500 mt-1 font-poppins">{renderCurrency(stats.pipelineValue)}</h3>
             </div>
         ),
         stat_campaigns: (
@@ -1893,8 +1869,20 @@ export default function App() {
       
       {isDarkMode && (
         <style dangerouslySetInnerHTML={{__html: `
-          html { filter: invert(1) hue-rotate(180deg); background-color: #0f172a; }
-          img, video, iframe, .no-invert { filter: invert(1) hue-rotate(180deg); }
+          html { 
+            background-color: #111827; 
+            filter: invert(0.93) hue-rotate(180deg) brightness(1.05) contrast(1.02); 
+          }
+          img, video, iframe, .no-invert { 
+            filter: invert(0.93) hue-rotate(180deg) brightness(1.05) contrast(1.02); 
+          }
+          /* Correction des fonds gris pour un rendu sombre élégant */
+          body, .bg-\\[\\#F8FAFC\\], .bg-slate-50\\/50, .bg-slate-50 { 
+            background-color: #ffffff !important; 
+          }
+          .border-slate-100, .border-slate-200 {
+            border-color: #f1f5f9 !important;
+          }
         `}} />
       )}
       
