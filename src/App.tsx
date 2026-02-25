@@ -20,7 +20,7 @@ import {
 } from 'firebase/auth';
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '43.6';
+const APP_VERSION = '43.7';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -912,80 +912,21 @@ export default function App() {
       e.target.value = '';
   };
 
-  // --- MEMOIZED DATA CALCULATIONS (OPTIMIZATIONS) ---
+  // --- RENDERERS (Vues de l'application) ---
 
-  const contactDetailData = useMemo(() => {
+  const renderContactDetail = () => {
     if (!selectedContact) return null;
     const contactInteractions = interactions.filter(i => i.contactId === selectedContact.id).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    // Calculs pour la fiche client
     const clientInvoices = invoices.filter(inv => inv.clientId === selectedContact.id).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     const caEncaisse = clientInvoices.filter(i => i.status === 'payee').reduce((acc, i) => acc + i.amount, 0);
     const clientSimulations = simulations.filter(s => s.clientId === selectedContact.id);
     const beneficeEstime = clientSimulations.reduce((acc, s) => acc + (s.stats?.profit || 0), 0);
+
+    // Analyse du rappel (Reminder)
     const hasReminder = !!selectedContact.nextContactDate;
     const isReminderDue = hasReminder && new Date(selectedContact.nextContactDate!) <= new Date();
-
-    return { contactInteractions, clientInvoices, caEncaisse, beneficeEstime, hasReminder, isReminderDue };
-  }, [selectedContact, interactions, invoices, simulations]);
-
-  const dashboardData = useMemo(() => {
-    const recentActivity = [...interactions]
-      .sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      .slice(0, 5);
-    const recentInvoices = [...invoices]
-      .sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-      .slice(0, 4);
-    const activeReminders = contacts
-      .filter(c => c.nextContactDate)
-      .sort((a,b) => new Date(a.nextContactDate!).getTime() - new Date(b.nextContactDate!).getTime())
-      .slice(0, 5);
-    return { recentActivity, recentInvoices, activeReminders };
-  }, [interactions, invoices, contacts]);
-
-  const calendarSimulations = useMemo(() => {
-    return simulations.map(sim => {
-        const start = new Date(sim.createdAt);
-        const diffDays = Math.max(0, Math.floor((new Date().getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
-        const day = Math.min(diffDays, 30);
-        const daysPercent = (day / 30) * 100;
-        const targetLeads = sim.stats?.volumeTotal || 0;
-        const expectedLeads = Math.min(Math.floor((targetLeads / 30) * day), targetLeads); 
-        const leadsPercent = targetLeads > 0 ? (expectedLeads / targetLeads) * 100 : 0;
-        const isFinished = day >= 30;
-        return { ...sim, parsedStats: { day, daysPercent, targetLeads, expectedLeads, leadsPercent, isFinished } };
-    });
-  }, [simulations]);
-
-  const projectionStatsData = useMemo(() => {
-    const totalSimulations = simulations.length;
-    const globalStats = simulations.reduce((acc, sim) => ({ 
-        totalBudget: acc.totalBudget + sim.budget, 
-        totalMediaSpend: acc.totalMediaSpend + (sim.stats?.costTotal || 0), 
-        totalProfit: acc.totalProfit + (sim.stats?.profit || 0), 
-        totalLeads: acc.totalLeads + (sim.stats?.volumeTotal || 0) 
-    }), { totalBudget: 0, totalMediaSpend: 0, totalProfit: 0, totalLeads: 0 });
-    const globalMarginPercent = globalStats.totalBudget > 0 ? (globalStats.totalProfit / globalStats.totalBudget) * 100 : 0;
-    return { totalSimulations, globalStats, globalMarginPercent };
-  }, [simulations]);
-
-  const parsedScenarios = useMemo(() => {
-    return scenarios.map(sc => {
-        const sc_frais = sc.totalBudget * (sc.agencyMargin / 100);
-        const sc_leads = sc.targetCPL > 0 ? Math.floor(sc.totalBudget / sc.targetCPL) : 0;
-        const sc_cout = sc_leads * sc.currentRealCPL; 
-        const sc_arb = (sc.totalBudget - sc_frais) - sc_cout;
-        const sc_prof = sc_frais + sc_arb;
-        const sc_margin = sc.totalBudget > 0 ? (sc_prof / sc.totalBudget) * 100 : 0;
-        const isGood = sc_margin >= 30;
-        return { ...sc, computed: { sc_frais, sc_leads, sc_cout, sc_arb, sc_prof, sc_margin, isGood } };
-    });
-  }, [scenarios]);
-
-
-  // --- RENDERERS (Vues de l'application) ---
-
-  const renderContactDetail = () => {
-    if (!selectedContact || !contactDetailData) return null;
-    const { contactInteractions, clientInvoices, caEncaisse, beneficeEstime, hasReminder, isReminderDue } = contactDetailData;
 
     return (
       <div className="flex flex-col h-full bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden animate-fade-in border border-slate-100">
@@ -1307,8 +1248,9 @@ export default function App() {
       const arbitrage = netMedia - costTotal; const profit = fees + arbitrage; planStats = { volumeTotal, costTotal, profit, dailyVolume: volumeTotal / 30, dailyBudget: costTotal / 30, margin: (profit / planBudget) * 100, fees, arbitrage };
     }
 
-    if (!projectionStatsData) return null;
-    const { totalSimulations, globalStats, globalMarginPercent } = projectionStatsData;
+    const totalSimulations = simulations.length;
+    const globalStats = simulations.reduce((acc, sim) => ({ totalBudget: acc.totalBudget + sim.budget, totalMediaSpend: acc.totalMediaSpend + sim.stats.costTotal, totalProfit: acc.totalProfit + sim.stats.profit, totalLeads: acc.totalLeads + sim.stats.volumeTotal }), { totalBudget: 0, totalMediaSpend: 0, totalProfit: 0, totalLeads: 0 });
+    const globalMarginPercent = globalStats.totalBudget > 0 ? (globalStats.totalProfit / globalStats.totalBudget) * 100 : 0;
 
     return (
       <div className="space-y-8 animate-fade-in pb-12">
@@ -1341,7 +1283,7 @@ export default function App() {
           </div>
 
           <h2 className="text-2xl font-extrabold text-slate-800 mb-6 mt-12 flex items-center gap-3 font-poppins"><Save size={24} style={{ color: BRAND_COLOR }} /> Carnet de Production Actuel</h2>
-          {calendarSimulations.length === 0 ? (
+          {simulations.length === 0 ? (
             <div className="bg-white p-12 text-center rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] text-slate-400 font-medium">Aucun contrat en production. Remplissez le convertisseur ci-dessus.</div>
           ) : (
             <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
@@ -1350,8 +1292,12 @@ export default function App() {
                     <tr><th className="px-6 py-5">Client / Thématique</th><th className="px-6 py-5">Progression Temps</th><th className="px-6 py-5">Budget Facturé</th><th className="px-6 py-5">Objectif Leads</th><th className="px-6 py-5">Bénéfice Prévu</th><th className="px-6 py-5 text-right">Action</th></tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {calendarSimulations.map((sim) => {
-                      const { day, daysPercent, isFinished, targetLeads } = sim.parsedStats;
+                    {simulations.map((sim) => {
+                      const start = new Date(sim.createdAt);
+                      const diffDays = Math.max(0, Math.floor((new Date().getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+                      const day = Math.min(diffDays, 30);
+                      const daysPercent = (day / 30) * 100;
+                      const isFinished = day >= 30;
 
                       return (
                       <tr key={sim.id} className="hover:bg-blue-50/30 transition-colors">
@@ -1371,7 +1317,7 @@ export default function App() {
                         <td className="px-6 py-5 font-mono font-bold text-slate-600">{renderCurrency(sim.budget)}</td>
                         <td className="px-6 py-5">
                           <div className="bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg font-extrabold inline-flex items-center gap-2">
-                            <Target size={14}/> {renderNumber(targetLeads)}
+                            <Target size={14}/> {renderNumber(sim.stats?.volumeTotal)}
                           </div>
                         </td>
                         <td className="px-6 py-5">
@@ -1392,11 +1338,21 @@ export default function App() {
   };
 
   const renderDashboard = () => {
-    if (!dashboardData) return null;
-    const { recentActivity, recentInvoices, activeReminders } = dashboardData;
-
     const goal = settings.monthlyGoal || 50000;
     const progressGoal = Math.min((stats.caMensuel / goal) * 100, 100);
+
+    const recentActivity = [...interactions]
+      .sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 5);
+
+    const recentInvoices = [...invoices]
+      .sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, 4);
+
+    const activeReminders = contacts
+      .filter(c => c.nextContactDate)
+      .sort((a,b) => new Date(a.nextContactDate!).getTime() - new Date(b.nextContactDate!).getTime())
+      .slice(0, 5);
 
     const defaultLayout = ['objective', 'stat_ca_month', 'stat_ca_total', 'stat_ca_potentiel', 'stat_pipeline', 'stat_campaigns', 'reminders', 'invoices', 'activity'];
     let currentLayout = settings.dashboardLayout && settings.dashboardLayout.length > 0 ? settings.dashboardLayout : defaultLayout;
@@ -1870,8 +1826,16 @@ export default function App() {
                         </div>
                       ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                          {calendarSimulations.map(sim => {
-                            const { day, daysPercent, isFinished, targetLeads, expectedLeads, leadsPercent } = sim.parsedStats;
+                          {simulations.map(sim => {
+                            const start = new Date(sim.createdAt);
+                            const diffDays = Math.max(0, Math.floor((new Date().getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+                            const day = Math.min(diffDays, 30);
+                            const daysPercent = (day / 30) * 100;
+                            
+                            const targetLeads = sim.stats?.volumeTotal || 0;
+                            const expectedLeads = Math.min(Math.floor((targetLeads / 30) * day), targetLeads); 
+                            const leadsPercent = targetLeads > 0 ? (expectedLeads / targetLeads) * 100 : 0;
+                            const isFinished = day >= 30;
                             
                             return (
                               <div key={sim.id} className={`bg-white rounded-2xl border-2 shadow-sm p-6 relative hover:shadow-lg transition-all ${isFinished ? 'border-red-200' : 'border-slate-100 hover:border-[#01189B]'}`}>
@@ -2057,7 +2021,7 @@ export default function App() {
                           <tr><th className="px-8 py-5">N° Facture</th><th className="px-8 py-5">Client Associé</th><th className="px-8 py-5">Date Création</th><th className="px-8 py-5">Montant Total</th><th className="px-8 py-5">Statut Paiement</th><th className="px-8 py-5 text-right">Action</th></tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
-                          {invoices.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((inv) => (
+                          {[...invoices].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((inv) => (
                             <tr key={inv.id} className="hover:bg-blue-50/30 transition-colors group cursor-pointer" onClick={() => { setCurrentInvoice(inv); setShowModal('invoice'); }}>
                               <td className="px-8 py-5 font-bold text-slate-600 font-mono text-xs">{inv.id}</td>
                               <td className="px-8 py-5 font-extrabold text-slate-800 font-poppins">{inv.clientName}</td>
@@ -2246,6 +2210,300 @@ export default function App() {
                 <button type="submit" className="flex-1 py-4 text-white rounded-xl font-bold hover:shadow-lg hover:-translate-y-0.5 transition-all" style={{ backgroundColor: BRAND_COLOR }}>{currentProduct ? 'Mettre à jour' : 'Ajouter'}</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {showModal === 'invoice' && currentInvoice && (
+        <div className="fixed inset-0 bg-slate-900/95 z-[100] flex items-center justify-center p-4 md:p-6 backdrop-blur-md">
+          <div className="bg-slate-100 w-full max-w-6xl h-[95vh] md:h-[90vh] rounded-3xl flex flex-col shadow-2xl overflow-hidden animate-fade-in border border-slate-700">
+            <div className="h-20 border-b border-slate-200 flex justify-between items-center px-8 bg-white no-print shrink-0 z-10 shadow-sm">
+              <h3 className="font-extrabold text-xl font-poppins text-slate-800 flex items-center gap-3"><FileText style={{ color: BRAND_COLOR }} size={24}/> Éditeur de Facture</h3>
+              <div className="flex gap-2">
+                <div className="flex items-center gap-2 mr-2 border-r border-slate-200 pr-2 hidden lg:flex">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">État</span>
+                  <select 
+                    value={currentInvoice.status || 'brouillon'} 
+                    onChange={e => setCurrentInvoice({...currentInvoice, status: e.target.value})}
+                    className="border-2 border-slate-100 p-1.5 rounded-lg bg-slate-50 hover:bg-white text-xs font-bold text-slate-700 outline-none focus:border-[#01189B] cursor-pointer transition-colors"
+                  >
+                    {Object.entries(INVOICE_STATUSES).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}
+                  </select>
+                </div>
+                <button onClick={handleDownloadPDF} className="px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg flex gap-1.5 items-center font-bold hover:bg-slate-200 transition-colors text-xs whitespace-nowrap"><Download size={14} /> PDF</button>
+                <button onClick={handleEmailInvoice} className="px-3 py-1.5 bg-orange-100 text-orange-700 rounded-lg flex gap-1.5 items-center font-bold hover:bg-orange-200 transition-colors text-xs whitespace-nowrap"><Mail size={14} /> Email</button>
+                <button onClick={() => handleSaveInvoice(true)} className="px-3 py-1.5 text-white rounded-lg flex gap-1.5 items-center font-bold hover:shadow-lg transition-all text-xs whitespace-nowrap" style={{ backgroundColor: BRAND_COLOR }}><CheckCircle size={14} /> <span className="hidden md:inline">Enregistrer</span></button>
+                <button onClick={() => setShowModal(null)} className="p-1.5 bg-white border border-slate-200 hover:text-red-500 hover:border-red-200 rounded-lg transition-colors"><X size={16} /></button>
+              </div>
+            </div>
+            
+            {/* Split screen: Left config, Right Invoice */}
+            <div className="flex-1 flex overflow-hidden">
+                <div className="w-1/3 bg-slate-50 p-6 overflow-y-auto border-r border-slate-200 no-print flex flex-col gap-6 custom-scrollbar">
+                    
+                    {currentInvoice.status === 'archive' && (
+                        <div className="bg-red-50 p-5 rounded-2xl border border-red-200 text-red-800">
+                            <h4 className="font-bold flex items-center gap-2 mb-2"><Archive size={16}/> Facture Archivée</h4>
+                            <p className="text-xs mb-4">Cette facture a été marquée comme archivée (erreur, annulée, etc.). Si vous le souhaitez, vous pouvez la supprimer définitivement.</p>
+                            <button onClick={handleDeleteInvoice} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 rounded-lg flex items-center justify-center gap-2 transition-colors">
+                                <Trash2 size={16}/> Supprimer Définitivement
+                            </button>
+                        </div>
+                    )}
+
+                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+                        <h4 className="font-bold text-slate-800 mb-3 text-sm uppercase tracking-wide flex items-center gap-2"><Users size={16} style={{ color: BRAND_COLOR }}/> Client Facturé (Modifiable)</h4>
+                        <select className="bg-slate-50 border-2 border-slate-100 p-3 rounded-xl w-full font-bold outline-none focus:border-[#01189B] text-slate-800 transition-colors mb-3" onChange={(e) => { const c = contacts.find((co) => co.id === e.target.value); setCurrentInvoice({ ...currentInvoice, clientId: c?.id, clientName: c?.company, clientAddress: c?.address || '' } as any); if (c?.projectedBudget) { setInvoiceBudget(c.projectedBudget); if (c.interestedProductId) setInvoiceThemeId(c.interestedProductId); } }} value={currentInvoice.clientId}>
+                            <option value="">-- Sélectionner depuis le CRM --</option>
+                            {contacts.map((c) => (<option key={c.id} value={c.id}>{c.company}</option>))}
+                        </select>
+                        <div className="space-y-3 pt-3 border-t border-slate-100">
+                           <div>
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Nom d'affichage facture</label>
+                              <input value={currentInvoice.clientName || ''} onChange={e => setCurrentInvoice({...currentInvoice, clientName: e.target.value})} className="w-full border-2 border-slate-100 bg-white p-2.5 rounded-xl font-bold outline-none focus:border-[#01189B] text-sm text-slate-700" placeholder="Nom de l'entreprise..." />
+                           </div>
+                           <div>
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Adresse d'affichage facture</label>
+                              <textarea value={currentInvoice.clientAddress || ''} onChange={e => setCurrentInvoice({...currentInvoice, clientAddress: e.target.value})} className="w-full border-2 border-slate-100 bg-white p-2.5 rounded-xl font-medium outline-none focus:border-[#01189B] text-sm text-slate-700 h-20 resize-none" placeholder="Adresse complète..."></textarea>
+                           </div>
+                        </div>
+                    </div>
+
+                    <div className="bg-blue-50/50 p-5 rounded-2xl border border-blue-100 shadow-sm">
+                        <h4 className="font-bold text-[#01189B] mb-3 text-sm uppercase tracking-wide flex items-center gap-2"><Wand2 size={16}/> Générer Ligne Auto</h4>
+                        <div className="space-y-4">
+                            <div><label className="block text-[10px] font-bold text-blue-800 uppercase tracking-wide mb-1.5">Budget Mensuel</label><input type="number" value={invoiceBudget} onChange={(e) => setInvoiceBudget(e.target.value)} className="w-full border-2 border-white bg-white p-2.5 rounded-xl font-bold outline-none focus:border-[#01189B] text-sm" placeholder="Ex: 5000" /></div>
+                            <div>
+                                <label className="block text-[10px] font-bold text-blue-800 uppercase tracking-wide mb-1.5">Thématique</label>
+                                <select value={invoiceThemeId} onChange={(e) => setInvoiceThemeId(e.target.value)} className="w-full border-2 border-white bg-white p-2.5 rounded-xl font-bold outline-none focus:border-[#01189B] text-sm text-slate-700">
+                                    <option value="">-- Service --</option>{products.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
+                                </select>
+                            </div>
+                            <div><label className="block text-[10px] font-bold text-blue-800 uppercase tracking-wide mb-1.5">Marge (%)</label><input type="number" value={invoiceMarginPercent} onChange={(e) => setInvoiceMarginPercent(Number(e.target.value))} className="w-full border-2 border-white bg-white p-2.5 rounded-xl text-[#01189B] font-bold outline-none focus:border-[#01189B] text-sm" /></div>
+                            <button onClick={handleGenerateInvoice} className="w-full text-white px-4 py-3 rounded-xl font-bold hover:opacity-90 transition-opacity text-sm shadow-sm" style={{ backgroundColor: BRAND_COLOR }}>Ajouter le produit</button>
+                        </div>
+                    </div>
+                </div>
+
+                {/* FACTURE A4 */}
+                <div className="flex-1 overflow-auto bg-slate-200 p-8 flex justify-center custom-scrollbar">
+                    <div id="invoice-printable" className="bg-white w-[210mm] min-h-[296mm] shadow-2xl p-[15mm] flex flex-col text-slate-800 relative shrink-0 box-border">
+                        {currentInvoice.status === 'archive' && (
+                            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-12 opacity-10 pointer-events-none select-none">
+                                <span className="text-8xl font-extrabold uppercase tracking-widest text-slate-900">Archivée</span>
+                            </div>
+                        )}
+                        {currentInvoice.status === 'annulee' && (
+                            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-12 opacity-10 pointer-events-none select-none">
+                                <span className="text-8xl font-extrabold uppercase tracking-widest text-red-900">Annulée</span>
+                            </div>
+                        )}
+                        <div className="flex justify-between mb-8 border-b-4 pb-4" style={{ borderColor: BRAND_COLOR }}>
+                        <div>
+                            <h1 className="text-4xl font-extrabold uppercase mb-2 font-poppins tracking-tight" style={{ color: BRAND_COLOR }}>Facture</h1>
+                            <p className="font-mono text-slate-500 font-bold text-lg">#{currentInvoice.id || 'BROUILLON'}</p>
+                            <p className="text-sm mt-1 font-bold text-slate-400 uppercase tracking-widest">Date : {formatDate(currentInvoice.date)}</p>
+                        </div>
+                        <div className="text-right">
+                            <p className="font-extrabold text-lg font-poppins">{settings.companyName}</p>
+                            {settings.companyId && <p className="text-xs font-bold text-slate-400 mt-0.5 uppercase">{settings.companyId}</p>}
+                            <p className="text-xs text-slate-500 whitespace-pre-wrap mt-1.5 leading-relaxed">{settings.address}</p>
+                            <p className="text-xs text-slate-500 mt-1 font-medium">{settings.email} <br/> {settings.phone}</p>
+                        </div>
+                        </div>
+                        
+                        <div className="mb-8 flex justify-end relative z-10">
+                            <div className="w-1/2">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-2 tracking-widest">Facturé à</p>
+                                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 w-full">
+                                    <div className="font-extrabold text-xl font-poppins text-slate-800">{currentInvoice.clientName || 'Client à définir...'}</div>
+                                    {currentInvoice.clientAddress && <p className="text-sm mt-2 text-slate-600 whitespace-pre-wrap">{currentInvoice.clientAddress}</p>}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="mb-6 flex items-center justify-between no-print relative z-10">
+                            <button onClick={() => setCurrentInvoice({...currentInvoice, items: [...(currentInvoice.items || []), {name: 'Nouvelle prestation', description: '', price: 0, qty: 1}]})} className="text-xs font-bold bg-white text-[#01189B] px-3 py-1.5 rounded-lg border border-blue-200 hover:bg-blue-50">+ Ligne Manuelle</button>
+                        </div>
+
+                        <table className="w-full mb-4 table-fixed relative z-10">
+                        <thead>
+                            <tr className="border-b-2 text-xs" style={{ borderColor: BRAND_COLOR }}>
+                            <th className="text-left py-2 font-extrabold uppercase tracking-widest w-3/4" style={{ color: BRAND_COLOR }}>Désignation des prestations</th>
+                            <th className="text-right py-2 font-extrabold uppercase tracking-widest w-1/4" style={{ color: BRAND_COLOR }}>Montant Net</th>
+                            <th className="w-8 no-print"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {(currentInvoice.items || []).map((item, i) => (
+                            <tr key={i} className="border-b border-slate-100 group relative">
+                                <td className="py-3 pr-4 align-top">
+                                    <input 
+                                        value={item.name} 
+                                        onChange={(e) => {
+                                        const newItems = [...(currentInvoice.items || [])];
+                                        newItems[i].name = e.target.value;
+                                        setCurrentInvoice({ ...currentInvoice, items: newItems } as Invoice);
+                                        }}
+                                        className="w-full bg-transparent border border-transparent hover:border-slate-200 focus:border-[#01189B] outline-none font-bold text-slate-800 text-sm print-input py-1 px-1 rounded transition-colors"
+                                        placeholder="Nom de la prestation"
+                                    />
+                                    <textarea 
+                                        value={item.description || ''} 
+                                        onChange={(e) => {
+                                        const newItems = [...(currentInvoice.items || [])];
+                                        newItems[i].description = e.target.value;
+                                        setCurrentInvoice({ ...currentInvoice, items: newItems } as Invoice);
+                                        }}
+                                        className="w-full bg-transparent border border-transparent hover:border-slate-200 focus:border-[#01189B] outline-none font-medium text-slate-500 text-xs print-input py-1 px-1 resize-none overflow-hidden rounded mt-0.5 transition-colors"
+                                        rows={2}
+                                        placeholder="Description détaillée (optionnelle)..."
+                                        onInput={(e) => { e.currentTarget.style.height = "auto"; e.currentTarget.style.height = (e.currentTarget.scrollHeight) + "px"; }}
+                                    />
+                                </td>
+                                <td className="py-3 text-right align-top">
+                                    <input 
+                                        type="number"
+                                        value={item.price} 
+                                        onChange={(e) => {
+                                        const newItems = [...(currentInvoice.items || [])];
+                                        newItems[i].price = Number(e.target.value);
+                                        setCurrentInvoice({ ...currentInvoice, items: newItems } as Invoice);
+                                        }}
+                                        className="w-32 bg-transparent border border-transparent hover:border-slate-200 focus:border-[#01189B] outline-none font-extrabold text-lg font-mono text-slate-800 text-right print-input py-1 px-1 rounded transition-colors inline-block"
+                                    />
+                                </td>
+                                <td className="py-3 no-print text-center align-top pt-4">
+                                    <button onClick={() => {
+                                        const newItems = [...(currentInvoice.items || [])];
+                                        newItems.splice(i, 1);
+                                        setCurrentInvoice({ ...currentInvoice, items: newItems } as Invoice);
+                                    }} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity bg-white shadow-sm p-1 rounded">
+                                        <Trash2 size={16}/>
+                                    </button>
+                                </td>
+                            </tr>
+                            ))}
+                            {(currentInvoice.items || []).length === 0 && (
+                            <tr><td colSpan={3} className="py-12 text-center text-slate-400 italic text-sm font-medium border-dashed border-2 border-slate-200 rounded-xl mt-4">Aucune prestation facturée. Utilisez le panneau à gauche pour générer les lignes.</td></tr>
+                            )}
+                        </tbody>
+                        </table>
+
+                        <div className="flex justify-end pt-6 mb-8 relative z-10">
+                            <div className="w-72 space-y-2">
+                                <div className="flex justify-between text-slate-500 font-bold text-sm"><span>Sous-total HT</span> <span className="font-mono text-slate-800">{formatCurrency((currentInvoice.items || []).reduce((acc, i) => acc + i.price * (i.qty || 1), 0))}</span></div>
+                                <div className="flex justify-between text-slate-400 font-medium text-xs"><span>TVA (0.0%)</span> <span className="font-mono">0.00 CHF</span></div>
+                                <div className="flex justify-between py-3 border-t-2 mt-2 text-xl font-extrabold font-poppins" style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}>
+                                    <span>Total TTC</span> <span>{formatCurrency((currentInvoice.items || []).reduce((acc, i) => acc + i.price * (i.qty || 1), 0))}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Pied de facture placé tout en bas via mt-auto */}
+                        <div className="mt-auto relative z-10 bg-white">
+                            <div className="border-t border-slate-200 grid grid-cols-2 gap-8 text-xs pt-4 mb-8">
+                                <div>
+                                    <p className="font-extrabold text-slate-800 mb-1.5 uppercase tracking-widest text-[10px]">Coordonnées Bancaires</p>
+                                    {settings.bankDetails ? (
+                                    <p className="whitespace-pre-wrap text-slate-600 font-mono text-[10px] leading-relaxed border-l-2 pl-3" style={{ borderColor: BRAND_COLOR }}>{settings.bankDetails}</p>
+                                    ) : (
+                                    <p className="text-slate-400 italic text-[10px]">A configurer dans les paramètres.</p>
+                                    )}
+                                </div>
+                                <div className="text-right">
+                                    <p className="font-extrabold text-slate-800 mb-1.5 uppercase tracking-widest text-[10px]">Informations</p>
+                                    <p className="whitespace-pre-wrap text-[10px] text-slate-500 font-medium leading-relaxed">{settings.invoiceFooter}</p>
+                                </div>
+                            </div>
+
+                            {/* LIGNE LEGALE CENTREE EN BAS */}
+                            {settings.legalNotice && (
+                                <div className="text-center w-full pt-4 pb-2 text-[10px] text-slate-400 font-medium uppercase tracking-widest border-t border-slate-100">
+                                    {settings.legalNotice}
+                                </div>
+                            )}
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL EMAIL DIRECT / APERÇU --- */}
+      {showEmailModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-[200] p-4">
+          <div className="bg-white p-8 rounded-3xl w-full max-w-4xl shadow-2xl border border-slate-100 animate-fade-in flex flex-col md:flex-row gap-8">
+            
+            {/* Colonne Explications / Templates */}
+            <div className="w-full md:w-1/3 flex flex-col gap-6">
+                <div>
+                    <h3 className="text-2xl font-extrabold font-poppins text-slate-800 flex items-center gap-3"><Send style={{ color: BRAND_COLOR }} size={24}/> Envoi Auto</h3>
+                    <p className="text-sm text-slate-500 mt-2 font-medium">Le CRM va générer le PDF et l'envoyer via votre Webhook. Choisissez un modèle pour préremplir le message.</p>
+                </div>
+                
+                <div className="space-y-3 flex-1 overflow-auto custom-scrollbar">
+                    <h4 className="font-bold text-slate-700 text-sm uppercase tracking-wider mb-2">Modèles de Message</h4>
+                    {(settings.emailTemplates || []).map(tpl => (
+                        <button 
+                            key={tpl.id}
+                            onClick={() => applyEmailTemplate(tpl.id, currentInvoice!, emailData.to)}
+                            className={`w-full text-left p-3 rounded-xl border-2 transition-all ${emailData.selectedTemplate === tpl.id ? 'border-[#01189B] bg-blue-50' : 'border-slate-100 hover:border-slate-200'}`}
+                        >
+                            <p className={`font-bold text-sm ${emailData.selectedTemplate === tpl.id ? 'text-[#01189B]' : 'text-slate-700'}`}>{tpl.name}</p>
+                            <p className="text-[10px] text-slate-500 mt-1 uppercase truncate font-bold">{tpl.subject}</p>
+                        </button>
+                    ))}
+                    {(settings.emailTemplates || []).length === 0 && (
+                        <p className="text-xs text-slate-400 italic">Aucun modèle créé. Allez dans Paramètres.</p>
+                    )}
+                </div>
+
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 mt-auto">
+                    <p className="text-xs font-bold text-slate-500 flex items-center gap-2 mb-2"><ShieldCheck size={16} className="text-emerald-500"/> Serveur Sécurisé</p>
+                    <p className="text-[10px] text-slate-400">La facture est envoyée via l'API. L'expéditeur affiché sera <strong>{settings.email}</strong>.</p>
+                </div>
+            </div>
+
+            {/* Colonne Formulaire Email */}
+            <div className="flex-1 space-y-5 bg-slate-50 p-6 rounded-2xl border border-slate-100 shadow-inner">
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Destinataire (À)</label>
+                <input value={emailData.to} onChange={e => setEmailData({...emailData, to: e.target.value})} className="w-full border-2 border-slate-200 bg-white p-3 rounded-xl outline-none focus:border-[#01189B] font-medium text-slate-800 transition-colors" placeholder="email@client.com" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Sujet de l'email</label>
+                <input value={emailData.subject} onChange={e => setEmailData({...emailData, subject: e.target.value})} className="w-full border-2 border-slate-200 bg-white p-3 rounded-xl outline-none focus:border-[#01189B] font-bold text-slate-800 transition-colors" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-2 flex justify-between items-center">
+                    Message
+                    <button onClick={() => applyEmailTemplate(emailData.selectedTemplate, currentInvoice!, emailData.to)} className="text-[10px] text-blue-500 hover:underline flex items-center gap-1"><RefreshCcw size={10}/> Réinitialiser avec le modèle</button>
+                </label>
+                <textarea value={emailData.body} onChange={e => setEmailData({...emailData, body: e.target.value})} className="w-full border-2 border-slate-200 bg-white p-4 rounded-xl h-48 outline-none focus:border-[#01189B] resize-none text-slate-700 transition-colors text-sm leading-relaxed custom-scrollbar"></textarea>
+              </div>
+
+              {/* Pièce jointe simulée visuellement */}
+              <div className="bg-white border-2 border-dashed border-blue-200 p-4 rounded-xl flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-red-50 rounded-lg text-red-500"><FileText size={20}/></div>
+                  <div>
+                    <p className="font-bold text-[#01189B] text-sm">Facture_{currentInvoice?.clientName || 'Client'}_{currentInvoice?.id}.pdf</p>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Sera généré automatiquement</p>
+                  </div>
+                </div>
+                <Paperclip className="text-blue-300" size={20}/>
+              </div>
+              
+              <div className="pt-4 flex gap-4 border-t border-slate-200 mt-6">
+                <button disabled={emailData.isSending} onClick={() => setShowEmailModal(false)} className="px-6 py-3.5 bg-white border-2 border-slate-200 text-slate-600 hover:bg-slate-100 rounded-xl font-bold transition-colors disabled:opacity-50">Annuler</button>
+                <button disabled={emailData.isSending} onClick={handleSendEmailFromModal} className="flex-1 py-3.5 text-white rounded-xl font-bold hover:shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-70" style={{ backgroundColor: BRAND_COLOR }}>
+                  {emailData.isSending ? <><Loader size={18} className="animate-spin"/> Transmission API...</> : <><Send size={18}/> Envoyer le message</>}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
