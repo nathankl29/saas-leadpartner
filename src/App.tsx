@@ -3,10 +3,10 @@ import {
   LayoutDashboard, Users, Settings, Plus, Search, ChevronLeft,
   FileText, Package, Trash2, CheckCircle, Clock, MessageSquare,
   Briefcase, PlayCircle, Target, TrendingUp, Calculator, ArrowRight,
-  Wallet, PieChart, Globe, Share2, Loader, LogIn, Edit2, Save,
+  Wallet, PieChart, Globe, Share2, Loader, LogIn, LogOut, Edit2, Save,
   Wand2, Send, X, Layers, AlertTriangle, Info, Rocket, Calendar as CalendarIcon,
   Mail, Percent, Download, MapPin, Eye, EyeOff, Activity, ShieldCheck,
-  Paperclip, Bell, CalendarClock, RefreshCcw, GripHorizontal, Link, Archive, Upload
+  Paperclip, Bell, CalendarClock, RefreshCcw, GripHorizontal, Link, Archive, Upload, Moon, Sun
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -15,12 +15,12 @@ import {
   onSnapshot, setDoc, writeBatch,
 } from 'firebase/firestore';
 import {
-  getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken,
+  getAuth, onAuthStateChanged,
   signInWithEmailAndPassword, signOut 
 } from 'firebase/auth';
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '44.10';
+const APP_VERSION = '45.2';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -379,6 +379,8 @@ export default function App() {
   const [settingsActiveTab, setSettingsActiveTab] = useState('general');
 
   const hasCheckedDefaults = useRef(false);
+
+  const [isDarkMode, setIsDarkMode] = useState(false);
 
   // --- WRAPPERS MODE SECRET ---
   const renderCurrency = (amount?: number) => isSecretMode ? 'CHF ****' : formatCurrency(amount);
@@ -1889,6 +1891,13 @@ export default function App() {
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
       `}} />
       
+      {isDarkMode && (
+        <style dangerouslySetInnerHTML={{__html: `
+          html { filter: invert(1) hue-rotate(180deg); background-color: #0f172a; }
+          img, video, iframe, .no-invert { filter: invert(1) hue-rotate(180deg); }
+        `}} />
+      )}
+      
       <aside className="w-72 bg-white flex flex-col no-print shrink-0 border-r border-slate-200 relative z-20">
         <div className="absolute top-0 left-0 w-full h-1" style={{ backgroundColor: BRAND_COLOR }}></div>
         <div className="p-8">
@@ -1925,6 +1934,15 @@ export default function App() {
             ))}
           </nav>
         </div>
+        <div className="mt-auto p-8 border-t border-slate-50">
+          <button onClick={() => setIsSecretMode(!isSecretMode)} className="flex items-center gap-2 text-slate-400 hover:text-slate-600 text-[10px] font-bold uppercase tracking-widest transition-colors">
+            {isSecretMode ? <EyeOff size={16}/> : <Eye size={16}/>} {isSecretMode ? 'Données Masquées' : 'Mode Secret'}
+          </button>
+          <button onClick={() => { signOut(auth); window.location.reload(); }} className="flex items-center gap-2 mt-4 text-red-400 hover:text-red-600 text-[10px] font-bold uppercase tracking-widest transition-colors w-full">
+            <LogOut size={16}/> Déconnexion
+          </button>
+          <p className="text-[10px] text-slate-300 font-bold uppercase mt-4">Version {APP_VERSION}</p>
+        </div>
       </aside>
 
       <div className="flex-1 flex flex-col overflow-hidden relative">
@@ -1949,7 +1967,12 @@ export default function App() {
                 {isSecretMode ? <><EyeOff size={18} /> Mode discret activé</> : <><Eye size={18} /> Masquer données</>}
              </button>
              
-             <button onClick={() => { signOut(auth); window.location.reload(); }} className="px-4 py-2 text-sm font-bold text-red-500 hover:bg-red-50 rounded-xl transition-colors">Déconnexion</button>
+             {/* Bouton Mode Sombre */}
+             <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2.5 text-slate-400 hover:text-indigo-500 transition-colors" title={isDarkMode ? "Passer en mode clair" : "Passer en mode sombre"}>
+                {isDarkMode ? <Sun size={24}/> : <Moon size={24}/>}
+             </button>
+
+             <button onClick={() => setActiveView('settings')} className="p-2.5 text-slate-400 hover:text-[#01189B] transition-colors"><Settings size={24}/></button>
           </div>
         </header>
 
