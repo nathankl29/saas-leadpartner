@@ -16,11 +16,22 @@ import {
 } from 'firebase/firestore';
 import {
   getAuth, onAuthStateChanged,
-  signInWithEmailAndPassword, signOut 
+  signInWithEmailAndPassword, signOut,
+  signInWithCustomToken, signInAnonymously
 } from 'firebase/auth';
 
+declare const __firebase_config: string | undefined;
+declare const __app_id: string | undefined;
+declare const __initial_auth_token: string | undefined;
+
+declare global {
+  interface Window {
+    html2pdf: any;
+  }
+}
+
 // --- VERSION DU CRM ---
-const APP_VERSION = '45.6';
+const APP_VERSION = '50.6';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -35,32 +46,8 @@ const UI_CLASSES = {
   title: "text-2xl font-extrabold mb-6 font-poppins text-slate-800 flex items-center gap-3"
 };
 
-// --- TYPES & INTERFACES ---
-interface Product { id: string; name: string; price: number; cost?: number; platform?: string; description?: string; }
-interface Contact { 
-  id: string; name: string; company: string; email?: string; phone?: string; status: string; 
-  address?: string; targetAudience?: string; offeredProducts?: string[];
-  projectedBudget?: number; interestedProductId?: string; campaignStartDate?: string | null; createdAt?: string; 
-  nextContactDate?: string | null; nextContactNote?: string;
-  type?: 'prospect' | 'client'; source?: string; sourceDetails?: string;
-}
-interface InvoiceItem { name: string; description?: string; price: number; qty: number; cost?: number; }
-interface Invoice { id: string; date: string; clientId: string; clientName: string; clientAddress?: string; status: string; amount: number; items: InvoiceItem[]; }
-interface Interaction { id: string; contactId: string; type: string; content: string; createdAt: string; }
-interface Simulation { id: string; budget: number; productId: string; productName: string; productPlatform?: string; clientId?: string; clientName?: string; stats: any; createdAt: string; }
-interface TargetScenario { id: string; name: string; totalBudget: number; agencyMargin: number; targetCPL: number; currentRealCPL: number; spentBudget: number; remainingDays: number; createdAt: string; }
-interface EmailTemplate { id: string; name: string; subject: string; body: string; }
-interface AppSettings { 
-  companyName: string; companyId: string; address: string; email: string; phone: string; 
-  bankDetails: string; invoiceFooter: string; legalNotice: string; primaryColor: string; 
-  monthlyGoal: number; dashboardLayout?: string[]; webhookUrl?: string;
-  emailTemplates?: EmailTemplate[];
-}
-interface Notification { id: string; type: 'success' | 'error' | 'info'; message: string; }
-interface ConfirmState { isOpen: boolean; title: string; message: string; onConfirm: () => void; }
-
 // --- CONFIGURATION FIREBASE ---
-const firebaseConfig = {
+const fallbackFirebaseConfig = {
   apiKey: 'AIzaSyDY6zXLeebKhMxL_2_mfQOYV44JuoCArK0',
   authDomain: 'crm-leadpartner.firebaseapp.com',
   projectId: 'crm-leadpartner',
@@ -69,18 +56,25 @@ const firebaseConfig = {
   appId: '1:588502456936:web:5c509a0c418f34f77239dd',
 };
 
-const APP_ID = 'leadpartner-crm-v43-prod';
+const DEFAULT_APP_ID = 'leadpartner-crm-v43-prod';
 
 let app: any, db: any, auth: any;
 try {
-  if (firebaseConfig && firebaseConfig.apiKey) {
-    app = initializeApp(firebaseConfig);
+  if (typeof __firebase_config !== 'undefined') {
+    const config = JSON.parse(__firebase_config);
+    app = initializeApp(config);
+  } else if (fallbackFirebaseConfig && fallbackFirebaseConfig.apiKey) {
+    app = initializeApp(fallbackFirebaseConfig);
+  }
+  if (app) {
     db = getFirestore(app);
     auth = getAuth(app);
   }
 } catch (e) {
   console.error('Erreur init Firebase:', e);
 }
+
+const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : DEFAULT_APP_ID;
 
 // --- CONSTANTES ---
 const PIPELINE_STAGES = [
@@ -92,7 +86,7 @@ const PIPELINE_STAGES = [
   { id: 'perdu', label: 'Perdu', color: 'bg-red-50 border-red-200 text-red-700' },
 ];
 
-const INVOICE_STATUSES: Record<string, { label: string; color: string }> = {
+const INVOICE_STATUSES: any = {
   brouillon: { label: 'Brouillon', color: 'bg-slate-100 text-slate-600' },
   envoyee: { label: 'Envoyée', color: 'bg-blue-100 text-[#01189B]' },
   payee: { label: 'Payée', color: 'bg-emerald-100 text-emerald-600' },
@@ -101,26 +95,26 @@ const INVOICE_STATUSES: Record<string, { label: string; color: string }> = {
   archive: { label: 'Archivée', color: 'bg-slate-800 text-white' },
 };
 
-const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
+const DEFAULT_EMAIL_TEMPLATES = [
   { id: 'std', name: 'Standard (Envoi de Facture)', subject: 'Nouvelle Facture {{facture}} - {{agence}}', body: "Bonjour {{prenom_contact}},\n\nVeuillez trouver ci-joint votre facture {{facture}} d'un montant de {{montant}} concernant nos prestations.\n\nNous restons à votre entière disposition pour toute question.\n\nCordialement,\nL'équipe {{agence}}" },
   { id: 'relance_1', name: 'Relance Aimable', subject: 'Relance : Facture {{facture}} en attente', body: "Bonjour {{prenom_contact}},\n\nSauf erreur ou omission de notre part, le règlement de la facture {{facture}} d'un montant de {{montant}} ne nous est pas encore parvenu.\n\nNous vous prions de bien vouloir procéder à son règlement.\n\nCordialement,\nL'équipe {{agence}}" }
 ];
 
-const formatDate = (dateStr?: string) => {
+const formatDate = (dateStr: string) => {
   if (!dateStr) return '-';
   return new Date(dateStr).toLocaleDateString('fr-CH', { day: 'numeric', month: 'short', year: 'numeric' });
 };
 
-const formatDateTime = (dateStr?: string) => {
+const formatDateTime = (dateStr: string) => {
   if (!dateStr) return '-';
   return new Date(dateStr).toLocaleDateString('fr-CH', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute:'2-digit' });
 };
 
-const formatCurrency = (amount?: number) => {
+const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat('fr-CH', { style: 'currency', currency: 'CHF', minimumFractionDigits: 2 }).format(Number(amount || 0));
 };
 
-// --- HELPERS PDF (OPTIMISATION) ---
+// --- HELPERS PDF ---
 const getPdfOptions = (filename: string) => ({
   margin: [10, 0, 10, 0],
   filename,
@@ -149,25 +143,25 @@ const getPdfOptions = (filename: string) => ({
 });
 
 const requireHtml2Pdf = async () => {
-  if ((window as any).html2pdf) return (window as any).html2pdf;
+  if (window.html2pdf) return window.html2pdf;
   return new Promise((resolve, reject) => {
       const script = document.createElement('script');
       script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
-      script.onload = () => resolve((window as any).html2pdf);
+      script.onload = () => resolve(window.html2pdf);
       script.onerror = reject;
       document.body.appendChild(script);
   });
 };
 
 // --- COMPOSANT LOGIN ---
-const LoginScreen = ({ onLogin, addNotification }: { onLogin: () => void; addNotification: (t: any, m: string) => void }) => {
+const LoginScreen = ({ onLogin, addNotification }: any) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [localError, setLocalError] = useState('');
 
-  const handleLoginSubmit = async (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: any) => {
     e.preventDefault();
     setLocalError('');
     
@@ -262,9 +256,9 @@ const LoginScreen = ({ onLogin, addNotification }: { onLogin: () => void; addNot
 
 // --- COMPOSANT EMAIL EDITOR ---
 const EmailTemplateEditor = ({ tpl, onSave, onDelete }: any) => {
-    const [name, setName] = useState(tpl.name || '');
-    const [subject, setSubject] = useState(tpl.subject || '');
-    const [body, setBody] = useState(tpl.body || '');
+    const [name, setName] = useState(tpl?.name || '');
+    const [subject, setSubject] = useState(tpl?.subject || '');
+    const [body, setBody] = useState(tpl?.body || '');
 
     return (
         <div className="p-5 border-2 border-slate-100 rounded-2xl bg-slate-50 relative group">
@@ -314,14 +308,15 @@ export default function App() {
   const [isAppAuthenticated, setIsAppAuthenticated] = useState(false);
   const [isOfflineMode, setIsOfflineMode] = useState(false);
   const [isSecretMode, setIsSecretMode] = useState(false);
+  const [isEditingContractInInvoice, setIsEditingContractInInvoice] = useState(false);
 
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [confirmState, setConfirmState] = useState<ConfirmState>({ isOpen: false, title: '', message: '', onConfirm: () => {} });
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [confirmState, setConfirmState] = useState({ isOpen: false, title: '', message: '', onConfirm: () => {} });
 
   const [targetToolState, setTargetToolState] = useState({ scenarioName: 'Nouveau Scénario', totalBudget: 6000, agencyMargin: 35, targetCPL: 80, realCPL: 30, spentBudget: 0, remainingDays: 15, useMargin: true });
-  const [scenarios, setScenarios] = useState<TargetScenario[]>([]);
+  const [scenarios, setScenarios] = useState<any[]>([]);
 
-  const [settings, setSettings] = useState<AppSettings>({
+  const [settings, setSettings] = useState<any>({
     companyName: 'LeadPartner',
     companyId: 'CHE-123.456.789 TVA',
     address: "Genève, Suisse",
@@ -332,35 +327,36 @@ export default function App() {
     legalNotice: 'Entreprise individuelle non soumise à la TVA',
     primaryColor: BRAND_COLOR,
     monthlyGoal: 50000,
-    dashboardLayout: ['objective', 'stat_ca_month', 'stat_ca_total', 'stat_ca_potentiel', 'stat_pipeline', 'stat_campaigns', 'reminders', 'invoices', 'activity'],
+    dashboardLayout: ['objective', 'widget_finances_data', 'widget_finances_chart', 'stat_ca_month', 'stat_ca_total', 'stat_ca_potentiel', 'stat_pipeline', 'stat_campaigns', 'reminders', 'invoices', 'activity'],
     webhookUrl: '', 
     emailTemplates: DEFAULT_EMAIL_TEMPLATES,
+    defaultContractText: "CONDITIONS GÉNÉRALES DE PRESTATION DE SERVICES\n\nArticle 1 : Objet\nLe présent contrat a pour objet de définir les conditions dans lesquelles le Prestataire s'engage à fournir au Client les services de génération de leads et/ou d'optimisation publicitaire décrits dans la présente facture.\n\nArticle 2 : Durée\nLe présent contrat prend effet à compter de la date de paiement de la facture pour la durée du cycle de production stipulé (ex: 30 jours).\n\nArticle 3 : Modalités financières\nLe Client s'engage à régler le montant total indiqué sur la facture. Le démarrage des prestations est conditionné à la réception intégrale du paiement.\n\nArticle 4 : Obligations\nLe Prestataire s'engage à mettre en œuvre tous les moyens nécessaires pour atteindre les objectifs fixés, avec une obligation de moyens. Le Client s'engage à fournir tous les éléments nécessaires à la réalisation de la prestation.\n\nArticle 5 : Résiliation\nEn cas de manquement grave par l'une des parties à ses obligations, le contrat pourra être résilié de plein droit.\n\nFait pour valoir ce que de droit.",
   });
 
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [interactions, setInteractions] = useState<Interaction[]>([]);
-  const [simulations, setSimulations] = useState<Simulation[]>([]);
+  const [contacts, setContacts] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
+  const [invoices, setInvoices] = useState<any[]>([]);
+  const [interactions, setInteractions] = useState<any[]>([]);
+  const [simulations, setSimulations] = useState<any[]>([]);
 
-  const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
+  const [selectedContactId, setSelectedContactId] = useState<any>(null);
   const selectedContact = useMemo(() => contacts.find((c) => c.id === selectedContactId) || null, [contacts, selectedContactId]);
 
   const [isEditingContact, setIsEditingContact] = useState(false);
-  const [editContactData, setEditContactData] = useState<Partial<Contact>>({});
+  const [editContactData, setEditContactData] = useState<any>({});
   const [newNoteContent, setNewNoteContent] = useState('');
   const [newContactSource, setNewContactSource] = useState('');
   
   // États de rappel (Fiche client)
   const [reminderNote, setReminderNote] = useState('');
 
-  const [showModal, setShowModal] = useState<string | null>(null);
-  const [currentProduct, setCurrentProduct] = useState<Product | null>(null);
+  const [showModal, setShowModal] = useState<any>(null);
+  const [currentProduct, setCurrentProduct] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [currentInvoice, setCurrentInvoice] = useState<Partial<Invoice> | null>(null);
+  const [currentInvoice, setCurrentInvoice] = useState<any>(null);
   const [contactFilterType, setContactFilterType] = useState('all');
 
-  const [invoiceBudget, setInvoiceBudget] = useState<number | string>('');
+  const [invoiceBudget, setInvoiceBudget] = useState<any>('');
   const [invoiceThemeId, setInvoiceThemeId] = useState('');
   const [invoiceMarginPercent, setInvoiceMarginPercent] = useState(35);
 
@@ -370,10 +366,10 @@ export default function App() {
 
   // Modale d'envoi d'email
   const [showEmailModal, setShowEmailModal] = useState(false);
-  const [emailData, setEmailData] = useState({ to: '', subject: '', body: '', isSending: false, selectedTemplate: 'std' });
+  const [emailData, setEmailData] = useState<any>({ to: '', subject: '', body: '', isSending: false, selectedTemplate: 'std' });
 
   // Import CSV Modal
-  const [showImportModal, setShowImportModal] = useState<string | null>(null);
+  const [showImportModal, setShowImportModal] = useState<any>(null);
 
   // Settings Tabs
   const [settingsActiveTab, setSettingsActiveTab] = useState('general');
@@ -383,17 +379,17 @@ export default function App() {
   const [isDarkMode, setIsDarkMode] = useState(false);
 
   // --- WRAPPERS MODE SECRET ---
-  const renderCurrency = (amount?: number) => isSecretMode ? 'CHF ****' : formatCurrency(amount);
-  const renderNumber = (num?: number | string) => isSecretMode ? '****' : num;
+  const renderCurrency = (amount: number) => isSecretMode ? 'CHF ****' : formatCurrency(amount);
+  const renderNumber = (num: number | string) => isSecretMode ? '****' : num;
 
   // --- HELPERS UI ---
-  const addNotification = (type: 'success' | 'error' | 'info', message: string) => {
+  const addNotification = (type: string, message: string) => {
     const id = Math.random().toString(36).substr(2, 9);
     setNotifications((prev) => [...prev, { id, type, message }]);
     setTimeout(() => setNotifications((prev) => prev.filter((n) => n.id !== id)), 4000);
   };
 
-  const openConfirm = (title: string, message: string, onConfirm: () => void) => {
+  const openConfirm = (title: string, message: string, onConfirm: any) => {
     setConfirmState({ isOpen: true, title, message, onConfirm: () => { onConfirm(); setConfirmState((prev) => ({ ...prev, isOpen: false })); } });
   };
 
@@ -406,34 +402,50 @@ export default function App() {
         return;
     }
 
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-        if (u) {
-            setUser(u);
-            setIsAppAuthenticated(true);
-            setIsOfflineMode(false);
-        } else {
-            setUser(null);
-            setIsAppAuthenticated(false);
+    const initAuth = async () => {
+        if (typeof __firebase_config !== 'undefined') {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (err) {
+                console.error("Canvas Env Auth Error:", err);
+            }
         }
-        setLoading(false);
-    });
+    };
 
-    return () => unsubscribe();
+    initAuth().then(() => {
+        const unsubscribe = onAuthStateChanged(auth, (u) => {
+            if (u) {
+                setUser(u);
+                setIsAppAuthenticated(true);
+                setIsOfflineMode(false);
+            } else {
+                setUser(null);
+                setIsAppAuthenticated(false);
+            }
+            setLoading(false);
+        });
+
+        return () => unsubscribe();
+    });
   }, []);
 
   // --- SYNC DB & AUTO-SEED PRODUCTS/CONTACTS ---
   useEffect(() => {
     if (!user || isOfflineMode || !db) return;
-    const basePath = `artifacts/${APP_ID}/users/${user.uid}`;
+    const basePath = `artifacts/${getAppId()}/users/${user.uid}`;
     try {
       const unsubs = [
-        onSnapshot(collection(db, `${basePath}/contacts`), (s: any) => {
-          const loadedContacts = s.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+        onSnapshot(collection(db, `${basePath}/contacts`), (s) => {
+          const loadedContacts = s.docs.map((d) => ({ id: d.id, ...d.data() }));
           setContacts(loadedContacts);
         }),
         
-        onSnapshot(collection(db, `${basePath}/products`), (s: any) => {
-          const loadedProducts = s.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+        onSnapshot(collection(db, `${basePath}/products`), (s) => {
+          const loadedProducts = s.docs.map((d) => ({ id: d.id, ...d.data() }));
           if (s.empty && !hasCheckedDefaults.current) {
             hasCheckedDefaults.current = true;
             const batch = writeBatch(db);
@@ -454,17 +466,17 @@ export default function App() {
           }
         }),
 
-        onSnapshot(collection(db, `${basePath}/invoices`), (s: any) => setInvoices(s.docs.map((d: any) => ({ id: d.id, ...d.data() })))),
-        onSnapshot(collection(db, `${basePath}/interactions`), (s: any) => setInteractions(s.docs.map((d: any) => ({ id: d.id, ...d.data() })))),
-        onSnapshot(collection(db, `${basePath}/simulations`), (s: any) => setSimulations(s.docs.map((d: any) => ({ id: d.id, ...d.data() })))),
-        onSnapshot(collection(db, `${basePath}/target_scenarios`), (s: any) => setScenarios(s.docs.map((d: any) => ({ id: d.id, ...d.data() })))),
-        onSnapshot(doc(db, `${basePath}/config`, 'general'), (s: any) => { 
+        onSnapshot(collection(db, `${basePath}/invoices`), (s) => setInvoices(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
+        onSnapshot(collection(db, `${basePath}/interactions`), (s) => setInteractions(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
+        onSnapshot(collection(db, `${basePath}/simulations`), (s) => setSimulations(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
+        onSnapshot(collection(db, `${basePath}/target_scenarios`), (s) => setScenarios(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
+        onSnapshot(doc(db, `${basePath}/config`, 'general'), (s) => { 
             if (s.exists()) {
                 const data = s.data();
                 if (!data.emailTemplates || data.emailTemplates.length === 0) {
                     data.emailTemplates = DEFAULT_EMAIL_TEMPLATES;
                 }
-                setSettings((prev) => ({ ...prev, ...data })); 
+                setSettings((prev: any) => ({ ...prev, ...data })); 
             }
         }),
       ];
@@ -503,7 +515,7 @@ export default function App() {
               monthlyCA[d.getMonth()] += amt;
               caAnnuel += amt;
               const frais = i.items?.filter((it: any) => it.name.includes('Gestion') || it.name.includes('Frais'))
-                             .reduce((acc, it) => acc + (it.price * (it.qty || 1)), 0) || (amt * 0.35);
+                               .reduce((acc: number, it: any) => acc + (it.price * (it.qty || 1)), 0) || (amt * 0.35);
               beneficePapierTotal += frais;
           }
           if (d.getMonth() === currentMonth && d.getFullYear() === currentYear) {
@@ -552,7 +564,7 @@ export default function App() {
     if (isOfflineMode) return addNotification('error', 'Mode hors-ligne : Sauvegarde impossible');
     if (!user) return;
     try {
-      await addDoc(collection(db, `artifacts/${APP_ID}/users/${user.uid}/${col}`), { ...data, createdAt: new Date().toISOString() });
+      await addDoc(collection(db, `artifacts/${getAppId()}/users/${user.uid}/${col}`), { ...data, createdAt: new Date().toISOString() });
       setShowModal(null);
       addNotification('success', 'Élément créé avec succès');
     } catch (e) { addNotification('error', 'Erreur lors de la création'); }
@@ -561,7 +573,7 @@ export default function App() {
   const handleUpdate = async (col: string, id: string, data: any) => {
     if (isOfflineMode || !user) return;
     try {
-      await updateDoc(doc(db, `artifacts/${APP_ID}/users/${user.uid}/${col}`, id), data);
+      await updateDoc(doc(db, `artifacts/${getAppId()}/users/${user.uid}/${col}`, id), data);
       addNotification('success', 'Mise à jour effectuée');
     } catch (e) { addNotification('error', 'Erreur de mise à jour'); }
   };
@@ -570,7 +582,7 @@ export default function App() {
     if (isOfflineMode || !user) return;
     openConfirm("Supprimer l'élément ?", 'Cette action est irréversible.', async () => {
       try {
-        await deleteDoc(doc(db, `artifacts/${APP_ID}/users/${user.uid}/${col}`, id));
+        await deleteDoc(doc(db, `artifacts/${getAppId()}/users/${user.uid}/${col}`, id));
         if (col === 'contacts' && selectedContactId === id) setSelectedContactId(null);
         if (col === 'invoices') setShowModal(null); // Close invoice modal if open
         addNotification('success', 'Suppression réussie');
@@ -583,7 +595,7 @@ export default function App() {
       handleDelete('invoices', currentInvoice.id);
   };
 
-  const handleInvoiceStatusChange = async (inv: Invoice, newStatus: string) => {
+  const handleInvoiceStatusChange = async (inv: any, newStatus: string) => {
       if (!user || isOfflineMode) return;
       await handleUpdate('invoices', inv.id, { status: newStatus });
       
@@ -594,7 +606,7 @@ export default function App() {
           if (activeProduct) {
               let mediaBudget = 0;
               let mgtFees = 0;
-              (inv.items || []).forEach(item => {
+              (inv.items || []).forEach((item: any) => {
                   if (item.name.includes('Gestion') || item.name.includes('Frais')) mgtFees += Number(item.price) * (item.qty || 1);
                   else mediaBudget += Number(item.price) * (item.qty || 1);
               });
@@ -621,7 +633,7 @@ export default function App() {
       }
   };
 
-  const handleSaveProductForm = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSaveProductForm = async (e: any) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const data = { name: fd.get('name'), price: Number(fd.get('price')), cost: Number(fd.get('cost')), platform: fd.get('platform'), description: fd.get('description') };
@@ -679,39 +691,40 @@ export default function App() {
     const activeProduct = products.find((p) => p.id === planProductId);
     if (!activeProduct) return;
     const activeClient = contacts.find((c) => c.id === planClientId);
-    const simData: Omit<Simulation, 'id'> = { budget: planBudget, productId: planProductId, productName: activeProduct.name, productPlatform: activeProduct.platform, clientId: planClientId, clientName: activeClient ? activeClient.company : 'Client Inconnu', stats: simStats, createdAt: new Date().toISOString() };
-    await addDoc(collection(db, `artifacts/${APP_ID}/users/${user.uid}/simulations`), simData);
+    const simData = { budget: planBudget, productId: planProductId, productName: activeProduct.name, productPlatform: activeProduct.platform, clientId: planClientId, clientName: activeClient ? activeClient.company : 'Client Inconnu', stats: simStats, createdAt: new Date().toISOString() };
+    await addDoc(collection(db, `artifacts/${getAppId()}/users/${user.uid}/simulations`), simData);
     addNotification('success', 'Production média activée dans vos cycles.');
   };
 
-  const handleSaveSettings = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSaveSettings = async (e: any) => {
     e.preventDefault();
     if (!user) return;
     const fd = new FormData(e.currentTarget);
     const newSettings = {
       ...settings,
-      companyName: fd.get('companyName') || settings.companyName, 
-      companyId: fd.get('companyId') || settings.companyId, 
-      address: fd.get('address') || settings.address, 
-      email: fd.get('email') || settings.email, 
-      phone: fd.get('phone') || settings.phone, 
-      bankDetails: fd.get('bankDetails') || settings.bankDetails, 
-      invoiceFooter: fd.get('invoiceFooter') || settings.invoiceFooter, 
-      legalNotice: fd.get('legalNotice') || settings.legalNotice, 
+      companyName: (fd.get('companyName') as string) || settings.companyName, 
+      companyId: (fd.get('companyId') as string) || settings.companyId, 
+      address: (fd.get('address') as string) || settings.address, 
+      email: (fd.get('email') as string) || settings.email, 
+      phone: (fd.get('phone') as string) || settings.phone, 
+      bankDetails: (fd.get('bankDetails') as string) || settings.bankDetails, 
+      invoiceFooter: (fd.get('invoiceFooter') as string) || settings.invoiceFooter, 
+      legalNotice: (fd.get('legalNotice') as string) || settings.legalNotice, 
       monthlyGoal: Number(fd.get('monthlyGoal')) || settings.monthlyGoal, 
-      webhookUrl: fd.get('webhookUrl') || settings.webhookUrl, 
+      webhookUrl: (fd.get('webhookUrl') as string) || settings.webhookUrl, 
+      defaultContractText: (fd.get('defaultContractText') as string) || settings.defaultContractText,
       primaryColor: BRAND_COLOR,
     };
-    await setDoc(doc(db, `artifacts/${APP_ID}/users/${user.uid}/config`, 'general'), newSettings);
-    setSettings(newSettings as AppSettings);
+    await setDoc(doc(db, `artifacts/${getAppId()}/users/${user.uid}/config`, 'general'), newSettings as any);
+    setSettings(newSettings);
     addNotification('success', 'Paramètres sauvegardés !');
   };
 
-  const handleSaveSettingsDirect = async (newSettingsObj: Partial<AppSettings>) => {
+  const handleSaveSettingsDirect = async (newSettingsObj: any) => {
       if (!user) return;
       const updated = { ...settings, ...newSettingsObj };
-      await setDoc(doc(db, `artifacts/${APP_ID}/users/${user.uid}/config`, 'general'), updated);
-      setSettings(updated as AppSettings);
+      await setDoc(doc(db, `artifacts/${getAppId()}/users/${user.uid}/config`, 'general'), updated);
+      setSettings(updated);
       addNotification('success', 'Modèles mis à jour !');
   }
 
@@ -738,11 +751,11 @@ export default function App() {
         price: mgtFees, qty: 1 
       },
     ];
-    setCurrentInvoice({ ...(currentInvoice || {}), items: [...(currentInvoice?.items || []), ...newItems] } as Invoice);
+    setCurrentInvoice({ ...(currentInvoice || {}), items: [...(currentInvoice?.items || []), ...newItems] });
     addNotification('success', 'Lignes calculées avec volume de leads estimé.');
   };
 
-  const handleSaveInvoice = async (closeModal = true) => {
+  const handleSaveInvoice = async (closeModal: boolean = true) => {
     const shouldClose = typeof closeModal === 'boolean' ? closeModal : true;
     if (!user || !currentInvoice || (!currentInvoice.clientId && !currentInvoice.clientName)) {
         addNotification('error', 'Veuillez renseigner ou lier un client.');
@@ -753,7 +766,7 @@ export default function App() {
     const invData = { ...cleanInvoiceData, amount, clientName: cleanInvoiceData.clientName || 'Client Inconnu' };
     
     try {
-      await setDoc(doc(db, `artifacts/${APP_ID}/users/${user.uid}/invoices`, invData.id), invData);
+      await setDoc(doc(db, `artifacts/${getAppId()}/users/${user.uid}/invoices`, invData.id), invData);
       if (shouldClose) setShowModal(null); 
       addNotification('success', 'Facture sauvegardée avec succès');
       return true;
@@ -776,8 +789,8 @@ export default function App() {
   };
 
   // --- GESTION DES EMAILS & TEMPLATES ---
-  const applyEmailTemplate = (templateId: string, invoice: Partial<Invoice>, clientEmail: string) => {
-      const template = (settings.emailTemplates || []).find(t => t.id === templateId) || settings.emailTemplates?.[0];
+  const applyEmailTemplate = (templateId: string, invoice: any, clientEmail: string) => {
+      const template = (settings.emailTemplates || []).find((t: any) => t.id === templateId) || settings.emailTemplates?.[0];
       if (!template) return;
 
       const invId = invoice.id || 'N/A';
@@ -840,7 +853,7 @@ export default function App() {
         const opt = getPdfOptions(`Facture_${currentInvoice?.id}.pdf`);
 
         // Extraction sécurisée du PDF
-        const rawPdfBase64 = await new Promise<string>((resolve) => {
+        const rawPdfBase64: any = await new Promise((resolve) => {
              html2pdf().set(opt).from(element).toPdf().get('pdf').then((pdf: any) => resolve(pdf.output('datauristring')));
         });
         
@@ -882,9 +895,9 @@ export default function App() {
 
   const handleSaveTargetScenario = async () => {
       if(!user) return;
-      const data: Omit<TargetScenario, 'id'> = { name: targetToolState.scenarioName || 'Scénario', totalBudget: targetToolState.totalBudget, agencyMargin: targetToolState.agencyMargin, targetCPL: targetToolState.targetCPL, currentRealCPL: targetToolState.realCPL, spentBudget: targetToolState.spentBudget, remainingDays: targetToolState.remainingDays, createdAt: new Date().toISOString() };
+      const data = { name: targetToolState.scenarioName || 'Scénario', totalBudget: targetToolState.totalBudget, agencyMargin: targetToolState.agencyMargin, targetCPL: targetToolState.targetCPL, currentRealCPL: targetToolState.realCPL, spentBudget: targetToolState.spentBudget, remainingDays: targetToolState.remainingDays, createdAt: new Date().toISOString() };
       try {
-          await addDoc(collection(db, `artifacts/${APP_ID}/users/${user.uid}/target_scenarios`), data);
+          await addDoc(collection(db, `artifacts/${getAppId()}/users/${user.uid}/target_scenarios`), data);
           addNotification('success', 'Scénario sauvegardé');
       } catch(e) { addNotification('error', 'Erreur sauvegarde scénario'); }
   }
@@ -892,7 +905,7 @@ export default function App() {
   const handleExportData = () => {
       const exportData = {
           exportDate: new Date().toISOString(),
-          appId: APP_ID,
+          appId: getAppId(),
           userId: user?.uid,
           data: { settings, contacts, products, invoices, interactions, simulations, scenarios }
       };
@@ -947,18 +960,18 @@ export default function App() {
       addNotification('success', 'Modèle CSV exporté avec succès !');
   };
 
-  const handleImportCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportCSV = async (e: any) => {
       const file = e.target.files?.[0];
       if (!file || !user) return;
       
       const type = showImportModal;
       const reader = new FileReader();
       
-      reader.onload = async (event) => {
-          const text = event.target?.result as string;
+      reader.onload = async (event: any) => {
+          const text = event.target?.result?.toString();
           if (!text) return;
           
-          const lines = text.split('\n').filter(l => l.trim().length > 0);
+          const lines = text.split('\n').filter((l: string) => l.trim().length > 0);
           if (lines.length < 2) return addNotification('error', 'Fichier vide ou invalide (manque d\'en-tête).');
 
           const batch = writeBatch(db);
@@ -967,7 +980,7 @@ export default function App() {
           // On boucle sur chaque ligne (en ignorant la première ligne qui contient les en-têtes)
           for (let i = 1; i < lines.length; i++) {
               // Séparateur intelligent (virgule ou point-virgule) qui ignore ce qui est entre guillemets
-              const row = lines[i].split(/[,;](?=(?:(?:[^"]*"){2})*[^"]*$)/).map(v => v.trim().replace(/^"|"$/g, ''));
+              const row = lines[i].split(/[,;](?=(?:(?:[^"]*"){2})*[^"]*$)/).map((v: string) => v.trim().replace(/^"|"$/g, ''));
               if (row.length < 2) continue;
 
               if (type === 'contacts') {
@@ -979,7 +992,7 @@ export default function App() {
                   const status = row[5]?.toLowerCase() || 'nouveau';
                   const projectedBudget = Number(row[6]) || 0;
 
-                  const docRef = doc(collection(db, `artifacts/${APP_ID}/users/${user.uid}/contacts`));
+                  const docRef = doc(collection(db, `artifacts/${getAppId()}/users/${user.uid}/contacts`));
                   batch.set(docRef, { company, name, email, phone, address, status, projectedBudget, createdAt: new Date().toISOString() });
                   count++;
               } else if (type === 'invoices') {
@@ -990,7 +1003,7 @@ export default function App() {
                   const dateStr = row[4] || new Date().toISOString();
                   const date = isNaN(Date.parse(dateStr)) ? new Date().toISOString() : new Date(dateStr).toISOString();
 
-                  const docRef = doc(db, `artifacts/${APP_ID}/users/${user.uid}/invoices`, id);
+                  const docRef = doc(db, `artifacts/${getAppId()}/users/${user.uid}/invoices`, id);
                   batch.set(docRef, { id, clientName, amount, status, date, items: [], clientId: '' });
                   count++;
               }
@@ -1011,6 +1024,58 @@ export default function App() {
 
   // --- RENDERERS (Vues de l'application) ---
 
+  const renderProspection = () => {
+    const prospects = contacts.filter(c => c.type === 'prospect' || (c.status !== 'gagne' && c.status !== 'perdu'));
+    
+    return (
+      <div className="max-w-6xl mx-auto animate-fade-in space-y-8 pb-12">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-4">
+            <div className="p-4 rounded-2xl text-white shadow-[0_8px_30px_rgb(1,24,155,0.3)]" style={{ backgroundColor: BRAND_COLOR }}>
+              <Send size={32} />
+            </div>
+            <div>
+              <h2 className="text-3xl font-extrabold text-slate-800 font-poppins">Prospection & Mailing</h2>
+              <p className="text-slate-500 text-lg">Gérez vos envois d'emails et relances à vos prospects.</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden mt-8">
+          <div className="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+            <h3 className="font-bold text-slate-800 flex items-center gap-2"><Users size={18} className="text-[#01189B]"/> Liste des prospects ({prospects.length})</h3>
+            <button onClick={() => { setShowModal('contact'); setNewContactSource(''); }} className="bg-white border border-slate-200 text-[#01189B] px-4 py-2 rounded-xl text-xs font-bold hover:bg-slate-50 transition-all flex items-center gap-2"><Plus size={14}/> Ajouter un prospect</button>
+          </div>
+          <table className="w-full text-sm text-left">
+            <thead className="bg-white text-slate-500 uppercase font-extrabold text-[10px] tracking-wider border-b border-slate-100">
+              <tr><th className="px-6 py-5">Société</th><th className="px-6 py-5">Contact</th><th className="px-6 py-5">Email</th><th className="px-6 py-5 text-right">Action</th></tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {prospects.map(p => (
+                <tr key={p.id} className="hover:bg-blue-50/30 transition-colors">
+                  <td className="px-6 py-5 font-extrabold text-slate-800">{p.company}</td>
+                  <td className="px-6 py-5 text-slate-600">{p.name}</td>
+                  <td className="px-6 py-5 text-slate-500">{p.email || <span className="italic text-slate-300">Non renseigné</span>}</td>
+                  <td className="px-6 py-5 text-right">
+                    <a 
+                      href={p.email ? `mailto:${p.email}` : '#'}
+                      className={`inline-flex items-center justify-center px-4 py-2 rounded-xl text-xs font-bold gap-2 transition-all ${p.email ? 'bg-blue-50 text-[#01189B] hover:bg-[#01189B] hover:text-white' : 'bg-slate-50 text-slate-400 cursor-not-allowed pointer-events-none'}`}
+                    >
+                      <Send size={14}/> Écrire
+                    </a>
+                  </td>
+                </tr>
+              ))}
+              {prospects.length === 0 && (
+                <tr><td colSpan={4} className="text-center py-12 text-slate-400 font-medium">Aucun prospect disponible dans votre base CRM.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
   const renderContactDetail = () => {
     if (!selectedContact) return null;
     const contactInteractions = interactions.filter(i => i.contactId === selectedContact.id).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -1023,7 +1088,7 @@ export default function App() {
 
     // Analyse du rappel (Reminder)
     const hasReminder = !!selectedContact.nextContactDate;
-    const isReminderDue = hasReminder && new Date(selectedContact.nextContactDate!) <= new Date();
+    const isReminderDue = hasReminder && new Date(selectedContact.nextContactDate) <= new Date();
 
     return (
       <div className="flex flex-col h-full bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden animate-fade-in border border-slate-100">
@@ -1035,7 +1100,7 @@ export default function App() {
                     <Bell size={18} className={isReminderDue ? 'animate-bounce' : ''} />
                     <span>
                         {isReminderDue ? 'Rappel Échu : ' : 'Rappel Planifié : '}
-                        {selectedContact.nextContactNote} (Pour le {formatDate(selectedContact.nextContactDate!)})
+                        {selectedContact.nextContactNote} (Pour le {formatDate(selectedContact.nextContactDate)})
                     </span>
                 </div>
                 <button onClick={handleClearReminder} className={`px-3 py-1 rounded-lg text-xs transition-colors ${isReminderDue ? 'bg-red-600 hover:bg-red-700' : 'bg-orange-200 hover:bg-orange-300'}`}>
@@ -1075,7 +1140,7 @@ export default function App() {
                           <Target size={14}/> {selectedContact.targetAudience}
                       </span>
                   )}
-                  {(selectedContact.offeredProducts || []).map(p => (
+                  {(selectedContact.offeredProducts || []).map((p: string) => (
                       <span key={p} className="px-3 py-1.5 bg-slate-100 text-slate-600 border border-slate-200 rounded-lg text-xs font-bold uppercase tracking-wide flex items-center gap-1.5">
                           <Package size={14}/> {p}
                       </span>
@@ -1112,14 +1177,14 @@ export default function App() {
                  <button onClick={() => setIsEditingContact(false)} className="text-slate-400 hover:text-slate-600"><X size={24}/></button>
              </div>
              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-                <div><label className={UI_CLASSES.label}>Société</label><input className={UI_CLASSES.input} value={editContactData.company} onChange={e => setEditContactData({...editContactData, company: e.target.value})} /></div>
-                <div><label className={UI_CLASSES.label}>Contact</label><input className={UI_CLASSES.input} value={editContactData.name} onChange={e => setEditContactData({...editContactData, name: e.target.value})} /></div>
-                <div><label className={UI_CLASSES.label}>Email</label><input className={UI_CLASSES.input} value={editContactData.email} onChange={e => setEditContactData({...editContactData, email: e.target.value})} /></div>
-                <div><label className={UI_CLASSES.label}>Téléphone</label><input className={UI_CLASSES.input} value={editContactData.phone} onChange={e => setEditContactData({...editContactData, phone: e.target.value})} /></div>
+                <div><label className={UI_CLASSES.label}>Société</label><input className={UI_CLASSES.input} value={editContactData.company || ''} onChange={e => setEditContactData({...editContactData, company: e.target.value})} /></div>
+                <div><label className={UI_CLASSES.label}>Contact</label><input className={UI_CLASSES.input} value={editContactData.name || ''} onChange={e => setEditContactData({...editContactData, name: e.target.value})} /></div>
+                <div><label className={UI_CLASSES.label}>Email</label><input className={UI_CLASSES.input} value={editContactData.email || ''} onChange={e => setEditContactData({...editContactData, email: e.target.value})} /></div>
+                <div><label className={UI_CLASSES.label}>Téléphone</label><input className={UI_CLASSES.input} value={editContactData.phone || ''} onChange={e => setEditContactData({...editContactData, phone: e.target.value})} /></div>
                 <div className="md:col-span-2"><label className={UI_CLASSES.label}>Adresse complète (Facturation)</label><textarea className={`${UI_CLASSES.input} resize-none h-14`} value={editContactData.address || ''} onChange={e => setEditContactData({...editContactData, address: e.target.value})} /></div>
 
                 <div><label className={UI_CLASSES.label}>Type de Contact</label>
-                  <select className={UI_CLASSES.input} value={editContactData.type || 'prospect'} onChange={e => setEditContactData({...editContactData, type: e.target.value as any})}>
+                  <select className={UI_CLASSES.input} value={editContactData.type || 'prospect'} onChange={e => setEditContactData({...editContactData, type: e.target.value})}>
                     <option value="prospect">Prospect</option>
                     <option value="client">Client</option>
                   </select>
@@ -1143,7 +1208,7 @@ export default function App() {
                 )}
 
                 <div><label className={UI_CLASSES.label}>Statut Pipeline</label>
-                  <select className={`${UI_CLASSES.input} text-[#01189B]`} value={editContactData.status} onChange={e => setEditContactData({...editContactData, status: e.target.value})}>
+                  <select className={`${UI_CLASSES.input} text-[#01189B]`} value={editContactData.status || 'nouveau'} onChange={e => setEditContactData({...editContactData, status: e.target.value})}>
                     {PIPELINE_STAGES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
                   </select>
                 </div>
@@ -1178,7 +1243,7 @@ export default function App() {
                                     key={prod} type="button"
                                     onClick={() => {
                                         const current = editContactData.offeredProducts || [];
-                                        setEditContactData({ ...editContactData, offeredProducts: isActive ? current.filter(p => p !== prod) : [...current, prod] });
+                                        setEditContactData({ ...editContactData, offeredProducts: isActive ? current.filter((p: string) => p !== prod) : [...current, prod] });
                                     }}
                                     className={`px-4 py-2 rounded-xl text-xs font-bold border-2 transition-all shadow-sm ${isActive ? 'bg-[#01189B] text-white border-[#01189B]' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'}`}
                                 >
@@ -1269,14 +1334,14 @@ export default function App() {
                  <div className="space-y-3">
                    {clientInvoices.map(inv => (
                      <div key={inv.id} onClick={() => { setCurrentInvoice(inv); setShowModal('invoice'); }} className="flex justify-between items-center p-3 bg-slate-50 border border-slate-100 rounded-xl cursor-pointer hover:border-[#01189B] hover:bg-white shadow-sm transition-all group">
-                        <div>
-                          <p className="font-bold text-slate-700 text-sm group-hover:text-[#01189B] transition-colors">{inv.id}</p>
-                          <p className="text-[10px] text-slate-400 font-bold uppercase">{formatDate(inv.date)}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="font-mono font-bold text-slate-800 text-sm">{renderCurrency(inv.amount)}</p>
-                          <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md ${INVOICE_STATUSES[inv.status]?.color || 'bg-slate-200 text-slate-600'}`}>{INVOICE_STATUSES[inv.status]?.label || inv.status}</span>
-                        </div>
+                       <div>
+                         <p className="font-bold text-slate-700 text-sm group-hover:text-[#01189B] transition-colors">{inv.id}</p>
+                         <p className="text-[10px] text-slate-400 font-bold uppercase">{formatDate(inv.date)}</p>
+                       </div>
+                       <div className="text-right">
+                         <p className="font-mono font-bold text-slate-800 text-sm">{renderCurrency(inv.amount)}</p>
+                         <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md ${INVOICE_STATUSES[inv.status]?.color || 'bg-slate-200 text-slate-600'}`}>{INVOICE_STATUSES[inv.status]?.label || inv.status}</span>
+                       </div>
                      </div>
                    ))}
                  </div>
@@ -1448,27 +1513,23 @@ export default function App() {
 
     const activeReminders = contacts
       .filter(c => c.nextContactDate)
-      .sort((a,b) => new Date(a.nextContactDate!).getTime() - new Date(b.nextContactDate!).getTime())
+      .sort((a,b) => new Date(a.nextContactDate).getTime() - new Date(b.nextContactDate).getTime())
       .slice(0, 5);
 
-    const defaultLayout = ['objective', 'chart_annual', 'stat_ca_month', 'stat_ca_total', 'stat_campaigns', 'reminders', 'invoices', 'activity'];
+    const defaultLayout = ['objective', 'widget_finances_data', 'widget_finances_chart', 'stat_ca_month', 'stat_ca_total', 'stat_ca_potentiel', 'stat_pipeline', 'stat_campaigns', 'reminders', 'invoices', 'activity'];
     let currentLayout = settings.dashboardLayout && settings.dashboardLayout.length > 0 ? settings.dashboardLayout : defaultLayout;
-    
-    // Suppression des anciens widgets (Pipeline et CA Potentiel) si présents
-    currentLayout = currentLayout.filter(id => id !== 'stat_ca_potentiel' && id !== 'stat_pipeline');
 
-    // Auto-migration pour inclure les nouveaux widgets s'ils n'y sont pas
-    if (!currentLayout.includes('reminders')) currentLayout = [...currentLayout, 'reminders'];
-    if (!currentLayout.includes('chart_annual')) {
-        currentLayout = ['objective', 'chart_annual', ...currentLayout.filter(id => id !== 'objective' && id !== 'chart_annual')];
+    // Reset du layout si les nouveaux widgets ou les anciens réintégrés sont manquants (pour montrer les designs)
+    if (!currentLayout.includes('widget_finances_data') || !currentLayout.includes('stat_ca_potentiel')) {
+        currentLayout = defaultLayout;
     }
 
-    const handleDragStart = (e: React.DragEvent, id: string) => {
+    const handleDragStart = (e: any, id: string) => {
         e.dataTransfer.setData('widget_id', id);
         e.dataTransfer.effectAllowed = 'move';
     };
 
-    const handleDrop = async (e: React.DragEvent, targetId: string) => {
+    const handleDrop = async (e: any, targetId: string) => {
         e.preventDefault();
         const draggedId = e.dataTransfer.getData('widget_id');
         if (!draggedId || draggedId === targetId) return;
@@ -1480,11 +1541,11 @@ export default function App() {
         newLayout.splice(draggedIndex, 1);
         newLayout.splice(targetIndex, 0, draggedId);
 
-        setSettings(prev => ({ ...prev, dashboardLayout: newLayout }));
+        setSettings((prev: any) => ({ ...prev, dashboardLayout: newLayout }));
         
         if (user && !isOfflineMode) {
             try {
-                await setDoc(doc(db, `artifacts/${APP_ID}/users/${user.uid}/config`, 'general'), { dashboardLayout: newLayout }, { merge: true });
+                await setDoc(doc(db, `artifacts/${getAppId()}/users/${user.uid}/config`, 'general'), { dashboardLayout: newLayout }, { merge: true });
             } catch(err) {
                 console.error("Erreur save layout", err);
             }
@@ -1493,23 +1554,84 @@ export default function App() {
 
     const widgetSpans: Record<string, string> = {
         objective: 'col-span-1 md:col-span-2 lg:col-span-4',
-        chart_annual: 'col-span-1 md:col-span-2 lg:col-span-4',
+        widget_finances_data: 'col-span-1 md:col-span-2 lg:col-span-4',
+        widget_finances_chart: 'col-span-1 md:col-span-2 lg:col-span-4',
+        chart_annual_1: 'col-span-1 md:col-span-2 lg:col-span-4',
         stat_ca_month: 'col-span-1 md:col-span-2 lg:col-span-2',
         stat_ca_total: 'col-span-1 lg:col-span-1',
+        stat_ca_potentiel: 'col-span-1 lg:col-span-1',
+        stat_pipeline: 'col-span-1 lg:col-span-1',
         stat_campaigns: 'col-span-1 lg:col-span-1',
         reminders: 'col-span-1 md:col-span-2',
         invoices: 'col-span-1 md:col-span-2',
         activity: 'col-span-1 md:col-span-2',
     };
 
-    const widgets: Record<string, React.ReactNode> = {
-        chart_annual: (
+    const widgets: Record<string, any> = {
+        widget_finances_data: (
             <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] h-full flex flex-col relative overflow-hidden">
                 <div className="absolute top-0 right-0 p-32 bg-blue-50/30 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
-                <div className="flex justify-between items-center mb-8 relative z-10">
+                <div className="flex justify-between items-start mb-6 relative z-10">
                     <div>
-                        <h3 className="font-extrabold text-slate-800 font-poppins text-xl flex items-center gap-3"><TrendingUp style={{ color: BRAND_COLOR }} size={24}/> CA & Bénéfices</h3>
-                        <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mt-1">Exercice {new Date().getFullYear()}</p>
+                        <h3 className="font-extrabold text-slate-800 font-poppins text-xl flex items-center gap-3"><Wallet style={{ color: BRAND_COLOR }} size={24}/> CA & Bénéfices</h3>
+                        <p className="text-sm text-slate-500 mt-1 font-medium">Récapitulatif de vos encaissements et marges nettes.</p>
+                    </div>
+                    <div className="bg-white border-2 border-[#01189B]/10 px-4 py-2.5 rounded-2xl shadow-sm text-right shrink-0">
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-0.5">CA Encaissé</p>
+                        <p className="text-2xl font-black font-poppins text-[#01189B]">{renderCurrency(stats.caAnnuel)}</p>
+                    </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 relative z-10 mt-auto">
+                    <div className="p-4 bg-orange-50/50 rounded-2xl border border-orange-100">
+                        <p className="text-[10px] text-orange-600 font-bold uppercase tracking-wider mb-1">Marge Gestion</p>
+                        <p className="text-lg font-extrabold text-orange-700 font-mono">{renderCurrency(stats.beneficePapierTotal)}</p>
+                    </div>
+                    <div className="p-4 bg-purple-50/50 rounded-2xl border border-purple-100">
+                        <p className="text-[10px] text-purple-600 font-bold uppercase tracking-wider mb-1">Marge Arbitrage</p>
+                        <p className="text-lg font-extrabold text-purple-700 font-mono">{renderCurrency(stats.arbitrageTotal)}</p>
+                    </div>
+                    <div className="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-100 shadow-sm">
+                        <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider mb-1">Bénéfice Total</p>
+                        <p className="text-lg font-extrabold text-emerald-700 font-mono">{renderCurrency(stats.beneficePapierTotal + stats.arbitrageTotal)}</p>
+                    </div>
+                </div>
+            </div>
+        ),
+        widget_finances_chart: (
+            <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] h-full flex flex-col relative overflow-hidden min-h-[300px]">
+                <h3 className="font-extrabold text-slate-800 font-poppins text-xl flex items-center gap-3 mb-8 relative z-10"><TrendingUp style={{ color: BRAND_COLOR }} size={24}/> Évolution Mensuelle</h3>
+                <div className="flex-1 flex h-40 mt-auto relative z-10">
+                    <div className="flex flex-col justify-between items-end pr-3 border-r border-slate-100 text-[9px] font-bold text-slate-400 pb-6 w-10 shrink-0">
+                        <span>{Math.floor(Math.max(...stats.monthlyCA, 1) / 1000)}k</span>
+                        <span>{Math.floor((Math.max(...stats.monthlyCA, 1) / 2) / 1000)}k</span>
+                        <span>0</span>
+                    </div>
+                    <div className="flex-1 flex items-end gap-2 pl-3 pb-2 border-b border-slate-100">
+                        {stats.monthlyCA.map((val: number, idx: number) => {
+                            const max = Math.max(...stats.monthlyCA, 1);
+                            const height = `${(val / max) * 100}%`;
+                            const months = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
+                            return (
+                                <div key={idx} className="flex-1 flex flex-col items-center justify-end h-full relative group">
+                                    <div className="w-full bg-blue-100/50 rounded-t-sm relative hover:bg-[#01189B] transition-all duration-300 cursor-pointer" style={{ height: height === '0%' ? '4px' : height, backgroundColor: val > 0 ? '' : '#f1f5f9' }}>
+                                        <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[10px] font-bold py-1.5 px-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none shadow-xl">
+                                            {renderCurrency(val)}
+                                        </div>
+                                    </div>
+                                    <span className="text-[9px] font-bold text-slate-400 mt-2 uppercase tracking-widest">{months[idx]}</span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            </div>
+        ),
+        chart_annual_1: (
+            <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] h-full flex flex-col relative overflow-hidden min-h-[350px]">
+                <div className="absolute top-0 right-0 p-32 bg-blue-50/30 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
+                <div className="flex justify-between items-start mb-8 relative z-10">
+                    <div>
+                        <h3 className="font-extrabold text-slate-800 font-poppins text-xl flex items-center gap-3"><TrendingUp style={{ color: BRAND_COLOR }} size={24}/> Design 1 : Hybride</h3>
                     </div>
                     <div className="bg-white border-2 border-[#01189B]/10 px-5 py-3 rounded-2xl shadow-sm">
                         <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-0.5">CA Total Encaissé</p>
@@ -1528,20 +1650,20 @@ export default function App() {
                     <div className="p-5 bg-gradient-to-br from-emerald-50 to-emerald-50/30 rounded-2xl border border-emerald-100 flex items-center justify-between">
                         <div>
                             <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider mb-1 flex items-center gap-1"><Zap size={14}/> 2. Marge d'Arbitrage</p>
-                            <p className="text-2xl font-extrabold text-emerald-700 font-mono">{renderCurrency(stats.beneficeReelTotal)}</p>
+                            <p className="text-2xl font-extrabold text-emerald-700 font-mono">{renderCurrency(stats.arbitrageTotal)}</p>
                         </div>
                         <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center shadow-sm text-emerald-300"><Target size={20}/></div>
                     </div>
                 </div>
 
-                <div className="flex-1 flex items-end gap-3 h-56 mt-auto border-b border-slate-100 pb-2 relative z-10">
-                    {stats.monthlyCA.map((val, idx) => {
+                <div className="flex-1 flex items-end gap-3 h-32 mt-auto border-b border-slate-100 pb-2 relative z-10">
+                    {stats.monthlyCA.map((val: number, idx: number) => {
                         const max = Math.max(...stats.monthlyCA, 1);
                         const height = `${(val / max) * 100}%`;
                         const months = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
                         return (
-                            <div key={idx} className="flex-1 flex flex-col items-center justify-end h-full group relative">
-                                <div className="w-full bg-blue-100/50 rounded-t-xl relative hover:bg-[#01189B] transition-all duration-300 cursor-pointer" style={{ height: height === '0%' ? '4px' : height, backgroundColor: val > 0 ? '' : '#f1f5f9' }}>
+                            <div key={idx} className="flex-1 flex flex-col items-center justify-end h-full relative">
+                                <div className="w-full bg-blue-100/50 rounded-t-xl relative hover:bg-[#01189B] transition-all duration-300 cursor-pointer group" style={{ height: height === '0%' ? '4px' : height, backgroundColor: val > 0 ? '' : '#f1f5f9' }}>
                                     <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-xs font-bold py-2 px-3 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none shadow-xl">
                                         {renderCurrency(val)}
                                     </div>
@@ -1550,20 +1672,6 @@ export default function App() {
                             </div>
                         );
                     })}
-                </div>
-            </div>
-        ),
-        objective: (
-            <div className="bg-white rounded-3xl p-8 border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] relative overflow-hidden flex flex-col md:flex-row items-center gap-8 h-full">
-                <div className="w-24 h-24 rounded-full flex items-center justify-center shadow-inner shrink-0" style={{ background: `linear-gradient(135deg, ${BRAND_COLOR}22 0%, ${BRAND_COLOR}11 100%)` }}>
-                    <TrendingUp size={40} style={{ color: BRAND_COLOR }} />
-                </div>
-                <div className="flex-1 w-full text-center md:text-left">
-                    <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-1">Objectif Mensuel Encaissé</p>
-                    <h2 className="text-3xl font-extrabold font-poppins text-slate-800">{renderCurrency(stats.caMensuel)} <span className="text-lg text-slate-400 font-medium">/ {renderCurrency(goal)}</span></h2>
-                    <div className="w-full bg-slate-100 rounded-full h-4 overflow-hidden shadow-inner mt-4">
-                        <div className="h-full rounded-full transition-all duration-1000 ease-out" style={{ width: `${progressGoal}%`, backgroundColor: BRAND_COLOR }}></div>
-                    </div>
                 </div>
             </div>
         ),
@@ -1579,6 +1687,34 @@ export default function App() {
                 <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center mb-4"><CheckCircle size={24} className="text-emerald-500"/></div>
                 <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">CA Encaissé (Total)</p>
                 <h3 className="text-3xl font-extrabold text-emerald-500 mt-1 font-poppins">{renderCurrency(stats.caTotal)}</h3>
+            </div>
+        ),
+        stat_ca_potentiel: (
+            <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] h-full">
+                <div className="w-12 h-12 rounded-xl bg-orange-50 flex items-center justify-center mb-4"><PieChart size={24} className="text-orange-500"/></div>
+                <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">CA Potentiel</p>
+                <h3 className="text-3xl font-extrabold text-orange-500 mt-1 font-poppins">{renderCurrency(stats.caPotentiel)}</h3>
+            </div>
+        ),
+        stat_pipeline: (
+            <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] h-full">
+                <div className="w-12 h-12 rounded-xl bg-purple-50 flex items-center justify-center mb-4"><Target size={24} className="text-purple-600"/></div>
+                <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">Valeur Pipeline</p>
+                <h3 className="text-3xl font-extrabold text-purple-600 mt-1 font-poppins">{renderCurrency(stats.pipelineValue)}</h3>
+            </div>
+        ),
+        objective: (
+            <div className="bg-white rounded-3xl p-8 border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] relative overflow-hidden flex flex-col md:flex-row items-center gap-8 h-full">
+                <div className="w-24 h-24 rounded-full flex items-center justify-center shadow-inner shrink-0" style={{ background: `linear-gradient(135deg, ${BRAND_COLOR}22 0%, ${BRAND_COLOR}11 100%)` }}>
+                    <TrendingUp size={40} style={{ color: BRAND_COLOR }} />
+                </div>
+                <div className="flex-1 w-full text-center md:text-left">
+                    <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-1">Objectif Mensuel Encaissé</p>
+                    <h2 className="text-3xl font-extrabold font-poppins text-slate-800">{renderCurrency(stats.caMensuel)} <span className="text-lg text-slate-400 font-medium">/ {renderCurrency(goal)}</span></h2>
+                    <div className="w-full bg-slate-100 rounded-full h-4 overflow-hidden shadow-inner mt-4">
+                        <div className="h-full rounded-full transition-all duration-1000 ease-out" style={{ width: `${progressGoal}%`, backgroundColor: BRAND_COLOR }}></div>
+                    </div>
+                </div>
             </div>
         ),
         stat_campaigns: (
@@ -1599,13 +1735,13 @@ export default function App() {
                 ) : (
                     <div className="space-y-4">
                         {activeReminders.map(contact => {
-                            const date = new Date(contact.nextContactDate!);
+                            const date = new Date(contact.nextContactDate);
                             const isOverdue = date <= new Date();
                             return (
                                 <div key={contact.id} onClick={() => setSelectedContactId(contact.id)} className={`flex flex-col p-3 rounded-xl cursor-pointer hover:shadow-sm transition-all border ${isOverdue ? 'bg-red-50/50 border-red-100 hover:border-red-300' : 'bg-slate-50 border-slate-100 hover:border-[#01189B]'}`}>
                                     <div className="flex justify-between items-center mb-1">
                                         <p className="font-bold text-slate-800 text-sm">{contact.company}</p>
-                                        <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-md ${isOverdue ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>{isOverdue ? 'Échu !' : formatDate(contact.nextContactDate!)}</span>
+                                        <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-md ${isOverdue ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>{isOverdue ? 'Échu !' : formatDate(contact.nextContactDate)}</span>
                                     </div>
                                     <p className="text-xs text-slate-500 line-clamp-1">{contact.nextContactNote || 'Relance planifiée'}</p>
                                 </div>
@@ -1669,7 +1805,7 @@ export default function App() {
     return (
       <div className="space-y-8 animate-fade-in max-w-7xl mx-auto pb-12">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 auto-rows-min">
-            {currentLayout.map(widgetId => {
+            {currentLayout.map((widgetId: string) => {
                 if (!widgets[widgetId]) return null;
                 return (
                     <div
@@ -1694,13 +1830,14 @@ export default function App() {
   const renderSettings = () => {
       // Configuration form render
       return (
-        <div className="max-w-5xl mx-auto animate-fade-in pb-12 flex gap-8">
+        <div className="max-w-5xl mx-auto animate-fade-in pb-12 flex flex-col md:flex-row gap-8">
           {/* Menu latéral Settings */}
-          <div className="w-64 shrink-0 space-y-2">
+          <div className="w-full md:w-64 shrink-0 space-y-2">
               <h2 className="text-2xl font-extrabold mb-6 font-poppins text-slate-800">Paramètres</h2>
               {[
                   { id: 'general', label: 'Infos Générales', icon: Briefcase },
                   { id: 'billing', label: 'Facturation', icon: FileText },
+                  { id: 'contract', label: 'Contrat', icon: FileText },
                   { id: 'emails', label: 'Modèles d\'Emails', icon: Mail },
                   { id: 'integrations', label: 'Intégrations', icon: Link },
                   { id: 'data', label: 'Données & Export', icon: Download },
@@ -1721,10 +1858,10 @@ export default function App() {
                   <form onSubmit={handleSaveSettings} className="space-y-6 animate-fade-in">
                       <h3 className="font-extrabold text-xl mb-6 font-poppins border-b border-slate-100 pb-4 text-slate-800 flex items-center gap-2"><Briefcase size={22} className="text-[#01189B]"/> Général & Agence</h3>
                       
-                      <div className="grid grid-cols-2 gap-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div><label className={UI_CLASSES.label}>Nom Société</label><input name="companyName" defaultValue={settings.companyName} className={UI_CLASSES.input} /></div>
                         <div><label className={UI_CLASSES.label}>Numéro d'entreprise (IDE / TVA)</label><input name="companyId" defaultValue={settings.companyId} className={UI_CLASSES.input} placeholder="Ex: CHE-123.456.789 TVA" /></div>
-                        <div className="col-span-2"><label className={UI_CLASSES.label}>Adresse Complète</label><textarea name="address" defaultValue={settings.address} className={`${UI_CLASSES.input} h-24 resize-none`} /></div>
+                        <div className="md:col-span-2"><label className={UI_CLASSES.label}>Adresse Complète</label><textarea name="address" defaultValue={settings.address} className={`${UI_CLASSES.input} h-24 resize-none`} /></div>
                         <div><label className={UI_CLASSES.label}>Email Contact</label><input name="email" defaultValue={settings.email} className={UI_CLASSES.input} /></div>
                         <div><label className={UI_CLASSES.label}>Téléphone</label><input name="phone" defaultValue={settings.phone} className={UI_CLASSES.input} /></div>
                       </div>
@@ -1746,7 +1883,20 @@ export default function App() {
                       <div><label className={UI_CLASSES.label}>Coordonnées Bancaires (IBAN, BIC, etc.)</label><textarea name="bankDetails" defaultValue={settings.bankDetails} className={`${UI_CLASSES.input} h-24 resize-none`} placeholder="Banque XYZ&#10;IBAN: CH...&#10;BIC: ..." /></div>
                       <div><label className={UI_CLASSES.label}>Pied de page / Conditions</label><textarea name="invoiceFooter" defaultValue={settings.invoiceFooter} className={`${UI_CLASSES.input} h-20 resize-none`} /></div>
                       <div><label className={UI_CLASSES.label}>Ligne Légale (Bas de page centré)</label><input name="legalNotice" defaultValue={settings.legalNotice || 'Entreprise individuelle non soumise à la TVA'} className={`${UI_CLASSES.input} text-sm`} /></div>
-                      
+
+                      <div className="pt-4 flex justify-end">
+                          <button type="submit" className={UI_CLASSES.btnPrimary} style={{ backgroundColor: BRAND_COLOR }}><Save size={18}/> Sauvegarder</button>
+                      </div>
+                  </form>
+              )}
+
+              {settingsActiveTab === 'contract' && (
+                  <form onSubmit={handleSaveSettings} className="space-y-6 animate-fade-in">
+                      <h3 className="font-extrabold text-xl mb-6 font-poppins border-b border-slate-100 pb-4 text-slate-800 flex items-center gap-2"><FileText size={22} className="text-[#01189B]"/> Modèle de Contrat</h3>
+                      <div>
+                          <label className={UI_CLASSES.label}>Texte du contrat par défaut</label>
+                          <textarea name="defaultContractText" defaultValue={settings.defaultContractText} className={`${UI_CLASSES.input} h-64 resize-none custom-scrollbar text-sm`} placeholder="Texte de votre contrat type..." />
+                      </div>
                       <div className="pt-4 flex justify-end">
                           <button type="submit" className={UI_CLASSES.btnPrimary} style={{ backgroundColor: BRAND_COLOR }}><Save size={18}/> Sauvegarder</button>
                       </div>
@@ -1754,49 +1904,53 @@ export default function App() {
               )}
 
               {settingsActiveTab === 'emails' && (
-                  <div className="space-y-6 animate-fade-in flex flex-col h-full">
-                      <div className="flex justify-between items-center border-b border-slate-100 pb-4">
-                        <h3 className="font-extrabold text-xl font-poppins text-slate-800 flex items-center gap-2"><Mail size={22} className="text-[#01189B]"/> Modèles d'Emails</h3>
-                        <button 
-                            onClick={() => {
-                                const newTpl = { id: `tpl_${Date.now()}`, name: 'Nouveau Modèle', subject: '', body: '' };
-                                handleSaveSettingsDirect({ emailTemplates: [...(settings.emailTemplates || []), newTpl] });
-                            }} 
-                            className="text-sm font-bold bg-[#01189B] text-white px-4 py-2 rounded-lg flex items-center gap-2"
-                        >
-                            <Plus size={16}/> Ajouter
-                        </button>
+                  <div className="space-y-6 animate-fade-in">
+                      <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
+                          <h3 className="font-extrabold text-xl font-poppins text-slate-800 flex items-center gap-2"><Mail size={22} className="text-[#01189B]"/> Modèles d'Emails</h3>
+                          <button onClick={() => {
+                              const newTpl = { id: Math.random().toString(36).substr(2, 9), name: 'Nouveau Modèle', subject: 'Sujet...', body: 'Corps du message...' };
+                              handleSaveSettingsDirect({ emailTemplates: [...(settings.emailTemplates || []), newTpl] });
+                          }} className="bg-[#01189B] text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 hover:shadow-lg hover:-translate-y-0.5 transition-all"><Plus size={16}/> Ajouter</button>
                       </div>
 
-                      <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 flex gap-4 text-sm text-blue-800 mb-4">
-                          <Info size={20} className="shrink-0 text-blue-500 mt-0.5"/>
-                          <div>
-                              <p className="font-bold mb-1">Variables disponibles dans les modèles :</p>
-                              <div className="flex gap-3 font-mono text-xs flex-wrap">
-                                  <span className="bg-white px-2 py-1 rounded border border-blue-200">{`{{nom_contact}}`}</span>
-                                  <span className="bg-white px-2 py-1 rounded border border-blue-200">{`{{prenom_contact}}`}</span>
-                                  <span className="bg-white px-2 py-1 rounded border border-blue-200">{`{{societe}}`}</span>
-                                  <span className="bg-white px-2 py-1 rounded border border-blue-200">{`{{facture}}`}</span>
-                                  <span className="bg-white px-2 py-1 rounded border border-blue-200">{`{{montant}}`}</span>
-                                  <span className="bg-white px-2 py-1 rounded border border-blue-200">{`{{agence}}`}</span>
-                              </div>
+                      <div className="bg-blue-50/50 p-6 rounded-2xl border border-blue-100 mb-6">
+                          <p className="text-sm font-bold text-[#01189B] flex items-center gap-2 mb-4"><Info size={18}/> Variables disponibles dans les modèles :</p>
+                          <div className="flex flex-wrap gap-3">
+                              {['{{nom_contact}}', '{{prenom_contact}}', '{{societe}}', '{{facture}}', '{{montant}}', '{{agence}}'].map(v => (
+                                  <span 
+                                    key={v} 
+                                    onClick={() => {
+                                        const textArea = document.createElement("textarea");
+                                        textArea.value = v;
+                                        document.body.appendChild(textArea);
+                                        textArea.select();
+                                        document.execCommand('copy');
+                                        document.body.removeChild(textArea);
+                                        addNotification('info', `Variable ${v} copiée !`);
+                                    }}
+                                    className="bg-white text-[#01189B] px-3 py-1.5 rounded-xl border border-blue-200 text-xs font-mono font-bold shadow-sm cursor-pointer hover:bg-blue-50 transition-colors"
+                                    title="Cliquer pour copier"
+                                  >
+                                      {v}
+                                  </span>
+                              ))}
                           </div>
                       </div>
 
-                      <div className="space-y-6 flex-1 overflow-auto pr-2 custom-scrollbar">
-                          {(settings.emailTemplates || []).map((tpl, i) => (
+                      <div className="space-y-6">
+                          {(settings.emailTemplates || []).map((tpl: any) => (
                               <EmailTemplateEditor 
                                   key={tpl.id} 
                                   tpl={tpl} 
-                                  onSave={(updatedTpl: any) => {
-                                      const copy = [...(settings.emailTemplates || [])];
-                                      copy[i] = updatedTpl;
-                                      handleSaveSettingsDirect({ emailTemplates: copy });
+                                  onSave={(updated: any) => {
+                                      const list = (settings.emailTemplates || []).map((t: any) => t.id === updated.id ? updated : t);
+                                      handleSaveSettingsDirect({ emailTemplates: list });
                                   }}
                                   onDelete={() => {
-                                      const copy = [...(settings.emailTemplates || [])];
-                                      copy.splice(i, 1);
-                                      handleSaveSettingsDirect({ emailTemplates: copy });
+                                      openConfirm('Supprimer le modèle ?', 'Cette action est irréversible.', () => {
+                                          const list = (settings.emailTemplates || []).filter((t: any) => t.id !== tpl.id);
+                                          handleSaveSettingsDirect({ emailTemplates: list });
+                                      });
                                   }}
                               />
                           ))}
@@ -1806,25 +1960,12 @@ export default function App() {
 
               {settingsActiveTab === 'integrations' && (
                   <form onSubmit={handleSaveSettings} className="space-y-6 animate-fade-in">
-                      <h3 className="font-extrabold text-xl mb-6 font-poppins border-b border-slate-100 pb-4 text-slate-800 flex items-center gap-2"><Link size={22} className="text-[#01189B]"/> Automatisation & Webhooks</h3>
-                      <p className="text-sm text-slate-500 mb-6">Pour envoyer vos factures en PDF directement via votre outil de messagerie, connectez ce CRM à Make.com ou Zapier via un Webhook.</p>
-                      
-                      <div>
-                          <label className="text-xs font-bold text-slate-400 uppercase tracking-wide">URL du Webhook (Make / Zapier)</label>
-                          <input name="webhookUrl" defaultValue={settings.webhookUrl || ''} className="w-full border-2 border-indigo-100 bg-indigo-50/30 p-3 rounded-xl mt-1 font-mono text-sm outline-none focus:border-indigo-400 transition-colors text-slate-700" placeholder="https://hook.eu2.make.com/..." />
+                      <h3 className="font-extrabold text-xl mb-6 font-poppins border-b border-slate-100 pb-4 text-slate-800 flex items-center gap-2"><Link size={22} className="text-purple-500"/> Intégrations & API</h3>
+                      <div className="bg-purple-50 p-6 rounded-2xl border border-purple-100">
+                          <h4 className="font-bold text-purple-800 mb-2">Webhook d'envoi d'emails (Make.com / Zapier)</h4>
+                          <p className="text-sm text-purple-600 mb-4">L'URL ci-dessous recevra le PDF de la facture encodé en Base64 ainsi que les données du client lors du clic sur "Envoyer Email".</p>
+                          <input name="webhookUrl" defaultValue={settings.webhookUrl} className="w-full border-2 border-purple-200 bg-white p-3.5 rounded-xl outline-none focus:border-purple-400 font-medium text-slate-800" placeholder="https://hook.make.com/..." />
                       </div>
-                      
-                      <div className="mt-4 p-4 bg-slate-50 rounded-xl border border-slate-100 text-xs text-slate-500 space-y-2 font-mono">
-                          <p className="font-bold text-slate-700 mb-2">Payload (JSON) envoyé par le CRM au Webhook :</p>
-                          <p>{"{"}</p>
-                          <p className="pl-4">"to_email": "client@email.com",</p>
-                          <p className="pl-4">"subject": "Nouvelle Facture...",</p>
-                          <p className="pl-4">"message": "Bonjour...",</p>
-                          <p className="pl-4">"invoice_id": "FAC-0001",</p>
-                          <p className="pl-4">"pdf_attachment_base64": "data:application/pdf;base64,JVBERi..."</p>
-                          <p>{"}"}</p>
-                      </div>
-
                       <div className="pt-4 flex justify-end">
                           <button type="submit" className={UI_CLASSES.btnPrimary} style={{ backgroundColor: BRAND_COLOR }}><Save size={18}/> Sauvegarder</button>
                       </div>
@@ -1890,11 +2031,11 @@ export default function App() {
         <div className="absolute top-0 left-0 w-full h-1" style={{ backgroundColor: BRAND_COLOR }}></div>
         <div className="p-8">
           <div className="flex items-center gap-4 mb-12 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => {setActiveView('dashboard'); setSelectedContactId(null);}}>
-             <div className="w-12 h-12 rounded-xl flex items-center justify-center font-extrabold text-2xl shadow-sm text-white" style={{ backgroundColor: BRAND_COLOR }}>
-               LP
+             <div className="w-12 h-12 rounded-xl flex items-center justify-center font-extrabold text-2xl shadow-sm text-white shrink-0" style={{ backgroundColor: BRAND_COLOR }}>
+                {settings.companyName.substring(0, 2).toUpperCase()}
              </div>
-             <div>
-                <span className="font-extrabold text-xl font-poppins tracking-wide block leading-tight" style={{ color: BRAND_COLOR }}>LeadPartner</span>
+             <div className="overflow-hidden">
+                <span className="font-extrabold text-xl font-poppins tracking-wide block leading-tight truncate" style={{ color: BRAND_COLOR }}>{settings.companyName}</span>
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">CRM Cloud v{APP_VERSION}</span>
              </div>
           </div>
@@ -1902,6 +2043,7 @@ export default function App() {
             {[
               { id: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard },
               { id: 'contacts', label: 'Pipeline CRM', icon: Users },
+              { id: 'prospection', label: 'Prospection', icon: Mail },
               { id: 'calendar', label: 'Cycles Actifs', icon: CalendarIcon },
               { id: 'invoices', label: 'Facturation', icon: FileText },
               { id: 'products', label: 'Catalogue Offres', icon: Package },
@@ -1968,6 +2110,7 @@ export default function App() {
           {selectedContact ? renderContactDetail() : (
             <>
               {activeView === 'dashboard' && renderDashboard()}
+              {activeView === 'prospection' && renderProspection()}
               {activeView === 'calendar' && (
                   <div className="max-w-6xl mx-auto animate-fade-in space-y-8 pb-12">
                       <div className="flex justify-between items-center mb-2">
@@ -2194,7 +2337,7 @@ export default function App() {
                                     onChange={(e) => handleInvoiceStatusChange(inv, e.target.value)}
                                     className={`px-2 py-1.5 rounded-md text-[10px] font-extrabold uppercase tracking-wide border outline-none cursor-pointer ${INVOICE_STATUSES[inv.status]?.color || 'bg-slate-100 text-slate-600'}`}
                                 >
-                                    {Object.entries(INVOICE_STATUSES).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}
+                                    {Object.entries(INVOICE_STATUSES).map(([k,v]: any) => <option key={k} value={k}>{v.label}</option>)}
                                 </select>
                               </td>
                               <td className="px-8 py-5 text-right"><span className="text-[#01189B] font-bold text-xs uppercase tracking-wide opacity-0 group-hover:opacity-100 transition-opacity flex justify-end items-center gap-1">Ouvrir <ArrowRight size={14}/></span></td>
@@ -2233,7 +2376,7 @@ export default function App() {
                           <tbody className="divide-y divide-slate-50">
                             {displayedContacts.map((c) => {
                               const hasReminder = !!c.nextContactDate;
-                              const isReminderDue = hasReminder && new Date(c.nextContactDate!) <= new Date();
+                              const isReminderDue = hasReminder && new Date(c.nextContactDate) <= new Date();
                               const typeBadge = c.type === 'client' || c.status === 'gagne' ? 'Client' : 'Prospect';
 
                               return (
@@ -2250,7 +2393,7 @@ export default function App() {
                                     {hasReminder ? (
                                         <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold ${isReminderDue ? 'bg-red-100 text-red-700' : 'bg-orange-50 text-orange-600'}`}>
                                             <Bell size={14} className={isReminderDue ? 'animate-bounce' : ''}/>
-                                            {isReminderDue ? 'Échu !' : formatDate(c.nextContactDate!)}
+                                            {isReminderDue ? 'Échu !' : formatDate(c.nextContactDate)}
                                         </span>
                                     ) : (
                                         <span className="text-slate-300 italic text-xs">Aucun</span>
@@ -2300,7 +2443,7 @@ export default function App() {
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
           <div className="bg-white p-10 rounded-3xl w-full max-w-md shadow-2xl border border-slate-100 animate-fade-in overflow-y-auto max-h-[90vh]">
             <h3 className={UI_CLASSES.title}><Users style={{ color: BRAND_COLOR }} size={24}/> Créer une fiche CRM</h3>
-            <form onSubmit={(e) => { e.preventDefault(); const fd = new FormData(e.target as any); handleCreate('contacts', { name: fd.get('name'), company: fd.get('company'), email: fd.get('email'), phone: fd.get('phone'), address: fd.get('address'), status: fd.get('type') === 'client' ? 'gagne' : 'nouveau', type: fd.get('type'), source: fd.get('source'), sourceDetails: fd.get('sourceDetails') }); }} className="space-y-5">
+            <form onSubmit={(e: any) => { e.preventDefault(); const fd = new FormData(e.target); handleCreate('contacts', { name: fd.get('name'), company: fd.get('company'), email: fd.get('email'), phone: fd.get('phone'), address: fd.get('address'), status: fd.get('type') === 'client' ? 'gagne' : 'nouveau', type: fd.get('type'), source: fd.get('source'), sourceDetails: fd.get('sourceDetails') }); }} className="space-y-5">
               <div>
                   <label className={UI_CLASSES.label}>Type</label>
                   <select name="type" className={UI_CLASSES.input}>
@@ -2388,12 +2531,12 @@ export default function App() {
                     value={currentInvoice.status || 'brouillon'} 
                     onChange={e => {
                         const newStatus = e.target.value;
-                        handleInvoiceStatusChange(currentInvoice as Invoice, newStatus);
+                        handleInvoiceStatusChange(currentInvoice, newStatus);
                         setCurrentInvoice({...currentInvoice, status: newStatus});
                     }}
                     className="border-2 border-slate-100 p-1.5 rounded-lg bg-slate-50 hover:bg-white text-xs font-bold text-slate-700 outline-none focus:border-[#01189B] cursor-pointer transition-colors"
                   >
-                    {Object.entries(INVOICE_STATUSES).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}
+                    {Object.entries(INVOICE_STATUSES).map(([k,v]: any) => <option key={k} value={k}>{v.label}</option>)}
                   </select>
                 </div>
                 <button onClick={handleDownloadPDF} className="px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg flex gap-1.5 items-center font-bold hover:bg-slate-200 transition-colors text-xs whitespace-nowrap"><Download size={14} /> PDF</button>
@@ -2419,7 +2562,7 @@ export default function App() {
 
                     <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
                         <h4 className="font-bold text-slate-800 mb-3 text-sm uppercase tracking-wide flex items-center gap-2"><Users size={16} style={{ color: BRAND_COLOR }}/> Client Facturé (Modifiable)</h4>
-                        <select className="bg-slate-50 border-2 border-slate-100 p-3 rounded-xl w-full font-bold outline-none focus:border-[#01189B] text-slate-800 transition-colors mb-3" onChange={(e) => { const c = contacts.find((co) => co.id === e.target.value); setCurrentInvoice({ ...currentInvoice, clientId: c?.id, clientName: c?.company, clientAddress: c?.address || '' } as any); if (c?.projectedBudget) { setInvoiceBudget(c.projectedBudget); if (c.interestedProductId) setInvoiceThemeId(c.interestedProductId); } }} value={currentInvoice.clientId}>
+                        <select className="bg-slate-50 border-2 border-slate-100 p-3 rounded-xl w-full font-bold outline-none focus:border-[#01189B] text-slate-800 transition-colors mb-3" onChange={(e) => { const c = contacts.find((co) => co.id === e.target.value); setCurrentInvoice({ ...currentInvoice, clientId: c?.id, clientName: c?.company, clientAddress: c?.address || '' }); if (c?.projectedBudget) { setInvoiceBudget(c.projectedBudget); if (c.interestedProductId) setInvoiceThemeId(c.interestedProductId); } }} value={currentInvoice.clientId}>
                             <option value="">-- Sélectionner depuis le CRM --</option>
                             {contacts.map((c) => (<option key={c.id} value={c.id}>{c.company}</option>))}
                         </select>
@@ -2449,11 +2592,46 @@ export default function App() {
                             <button onClick={handleGenerateInvoice} className="w-full text-white px-4 py-3 rounded-xl font-bold hover:opacity-90 transition-opacity text-sm shadow-sm" style={{ backgroundColor: BRAND_COLOR }}>Ajouter le produit</button>
                         </div>
                     </div>
+
+                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+                        <div className="flex items-center justify-between mb-3">
+                            <h4 className="font-bold text-slate-800 text-sm uppercase tracking-wide flex items-center gap-2"><FileText size={16} style={{ color: BRAND_COLOR }}/> Contrat Associé</h4>
+                            <div className="flex items-center gap-2">
+                                <input 
+                                    type="checkbox" 
+                                    checked={currentInvoice.includeContract || false} 
+                                    onChange={() => setCurrentInvoice({...currentInvoice, includeContract: !currentInvoice.includeContract, contractText: currentInvoice.contractText || settings.defaultContractText})}
+                                    className="w-4 h-4 text-[#01189B] border-slate-300 rounded focus:ring-[#01189B] cursor-pointer"
+                                />
+                                <button onClick={() => setIsEditingContractInInvoice(!isEditingContractInInvoice)} className="text-[10px] font-bold uppercase text-slate-400 hover:text-[#01189B] flex items-center gap-1 transition-colors">
+                                    {isEditingContractInInvoice ? <X size={12}/> : <Edit2 size={12}/>} Modifier
+                                </button>
+                            </div>
+                        </div>
+                        {isEditingContractInInvoice && currentInvoice.includeContract && (
+                            <textarea
+                                value={currentInvoice.contractText || ''}
+                                onChange={e => setCurrentInvoice({...currentInvoice, contractText: e.target.value})}
+                                className="w-full border-2 border-slate-100 bg-slate-50 p-3 rounded-xl font-medium outline-none focus:border-[#01189B] text-xs text-slate-700 h-64 custom-scrollbar resize-none animate-fade-in"
+                                placeholder="Texte du contrat..."
+                            />
+                        )}
+                        {!isEditingContractInInvoice && currentInvoice.includeContract && (
+                            <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl">
+                                <p className="text-[10px] text-blue-600 font-bold leading-tight">Le contrat sera ajouté automatiquement à la fin du PDF sur une nouvelle page.</p>
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 {/* FACTURE A4 */}
-                <div className="flex-1 overflow-auto bg-slate-200 p-8 flex justify-center custom-scrollbar">
-                    <div id="invoice-printable" className="bg-white w-[210mm] min-h-[296mm] shadow-2xl p-[15mm] flex flex-col text-slate-800 relative shrink-0 box-border">
+                <div className="flex-1 overflow-auto bg-slate-200 p-8 flex justify-center custom-scrollbar relative">
+                    <div id="invoice-printable" className="bg-white w-[210mm] h-max min-h-[296mm] shadow-2xl p-[15mm] flex flex-col text-slate-800 relative shrink-0 box-border">
+                        {/* Marqueur visuel de fin de page 1 (no-print) */}
+                        <div className="absolute top-[297mm] left-0 w-full border-b-2 border-red-300 border-dashed no-print z-[100] flex justify-center">
+                             <span className="bg-red-50 px-2 text-[8px] text-red-500 font-bold uppercase tracking-widest -mt-2">Limite Page 1 (A4)</span>
+                        </div>
+
                         {currentInvoice.status === 'archive' && (
                             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-12 opacity-10 pointer-events-none select-none">
                                 <span className="text-8xl font-extrabold uppercase tracking-widest text-slate-900">Archivée</span>
@@ -2464,135 +2642,160 @@ export default function App() {
                                 <span className="text-8xl font-extrabold uppercase tracking-widest text-red-900">Annulée</span>
                             </div>
                         )}
-                        <div className="flex justify-between mb-8 border-b-4 pb-4" style={{ borderColor: BRAND_COLOR }}>
-                        <div>
-                            <h1 className="text-4xl font-extrabold uppercase mb-2 font-poppins tracking-tight" style={{ color: BRAND_COLOR }}>Facture</h1>
-                            <p className="font-mono text-slate-500 font-bold text-lg">#{currentInvoice.id || 'BROUILLON'}</p>
-                            <p className="text-sm mt-1 font-bold text-slate-400 uppercase tracking-widest">Date : {formatDate(currentInvoice.date)}</p>
-                        </div>
-                        <div className="text-right">
-                            <p className="font-extrabold text-lg font-poppins">{settings.companyName}</p>
-                            {settings.companyId && <p className="text-xs font-bold text-slate-400 mt-0.5 uppercase">{settings.companyId}</p>}
-                            <p className="text-xs text-slate-500 whitespace-pre-wrap mt-1.5 leading-relaxed">{settings.address}</p>
-                            <p className="text-xs text-slate-500 mt-1 font-medium">{settings.email} <br/> {settings.phone}</p>
-                        </div>
-                        </div>
-                        
-                        <div className="mb-8 flex justify-end relative z-10">
-                            <div className="w-1/2">
-                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-2 tracking-widest">Facturé à</p>
-                                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 w-full">
-                                    <div className="font-extrabold text-xl font-poppins text-slate-800">{currentInvoice.clientName || 'Client à définir...'}</div>
-                                    {currentInvoice.clientAddress && <p className="text-sm mt-2 text-slate-600 whitespace-pre-wrap">{currentInvoice.clientAddress}</p>}
-                                </div>
+
+                        <div className="flex flex-col min-h-[266mm]">
+                            <div className="flex justify-between mb-3 border-b-4 pb-3" style={{ borderColor: BRAND_COLOR }}>
+                            <div>
+                                <h1 className="text-4xl font-extrabold uppercase mb-2 font-poppins tracking-tight" style={{ color: BRAND_COLOR }}>Facture</h1>
+                                <p className="font-mono text-slate-500 font-bold text-lg">#{currentInvoice.id || 'BROUILLON'}</p>
+                                <p className="text-sm mt-1 font-bold text-slate-400 uppercase tracking-widest">Date : {formatDate(currentInvoice.date)}</p>
                             </div>
-                        </div>
-
-                        <div className="mb-6 flex items-center justify-between no-print relative z-10">
-                            <button onClick={() => setCurrentInvoice({...currentInvoice, items: [...(currentInvoice.items || []), {name: 'Nouvelle prestation', description: '', price: 0, qty: 1}]})} className="text-xs font-bold bg-white text-[#01189B] px-3 py-1.5 rounded-lg border border-blue-200 hover:bg-blue-50">+ Ligne Manuelle</button>
-                        </div>
-
-                        <table className="w-full mb-4 table-fixed relative z-10">
-                        <thead>
-                            <tr className="border-b-2 text-xs" style={{ borderColor: BRAND_COLOR }}>
-                            <th className="text-left py-2 font-extrabold uppercase tracking-widest w-3/4" style={{ color: BRAND_COLOR }}>Désignation des prestations</th>
-                            <th className="text-right py-2 font-extrabold uppercase tracking-widest w-1/4" style={{ color: BRAND_COLOR }}>Montant Net</th>
-                            <th className="w-8 no-print"></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {(currentInvoice.items || []).map((item, i) => (
-                            <tr key={i} className="border-b border-slate-100 group relative break-inside-avoid keep-together">
-                                <td className="py-3 pr-4 align-top">
-                                    <input 
-                                        value={item.name} 
-                                        onChange={(e) => {
-                                        const newItems = [...(currentInvoice.items || [])];
-                                        newItems[i].name = e.target.value;
-                                        setCurrentInvoice({ ...currentInvoice, items: newItems } as Invoice);
-                                        }}
-                                        className="w-full bg-transparent border border-transparent hover:border-slate-200 focus:border-[#01189B] outline-none font-extrabold text-slate-800 text-sm md:text-base print-input py-1 px-1 rounded transition-colors"
-                                        placeholder="Nom de la prestation"
-                                    />
-                                    <textarea 
-                                        value={item.description || ''} 
-                                        onChange={(e) => {
-                                        const newItems = [...(currentInvoice.items || [])];
-                                        newItems[i].description = e.target.value;
-                                        setCurrentInvoice({ ...currentInvoice, items: newItems } as Invoice);
-                                        }}
-                                        className="w-full bg-transparent border border-transparent hover:border-slate-200 focus:border-[#01189B] outline-none font-medium text-slate-600 text-xs md:text-sm print-input py-1 px-1 resize-none overflow-hidden rounded mt-0.5 transition-colors"
-                                        rows={2}
-                                        placeholder="Description détaillée (optionnelle)..."
-                                        onInput={(e) => { e.currentTarget.style.height = "auto"; e.currentTarget.style.height = (e.currentTarget.scrollHeight) + "px"; }}
-                                    />
-                                </td>
-                                <td className="py-3 text-right align-top">
-                                    <input 
-                                        type="number"
-                                        value={item.price} 
-                                        onChange={(e) => {
-                                        const newItems = [...(currentInvoice.items || [])];
-                                        newItems[i].price = Number(e.target.value);
-                                        setCurrentInvoice({ ...currentInvoice, items: newItems } as Invoice);
-                                        }}
-                                        className="w-32 bg-transparent border border-transparent hover:border-slate-200 focus:border-[#01189B] outline-none font-extrabold text-lg font-mono text-slate-800 text-right print-input py-1 px-1 rounded transition-colors inline-block"
-                                    />
-                                </td>
-                                <td className="py-3 no-print text-center align-top pt-4">
-                                    <button onClick={() => {
-                                        const newItems = [...(currentInvoice.items || [])];
-                                        newItems.splice(i, 1);
-                                        setCurrentInvoice({ ...currentInvoice, items: newItems } as Invoice);
-                                    }} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity bg-white shadow-sm p-1 rounded">
-                                        <Trash2 size={16}/>
-                                    </button>
-                                </td>
-                            </tr>
-                            ))}
-                            {(currentInvoice.items || []).length === 0 && (
-                            <tr><td colSpan={3} className="py-12 text-center text-slate-400 italic text-sm font-medium border-dashed border-2 border-slate-200 rounded-xl mt-4">Aucune prestation facturée. Utilisez le panneau à gauche pour générer les lignes.</td></tr>
-                            )}
-                        </tbody>
-                        </table>
-
-                        {/* Bloc inséparable pour les totaux ET le footer (break-inside-avoid) */}
-                        <div className="keep-together break-inside-avoid mt-auto w-full pt-6">
-                            <div className="flex justify-end mb-8 relative z-10">
-                                <div className="w-72 space-y-2">
-                                    <div className="flex justify-between text-slate-500 font-bold text-sm"><span>Sous-total HT</span> <span className="font-mono text-slate-800">{formatCurrency((currentInvoice.items || []).reduce((acc, i) => acc + i.price * (i.qty || 1), 0))}</span></div>
-                                    <div className="flex justify-between text-slate-400 font-medium text-xs"><span>TVA (0.0%)</span> <span className="font-mono">0.00 CHF</span></div>
-                                    <div className="flex justify-between py-3 border-t-2 mt-2 text-xl font-extrabold font-poppins" style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}>
-                                        <span>Total TTC</span> <span>{formatCurrency((currentInvoice.items || []).reduce((acc, i) => acc + i.price * (i.qty || 1), 0))}</span>
+                            <div className="text-right">
+                                <p className="font-extrabold text-lg font-poppins">{settings.companyName}</p>
+                                {settings.companyId && <p className="text-xs font-bold text-slate-400 mt-0.5 uppercase">{settings.companyId}</p>}
+                                <p className="text-xs text-slate-500 whitespace-pre-wrap mt-1.5 leading-relaxed">{settings.address}</p>
+                                <p className="text-xs text-slate-500 mt-1 font-medium">{settings.email} <br/> {settings.phone}</p>
+                            </div>
+                            </div>
+                            
+                            <div className="mb-3 flex justify-end relative z-10">
+                                <div className="w-1/2">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-2 tracking-widest">Facturé à</p>
+                                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 w-full">
+                                        <div className="font-extrabold text-xl font-poppins text-slate-800">{currentInvoice.clientName || 'Client à définir...'}</div>
+                                        {currentInvoice.clientAddress && <p className="text-sm mt-2 text-slate-600 whitespace-pre-wrap">{currentInvoice.clientAddress}</p>}
                                     </div>
                                 </div>
                             </div>
 
-                            {/* Pied de facture placé tout en bas */}
-                            <div className="relative z-10 bg-white">
-                                <div className="border-t border-slate-200 grid grid-cols-2 gap-8 text-xs pt-4 mb-8">
+                            <div className="mb-2 flex items-center justify-between no-print relative z-10">
+                                <button onClick={() => setCurrentInvoice({...currentInvoice, items: [...(currentInvoice.items || []), {name: 'Nouvelle prestation', description: '', price: 0, qty: 1}]})} className="text-xs font-bold bg-white text-[#01189B] px-3 py-1.5 rounded-lg border border-blue-200 hover:bg-blue-50">+ Ligne Manuelle</button>
+                            </div>
+
+                            <table className="w-full mb-2 table-fixed relative z-10">
+                            <thead>
+                                <tr className="border-b-2 text-[11px]" style={{ borderColor: BRAND_COLOR }}>
+                                <th className="text-left py-2 font-extrabold uppercase tracking-widest w-3/4" style={{ color: BRAND_COLOR }}>Désignation des prestations</th>
+                                <th className="text-right py-2 font-extrabold uppercase tracking-widest w-1/4" style={{ color: BRAND_COLOR }}>Montant Net</th>
+                                <th className="w-8 no-print"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {(currentInvoice.items || []).map((item: any, i: number) => (
+                                <tr key={i} className="border-b border-slate-100 group relative break-inside-avoid keep-together">
+                                    <td className="py-2 pr-4 align-top">
+                                        <input 
+                                            value={item.name} 
+                                            onChange={(e) => {
+                                            const newItems = [...(currentInvoice.items || [])];
+                                            newItems[i].name = e.target.value;
+                                            setCurrentInvoice({ ...currentInvoice, items: newItems });
+                                            }}
+                                            className="w-full bg-transparent border border-transparent hover:border-slate-200 focus:border-[#01189B] outline-none font-extrabold text-slate-800 text-[12px] print-input py-0.5 px-1 rounded transition-colors"
+                                            placeholder="Nom de la prestation"
+                                        />
+                                        <textarea 
+                                            value={item.description || ''} 
+                                            onChange={(e) => {
+                                            const newItems = [...(currentInvoice.items || [])];
+                                            newItems[i].description = e.target.value;
+                                            setCurrentInvoice({ ...currentInvoice, items: newItems });
+                                            }}
+                                            className="w-full bg-transparent border border-transparent hover:border-slate-200 focus:border-[#01189B] outline-none font-medium text-slate-500 text-[10px] print-input py-0 px-1 resize-none overflow-hidden rounded mt-0 transition-colors"
+                                            rows={2}
+                                            placeholder="Description détaillée (optionnelle)..."
+                                            onInput={(e: any) => { e.currentTarget.style.height = "auto"; e.currentTarget.style.height = (e.currentTarget.scrollHeight) + "px"; }}
+                                        />
+                                    </td>
+                                    <td className="py-2 text-right align-top">
+                                        <input 
+                                            type="number"
+                                            value={item.price} 
+                                            onChange={(e) => {
+                                            const newItems = [...(currentInvoice.items || [])];
+                                            newItems[i].price = Number(e.target.value);
+                                            setCurrentInvoice({ ...currentInvoice, items: newItems });
+                                            }}
+                                            className="w-32 bg-transparent border border-transparent hover:border-slate-200 focus:border-[#01189B] outline-none font-extrabold text-sm font-mono text-slate-800 text-right print-input py-0.5 px-1 rounded transition-colors inline-block"
+                                        />
+                                    </td>
+                                    <td className="py-2 no-print text-center align-top pt-2">
+                                        <button onClick={() => {
+                                            const newItems = [...(currentInvoice.items || [])];
+                                            newItems.splice(i, 1);
+                                            setCurrentInvoice({ ...currentInvoice, items: newItems });
+                                        }} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity bg-white shadow-sm p-1 rounded">
+                                            <Trash2 size={16}/>
+                                        </button>
+                                    </td>
+                                </tr>
+                                ))}
+                                {(currentInvoice.items || []).length === 0 && (
+                                <tr><td colSpan={3} className="py-12 text-center text-slate-400 italic text-sm font-medium border-dashed border-2 border-slate-200 rounded-xl mt-4">Aucune prestation facturée. Utilisez le panneau à gauche pour générer les lignes.</td></tr>
+                                )}
+                            </tbody>
+                            </table>
+
+                            {/* Bloc inséparable pour les totaux ET le footer (break-inside-avoid) collé en bas de la page 1 */}
+                            <div className="keep-together break-inside-avoid mt-auto w-full pt-2">
+                                <div className="flex justify-end mb-3 relative z-10">
+                                    <div className="w-80 space-y-1.5">
+                                        <div className="flex justify-between text-slate-500 font-bold text-sm"><span>Sous-total HT</span> <span className="font-mono text-slate-800">{formatCurrency((currentInvoice.items || []).reduce((acc: number, i: any) => acc + i.price * (i.qty || 1), 0))}</span></div>
+                                        <div className="flex justify-between text-slate-400 font-medium text-xs"><span>TVA (0.0%)</span> <span className="font-mono">0.00 CHF</span></div>
+                                        <div className="flex justify-between py-2 border-t-2 mt-1.5 text-xl font-extrabold font-poppins" style={{ borderColor: BRAND_COLOR, color: BRAND_COLOR }}>
+                                            <span>Total TTC</span> <span>{formatCurrency((currentInvoice.items || []).reduce((acc: number, i: any) => acc + i.price * (i.qty || 1), 0))}</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="relative z-10 bg-white">
+                                    <div className="border-t border-slate-200 grid grid-cols-2 gap-8 pt-3 mb-2">
+                                        <div>
+                                            <p className="font-extrabold text-slate-800 mb-1.5 uppercase tracking-widest text-[10px]">Coordonnées Bancaires</p>
+                                            {settings.bankDetails ? (
+                                            <p className="whitespace-pre-wrap text-slate-600 font-mono text-xs leading-relaxed border-l-2 pl-3" style={{ borderColor: BRAND_COLOR }}>{settings.bankDetails}</p>
+                                            ) : (
+                                            <p className="text-slate-400 italic text-xs">A configurer dans les paramètres.</p>
+                                            )}
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="font-extrabold text-slate-800 mb-1.5 uppercase tracking-widest text-[10px]">Informations</p>
+                                            <p className="whitespace-pre-wrap text-[11px] text-slate-500 font-medium leading-relaxed">{settings.invoiceFooter}</p>
+                                        </div>
+                                    </div>
+
+                                    {settings.legalNotice && (
+                                        <div className="text-center w-full pt-2 pb-1 text-[10px] text-slate-400 font-medium uppercase tracking-widest border-t border-slate-100">
+                                            {settings.legalNotice}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* --- PAGE CONTRAT (OPTIONNELLE) --- */}
+                        {currentInvoice.includeContract && currentInvoice.contractText && (
+                            <div className="html2pdf__page-break mt-12 pt-[15mm] border-t-4 border-slate-100 w-full flex flex-col" style={{ pageBreakBefore: 'always', minHeight: '266mm' }}>
+                                <h2 className="text-2xl font-extrabold uppercase mb-2 font-poppins" style={{ color: BRAND_COLOR }}>Contrat de Prestation</h2>
+                                <p className="font-bold text-sm text-slate-600 mb-8">Fait à {settings.address ? settings.address.split(',')[0].split('\n')[0] : 'Genève'}, le {formatDate(currentInvoice.date)}</p>
+
+                                <div className="whitespace-pre-wrap text-xs text-slate-700 leading-relaxed font-medium text-justify mb-12">
+                                    {currentInvoice.contractText}
+                                </div>
+                                <div className="mt-auto grid grid-cols-2 gap-8 break-inside-avoid pt-12 pb-4">
                                     <div>
-                                        <p className="font-extrabold text-slate-800 mb-1.5 uppercase tracking-widest text-[10px]">Coordonnées Bancaires</p>
-                                        {settings.bankDetails ? (
-                                        <p className="whitespace-pre-wrap text-slate-600 font-mono text-[10px] leading-relaxed border-l-2 pl-3" style={{ borderColor: BRAND_COLOR }}>{settings.bankDetails}</p>
-                                        ) : (
-                                        <p className="text-slate-400 italic text-[10px]">A configurer dans les paramètres.</p>
-                                        )}
+                                        <p className="font-bold text-slate-800 text-xs uppercase mb-12 tracking-widest">Le Prestataire</p>
+                                        <div className="border-b-2 border-slate-200 w-3/4"></div>
+                                        <p className="text-[10px] text-slate-800 mt-2 font-bold">{settings.companyName}</p>
                                     </div>
                                     <div className="text-right">
-                                        <p className="font-extrabold text-slate-800 mb-1.5 uppercase tracking-widest text-[10px]">Informations</p>
-                                        <p className="whitespace-pre-wrap text-[10px] text-slate-500 font-medium leading-relaxed">{settings.invoiceFooter}</p>
+                                        <p className="font-bold text-slate-800 text-xs uppercase mb-12 tracking-widest flex flex-col items-end"><span>Le Client</span> <span className="text-[9px] text-slate-500">(Lu et approuvé)</span></p>
+                                        <div className="border-b-2 border-slate-200 w-3/4 ml-auto"></div>
+                                        <p className="text-[10px] text-slate-800 mt-2 font-bold">{currentInvoice.clientName}</p>
                                     </div>
                                 </div>
-
-                                {/* LIGNE LEGALE CENTREE EN BAS */}
-                                {settings.legalNotice && (
-                                    <div className="text-center w-full pt-4 pb-2 text-[10px] text-slate-400 font-medium uppercase tracking-widest border-t border-slate-100">
-                                        {settings.legalNotice}
-                                    </div>
-                                )}
                             </div>
-                        </div>
+                        )}
 
                     </div>
                 </div>
@@ -2615,10 +2818,10 @@ export default function App() {
                 
                 <div className="space-y-3 flex-1 overflow-auto custom-scrollbar">
                     <h4 className="font-bold text-slate-700 text-sm uppercase tracking-wider mb-2">Modèles de Message</h4>
-                    {(settings.emailTemplates || []).map(tpl => (
+                    {(settings.emailTemplates || []).map((tpl: any) => (
                         <button 
                             key={tpl.id}
-                            onClick={() => applyEmailTemplate(tpl.id, currentInvoice!, emailData.to)}
+                            onClick={() => applyEmailTemplate(tpl.id, currentInvoice, emailData.to)}
                             className={`w-full text-left p-3 rounded-xl border-2 transition-all ${emailData.selectedTemplate === tpl.id ? 'border-[#01189B] bg-blue-50' : 'border-slate-100 hover:border-slate-200'}`}
                         >
                             <p className={`font-bold text-sm ${emailData.selectedTemplate === tpl.id ? 'text-[#01189B]' : 'text-slate-700'}`}>{tpl.name}</p>
@@ -2649,7 +2852,7 @@ export default function App() {
               <div>
                 <label className={`${UI_CLASSES.label} flex justify-between items-center`}>
                     Message
-                    <button onClick={() => applyEmailTemplate(emailData.selectedTemplate, currentInvoice!, emailData.to)} className="text-[10px] text-blue-500 hover:underline flex items-center gap-1"><RefreshCcw size={10}/> Réinitialiser avec le modèle</button>
+                    <button onClick={() => applyEmailTemplate(emailData.selectedTemplate, currentInvoice, emailData.to)} className="text-[10px] text-blue-500 hover:underline flex items-center gap-1"><RefreshCcw size={10}/> Réinitialiser avec le modèle</button>
                 </label>
                 <textarea value={emailData.body} onChange={e => setEmailData({...emailData, body: e.target.value})} className="w-full border-2 border-slate-200 bg-white p-4 rounded-xl h-48 outline-none focus:border-[#01189B] resize-none text-slate-700 transition-colors text-sm leading-relaxed custom-scrollbar"></textarea>
               </div>
