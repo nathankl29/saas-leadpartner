@@ -366,7 +366,7 @@ export default function App() {
 
   // Modale d'envoi d'email
   const [showEmailModal, setShowEmailModal] = useState(false);
-  const [emailData, setEmailData] = useState<any>({ to: '', subject: '', body: '', isSending: false, selectedTemplate: 'std' });
+  const [emailData, setEmailData] = useState<any>({ to: '', subject: '', body: '', isSending: false, selectedTemplate: 'std', sendContractSeparately: false });
 
   // Import CSV Modal
   const [showImportModal, setShowImportModal] = useState<any>(null);
@@ -850,20 +850,47 @@ export default function App() {
         if (!element) throw new Error("Document HTML introuvable");
 
         const html2pdf = await requireHtml2Pdf();
-        const opt = getPdfOptions(`Facture_${currentInvoice?.id}.pdf`);
+        let cleanBase64 = '';
+        let contractBase64 = '';
 
-        // Extraction sécurisée du PDF
-        const rawPdfBase64: any = await new Promise((resolve) => {
-             html2pdf().set(opt).from(element).toPdf().get('pdf').then((pdf: any) => resolve(pdf.output('datauristring')));
-        });
-        
-        // Nettoyage strict du préfixe pour envoyer uniquement le code pur du fichier à Make.com
-        const cleanBase64 = rawPdfBase64.includes('base64,') ? rawPdfBase64.substring(rawPdfBase64.indexOf('base64,') + 7) : rawPdfBase64;
+        if (emailData.sendContractSeparately && currentInvoice.includeContract) {
+            // Cacher temporairement le contrat pour capturer uniquement la facture
+            const contractEl = element.querySelector('.html2pdf__page-break') as HTMLElement;
+            if (contractEl) contractEl.style.display = 'none';
+            
+            const optInv = getPdfOptions(`Facture_${currentInvoice?.id}.pdf`);
+            const rawPdfBase64: any = await new Promise((resolve) => {
+                 html2pdf().set(optInv).from(element).toPdf().get('pdf').then((pdf: any) => resolve(pdf.output('datauristring')));
+            });
+            cleanBase64 = rawPdfBase64.includes('base64,') ? rawPdfBase64.substring(rawPdfBase64.indexOf('base64,') + 7) : rawPdfBase64;
+
+            // Cacher la facture, montrer le contrat pour capturer le contrat seul
+            if (contractEl) {
+                contractEl.style.display = 'flex';
+                const invoicePage1 = element.querySelector('.invoice-page-1') as HTMLElement;
+                if (invoicePage1) invoicePage1.style.display = 'none';
+
+                const optCont = getPdfOptions(`Contrat_${currentInvoice?.id}.pdf`);
+                const rawContBase64: any = await new Promise((resolve) => {
+                    html2pdf().set(optCont).from(element).toPdf().get('pdf').then((pdf: any) => resolve(pdf.output('datauristring')));
+                });
+                contractBase64 = rawContBase64.includes('base64,') ? rawContBase64.substring(rawContBase64.indexOf('base64,') + 7) : rawContBase64;
+                
+                // Tout réafficher correctement dans l'interface
+                if (invoicePage1) invoicePage1.style.display = 'flex';
+            }
+        } else {
+            const opt = getPdfOptions(`Facture_${currentInvoice?.id}.pdf`);
+            const rawPdfBase64: any = await new Promise((resolve) => {
+                 html2pdf().set(opt).from(element).toPdf().get('pdf').then((pdf: any) => resolve(pdf.output('datauristring')));
+            });
+            cleanBase64 = rawPdfBase64.includes('base64,') ? rawPdfBase64.substring(rawPdfBase64.indexOf('base64,') + 7) : rawPdfBase64;
+        }
 
         // Conversion des sauts de ligne textuels en balises HTML <br> pour l'affichage email
         const formattedMessage = emailData.body.replace(/\n/g, '<br>');
 
-        const payload = {
+        const payload: any = {
             to_email: emailData.to,
             subject: emailData.subject,
             message: formattedMessage,
@@ -872,6 +899,11 @@ export default function App() {
             client_name: currentInvoice?.clientName || 'Client',
             pdf_attachment_base64: cleanBase64
         };
+
+        // Ajout du contrat si généré séparément
+        if (contractBase64) {
+            payload.contract_attachment_base64 = contractBase64;
+        }
 
         const response = await fetch(settings.webhookUrl, {
             method: 'POST',
@@ -926,11 +958,11 @@ export default function App() {
   };
 
   const handleExportContactsCSV = () => {
-      let csvContent = "Société,Contact,Email,Téléphone,Adresse,Statut,Budget\n";
+      let csvContent = "Société,Contact,Email,Téléphone,Adresse,Type,Statut,Source,Budget\n";
       
       // S'il n'y a pas de contacts, on crée une ligne d'exemple pour le template
       if (contacts.length === 0) {
-          csvContent += '"Entreprise Exemple","Jean Dupont","jean@exemple.com","+41 79 000 00 00","Genève","nouveau","5000"\n';
+          csvContent += '"Entreprise Exemple","Jean Dupont","jean@exemple.com","+41 79 000 00 00","Genève","prospect","nouveau","Call froid","5000"\n';
       } else {
           contacts.forEach(c => {
               const row = [ 
@@ -939,7 +971,9 @@ export default function App() {
                   `"${c.email || ''}"`, 
                   `"${c.phone || ''}"`, 
                   `"${c.address ? c.address.replace(/\n/g, ' ') : ''}"`, 
+                  `"${c.type || 'prospect'}"`, 
                   `"${c.status || 'nouveau'}"`, 
+                  `"${c.source || ''}"`, 
                   `"${c.projectedBudget || 0}"` 
               ];
               csvContent += row.join(",") + "\n";
@@ -989,11 +1023,13 @@ export default function App() {
                   const email = row[2] || '';
                   const phone = row[3] || '';
                   const address = row[4] || '';
-                  const status = row[5]?.toLowerCase() || 'nouveau';
-                  const projectedBudget = Number(row[6]) || 0;
+                  const typeContact = row[5]?.toLowerCase() || 'prospect';
+                  const status = row[6]?.toLowerCase() || 'nouveau';
+                  const source = row[7] || '';
+                  const projectedBudget = Number(row[8]) || 0;
 
                   const docRef = doc(collection(db, `artifacts/${getAppId()}/users/${user.uid}/contacts`));
-                  batch.set(docRef, { company, name, email, phone, address, status, projectedBudget, createdAt: new Date().toISOString() });
+                  batch.set(docRef, { company, name, email, phone, address, type: typeContact, status, source, projectedBudget, createdAt: new Date().toISOString() });
                   count++;
               } else if (type === 'invoices') {
                   const id = row[0] || `FAC-IMPORT-${Date.now()}-${i}`;
@@ -1057,12 +1093,12 @@ export default function App() {
                   <td className="px-6 py-5 text-slate-600">{p.name}</td>
                   <td className="px-6 py-5 text-slate-500">{p.email || <span className="italic text-slate-300">Non renseigné</span>}</td>
                   <td className="px-6 py-5 text-right">
-                    <a 
-                      href={p.email ? `mailto:${p.email}` : '#'}
+                    <button 
+                      onClick={(e) => { e.preventDefault(); if(p.email) window.open(`mailto:${p.email}`, '_top'); }}
                       className={`inline-flex items-center justify-center px-4 py-2 rounded-xl text-xs font-bold gap-2 transition-all ${p.email ? 'bg-blue-50 text-[#01189B] hover:bg-[#01189B] hover:text-white' : 'bg-slate-50 text-slate-400 cursor-not-allowed pointer-events-none'}`}
                     >
                       <Send size={14}/> Écrire
-                    </a>
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -1599,7 +1635,13 @@ export default function App() {
         ),
         widget_finances_chart: (
             <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] h-full flex flex-col relative overflow-hidden min-h-[300px]">
-                <h3 className="font-extrabold text-slate-800 font-poppins text-xl flex items-center gap-3 mb-8 relative z-10"><TrendingUp style={{ color: BRAND_COLOR }} size={24}/> Évolution Mensuelle</h3>
+                <div className="flex justify-between items-start mb-8 relative z-10">
+                    <h3 className="font-extrabold text-slate-800 font-poppins text-xl flex items-center gap-3"><TrendingUp style={{ color: BRAND_COLOR }} size={24}/> Évolution Mensuelle 2026</h3>
+                    <div className="text-right">
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Total Annuel</p>
+                        <p className="text-lg font-black font-poppins text-[#01189B]">{renderCurrency(stats.caAnnuel)}</p>
+                    </div>
+                </div>
                 <div className="flex-1 flex h-40 mt-auto relative z-10">
                     <div className="flex flex-col justify-between items-end pr-3 border-r border-slate-100 text-[9px] font-bold text-slate-400 pb-6 w-10 shrink-0">
                         <span>{Math.floor(Math.max(...stats.monthlyCA, 1) / 1000)}k</span>
@@ -1612,8 +1654,8 @@ export default function App() {
                             const height = `${(val / max) * 100}%`;
                             const months = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
                             return (
-                                <div key={idx} className="flex-1 flex flex-col items-center justify-end h-full relative group">
-                                    <div className="w-full bg-blue-100/50 rounded-t-sm relative hover:bg-[#01189B] transition-all duration-300 cursor-pointer" style={{ height: height === '0%' ? '4px' : height, backgroundColor: val > 0 ? '' : '#f1f5f9' }}>
+                                <div key={idx} className="flex-1 flex flex-col items-center justify-end h-full relative">
+                                    <div className="w-full bg-blue-100/50 rounded-t-sm relative hover:bg-[#01189B] transition-all duration-300 cursor-pointer group" style={{ height: height === '0%' ? '4px' : height, backgroundColor: val > 0 ? '' : '#f1f5f9' }}>
                                         <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[10px] font-bold py-1.5 px-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none shadow-xl">
                                             {renderCurrency(val)}
                                         </div>
@@ -2626,114 +2668,41 @@ export default function App() {
 
                 {/* FACTURE A4 */}
                 <div className="flex-1 overflow-auto bg-slate-200 p-8 flex justify-center custom-scrollbar relative">
-                    <div id="invoice-printable" className="bg-white w-[210mm] h-max min-h-[296mm] shadow-2xl p-[15mm] flex flex-col text-slate-800 relative shrink-0 box-border">
-                        {/* Marqueur visuel de fin de page 1 (no-print) */}
-                        <div className="absolute top-[297mm] left-0 w-full border-b-2 border-red-300 border-dashed no-print z-[100] flex justify-center">
-                             <span className="bg-red-50 px-2 text-[8px] text-red-500 font-bold uppercase tracking-widest -mt-2">Limite Page 1 (A4)</span>
-                        </div>
+                    <div id="invoice-printable" className="bg-transparent w-[210mm] h-max text-slate-800 relative shrink-0 box-border flex flex-col gap-8">
+                        
+                        <div className="invoice-page-1 bg-white w-full min-h-[296mm] shadow-2xl p-[15mm] flex flex-col relative box-border">
+                            {/* Marqueur visuel de fin de page 1 (no-print) */}
+                            <div className="absolute top-[297mm] left-0 w-full border-b-2 border-red-300 border-dashed no-print z-[100] flex justify-center">
+                                 <span className="bg-red-50 px-2 text-[8px] text-red-500 font-bold uppercase tracking-widest -mt-2">Limite Page 1 (A4)</span>
+                            </div>
 
-                        {currentInvoice.status === 'archive' && (
-                            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-12 opacity-10 pointer-events-none select-none">
-                                <span className="text-8xl font-extrabold uppercase tracking-widest text-slate-900">Archivée</span>
-                            </div>
-                        )}
-                        {currentInvoice.status === 'annulee' && (
-                            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-12 opacity-10 pointer-events-none select-none">
-                                <span className="text-8xl font-extrabold uppercase tracking-widest text-red-900">Annulée</span>
-                            </div>
-                        )}
-
-                        <div className="flex flex-col min-h-[266mm]">
-                            <div className="flex justify-between mb-3 border-b-4 pb-3" style={{ borderColor: BRAND_COLOR }}>
-                            <div>
-                                <h1 className="text-4xl font-extrabold uppercase mb-2 font-poppins tracking-tight" style={{ color: BRAND_COLOR }}>Facture</h1>
-                                <p className="font-mono text-slate-500 font-bold text-lg">#{currentInvoice.id || 'BROUILLON'}</p>
-                                <p className="text-sm mt-1 font-bold text-slate-400 uppercase tracking-widest">Date : {formatDate(currentInvoice.date)}</p>
-                            </div>
-                            <div className="text-right">
-                                <p className="font-extrabold text-lg font-poppins">{settings.companyName}</p>
-                                {settings.companyId && <p className="text-xs font-bold text-slate-400 mt-0.5 uppercase">{settings.companyId}</p>}
-                                <p className="text-xs text-slate-500 whitespace-pre-wrap mt-1.5 leading-relaxed">{settings.address}</p>
-                                <p className="text-xs text-slate-500 mt-1 font-medium">{settings.email} <br/> {settings.phone}</p>
-                            </div>
-                            </div>
-                            
-                            <div className="mb-3 flex justify-end relative z-10">
-                                <div className="w-1/2">
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-2 tracking-widest">Facturé à</p>
-                                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 w-full">
-                                        <div className="font-extrabold text-xl font-poppins text-slate-800">{currentInvoice.clientName || 'Client à définir...'}</div>
-                                        {currentInvoice.clientAddress && <p className="text-sm mt-2 text-slate-600 whitespace-pre-wrap">{currentInvoice.clientAddress}</p>}
-                                    </div>
+                            {currentInvoice.status === 'archive' && (
+                                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-12 opacity-10 pointer-events-none select-none">
+                                    <span className="text-8xl font-extrabold uppercase tracking-widest text-slate-900">Archivée</span>
                                 </div>
-                            </div>
+                            )}
 
-                            <div className="mb-2 flex items-center justify-between no-print relative z-10">
-                                <button onClick={() => setCurrentInvoice({...currentInvoice, items: [...(currentInvoice.items || []), {name: 'Nouvelle prestation', description: '', price: 0, qty: 1}]})} className="text-xs font-bold bg-white text-[#01189B] px-3 py-1.5 rounded-lg border border-blue-200 hover:bg-blue-50">+ Ligne Manuelle</button>
-                            </div>
-
-                            <table className="w-full mb-2 table-fixed relative z-10">
-                            <thead>
-                                <tr className="border-b-2 text-[11px]" style={{ borderColor: BRAND_COLOR }}>
-                                <th className="text-left py-2 font-extrabold uppercase tracking-widest w-3/4" style={{ color: BRAND_COLOR }}>Désignation des prestations</th>
-                                <th className="text-right py-2 font-extrabold uppercase tracking-widest w-1/4" style={{ color: BRAND_COLOR }}>Montant Net</th>
-                                <th className="w-8 no-print"></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {(currentInvoice.items || []).map((item: any, i: number) => (
-                                <tr key={i} className="border-b border-slate-100 group relative break-inside-avoid keep-together">
-                                    <td className="py-2 pr-4 align-top">
-                                        <input 
-                                            value={item.name} 
-                                            onChange={(e) => {
-                                            const newItems = [...(currentInvoice.items || [])];
-                                            newItems[i].name = e.target.value;
-                                            setCurrentInvoice({ ...currentInvoice, items: newItems });
-                                            }}
-                                            className="w-full bg-transparent border border-transparent hover:border-slate-200 focus:border-[#01189B] outline-none font-extrabold text-slate-800 text-[12px] print-input py-0.5 px-1 rounded transition-colors"
-                                            placeholder="Nom de la prestation"
-                                        />
-                                        <textarea 
-                                            value={item.description || ''} 
-                                            onChange={(e) => {
-                                            const newItems = [...(currentInvoice.items || [])];
-                                            newItems[i].description = e.target.value;
-                                            setCurrentInvoice({ ...currentInvoice, items: newItems });
-                                            }}
-                                            className="w-full bg-transparent border border-transparent hover:border-slate-200 focus:border-[#01189B] outline-none font-medium text-slate-500 text-[10px] print-input py-0 px-1 resize-none overflow-hidden rounded mt-0 transition-colors"
-                                            rows={2}
-                                            placeholder="Description détaillée (optionnelle)..."
-                                            onInput={(e: any) => { e.currentTarget.style.height = "auto"; e.currentTarget.style.height = (e.currentTarget.scrollHeight) + "px"; }}
-                                        />
-                                    </td>
-                                    <td className="py-2 text-right align-top">
-                                        <input 
-                                            type="number"
-                                            value={item.price} 
-                                            onChange={(e) => {
-                                            const newItems = [...(currentInvoice.items || [])];
-                                            newItems[i].price = Number(e.target.value);
-                                            setCurrentInvoice({ ...currentInvoice, items: newItems });
-                                            }}
-                                            className="w-32 bg-transparent border border-transparent hover:border-slate-200 focus:border-[#01189B] outline-none font-extrabold text-sm font-mono text-slate-800 text-right print-input py-0.5 px-1 rounded transition-colors inline-block"
-                                        />
-                                    </td>
-                                    <td className="py-2 no-print text-center align-top pt-2">
-                                        <button onClick={() => {
-                                            const newItems = [...(currentInvoice.items || [])];
-                                            newItems.splice(i, 1);
-                                            setCurrentInvoice({ ...currentInvoice, items: newItems });
-                                        }} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity bg-white shadow-sm p-1 rounded">
-                                            <Trash2 size={16}/>
-                                        </button>
-                                    </td>
-                                </tr>
-                                ))}
-                                {(currentInvoice.items || []).length === 0 && (
-                                <tr><td colSpan={3} className="py-12 text-center text-slate-400 italic text-sm font-medium border-dashed border-2 border-slate-200 rounded-xl mt-4">Aucune prestation facturée. Utilisez le panneau à gauche pour générer les lignes.</td></tr>
-                                )}
-                            </tbody>
+                            {/* TABLEAU DES LIGNES */}
+                            <table className="w-full text-sm text-left mt-8 mb-4 relative z-10">
+                                <thead className="bg-slate-50 text-slate-500 uppercase font-extrabold text-[10px] tracking-wider border-b border-slate-200">
+                                    <tr>
+                                        <th className="px-4 py-3 w-2/3">Désignation</th>
+                                        <th className="px-4 py-3 text-right">Montant HT</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {(currentInvoice.items || []).map((item: any, idx: number) => (
+                                        <tr key={idx}>
+                                            <td className="px-4 py-4">
+                                                <p className="font-bold text-slate-800">{item.name}</p>
+                                                {item.description && <p className="text-xs text-slate-500 mt-1 whitespace-pre-wrap leading-relaxed">{item.description}</p>}
+                                            </td>
+                                            <td className="px-4 py-4 text-right font-mono font-bold text-slate-800">
+                                                {formatCurrency(item.price * (item.qty || 1))}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
                             </table>
 
                             {/* Bloc inséparable pour les totaux ET le footer (break-inside-avoid) collé en bas de la page 1 */}
@@ -2775,7 +2744,7 @@ export default function App() {
 
                         {/* --- PAGE CONTRAT (OPTIONNELLE) --- */}
                         {currentInvoice.includeContract && currentInvoice.contractText && (
-                            <div className="html2pdf__page-break mt-12 pt-[15mm] border-t-4 border-slate-100 w-full flex flex-col" style={{ pageBreakBefore: 'always', minHeight: '266mm' }}>
+                            <div className="html2pdf__page-break bg-white w-full shadow-2xl p-[15mm] flex flex-col min-h-[296mm] box-border relative" style={{ pageBreakBefore: 'always' }}>
                                 <h2 className="text-2xl font-extrabold uppercase mb-2 font-poppins" style={{ color: BRAND_COLOR }}>Contrat de Prestation</h2>
                                 <p className="font-bold text-sm text-slate-600 mb-8">Fait à {settings.address ? settings.address.split(',')[0].split('\n')[0] : 'Genève'}, le {formatDate(currentInvoice.date)}</p>
 
@@ -2868,6 +2837,21 @@ export default function App() {
                 </div>
                 <Paperclip className="text-blue-300" size={20}/>
               </div>
+
+              {currentInvoice?.includeContract && (
+                  <div className="flex items-center gap-2 mt-2 bg-blue-50/50 p-3 rounded-xl border border-blue-100">
+                      <input 
+                          type="checkbox" 
+                          id="sep-contract" 
+                          checked={emailData.sendContractSeparately} 
+                          onChange={(e) => setEmailData({...emailData, sendContractSeparately: e.target.checked})} 
+                          className="w-4 h-4 text-[#01189B] rounded focus:ring-[#01189B]" 
+                      />
+                      <label htmlFor="sep-contract" className="text-sm font-bold text-slate-700 cursor-pointer">
+                          Envoyer le contrat dans un PDF séparé (Pièce jointe 2)
+                      </label>
+                  </div>
+              )}
               
               <div className="pt-4 flex gap-4 border-t border-slate-200 mt-6">
                 <button disabled={emailData.isSending} onClick={() => setShowEmailModal(false)} className={UI_CLASSES.btnSecondary}>Annuler</button>
@@ -2891,7 +2875,7 @@ export default function App() {
                 <p className="font-bold flex items-center gap-2"><Info size={16}/> Instructions (Google Sheets / Excel) :</p>
                 <p>1. Préparez vos colonnes exactement dans cet ordre :</p>
                 {showImportModal === 'contacts' ? (
-                    <code className="block bg-white p-2 rounded border border-blue-200 text-xs font-mono">Société, Contact, Email, Téléphone, Adresse, Statut, Budget</code>
+                    <code className="block bg-white p-2 rounded border border-blue-200 text-xs font-mono">Société, Contact, Email, Téléphone, Adresse, Type, Statut, Source, Budget</code>
                 ) : (
                     <code className="block bg-white p-2 rounded border border-blue-200 text-xs font-mono">ID Facture, Client, Montant, Statut, Date</code>
                 )}
