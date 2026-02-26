@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '51';
+const APP_VERSION = '52';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -853,8 +853,8 @@ export default function App() {
         let cleanBase64 = '';
         let contractBase64 = '';
 
-        if (emailData.sendContractSeparately && currentInvoice.includeContract) {
-            // Cacher temporairement le contrat pour capturer uniquement la facture
+        if (emailData.sendContractSeparately && currentInvoice.includeContract && currentInvoice.contractText) {
+            // Cacher le contrat pour capturer la facture seule
             const contractEl = element.querySelector('.html2pdf__page-break') as HTMLElement;
             if (contractEl) contractEl.style.display = 'none';
             
@@ -864,7 +864,7 @@ export default function App() {
             });
             cleanBase64 = rawPdfBase64.includes('base64,') ? rawPdfBase64.substring(rawPdfBase64.indexOf('base64,') + 7) : rawPdfBase64;
 
-            // Cacher la facture, montrer le contrat pour capturer le contrat seul
+            // Remettre le contrat, cacher la facture, pour capturer le contrat seul
             if (contractEl) {
                 contractEl.style.display = 'flex';
                 const invoicePage1 = element.querySelector('.invoice-page-1') as HTMLElement;
@@ -876,7 +876,7 @@ export default function App() {
                 });
                 contractBase64 = rawContBase64.includes('base64,') ? rawContBase64.substring(rawContBase64.indexOf('base64,') + 7) : rawContBase64;
                 
-                // Tout réafficher correctement dans l'interface
+                // Réafficher la facture
                 if (invoicePage1) invoicePage1.style.display = 'flex';
             }
         } else {
@@ -900,7 +900,6 @@ export default function App() {
             pdf_attachment_base64: cleanBase64
         };
 
-        // Ajout du contrat si généré séparément
         if (contractBase64) {
             payload.contract_attachment_base64 = contractBase64;
         }
@@ -958,11 +957,11 @@ export default function App() {
   };
 
   const handleExportContactsCSV = () => {
-      let csvContent = "Société,Contact,Email,Téléphone,Adresse,Type,Statut,Source,Budget\n";
+      let csvContent = "Société,Contact,Email,Téléphone,Adresse,Type,Statut,Source,Budget,Audience,Produits\n";
       
       // S'il n'y a pas de contacts, on crée une ligne d'exemple pour le template
       if (contacts.length === 0) {
-          csvContent += '"Entreprise Exemple","Jean Dupont","jean@exemple.com","+41 79 000 00 00","Genève","prospect","nouveau","Call froid","5000"\n';
+          csvContent += '"Entreprise Exemple","Jean Dupont","jean@exemple.com","+41 79 000 00 00","Genève","prospect","nouveau","Call froid","5000","Les deux","LAMal"\n';
       } else {
           contacts.forEach(c => {
               const row = [ 
@@ -974,7 +973,9 @@ export default function App() {
                   `"${c.type || 'prospect'}"`, 
                   `"${c.status || 'nouveau'}"`, 
                   `"${c.source || ''}"`, 
-                  `"${c.projectedBudget || 0}"` 
+                  `"${c.projectedBudget || 0}"`,
+                  `"${c.targetAudience || ''}"`,
+                  `"${(c.offeredProducts || []).join(' / ')}"`
               ];
               csvContent += row.join(",") + "\n";
           });
@@ -1027,9 +1028,11 @@ export default function App() {
                   const status = row[6]?.toLowerCase() || 'nouveau';
                   const source = row[7] || '';
                   const projectedBudget = Number(row[8]) || 0;
+                  const targetAudience = row[9] || '';
+                  const offeredProducts = row[10] ? row[10].split('/').map((p: string) => p.trim()) : [];
 
                   const docRef = doc(collection(db, `artifacts/${getAppId()}/users/${user.uid}/contacts`));
-                  batch.set(docRef, { company, name, email, phone, address, type: typeContact, status, source, projectedBudget, createdAt: new Date().toISOString() });
+                  batch.set(docRef, { company, name, email, phone, address, type: typeContact, status, source, projectedBudget, targetAudience, offeredProducts, createdAt: new Date().toISOString() });
                   count++;
               } else if (type === 'invoices') {
                   const id = row[0] || `FAC-IMPORT-${Date.now()}-${i}`;
@@ -1093,12 +1096,18 @@ export default function App() {
                   <td className="px-6 py-5 text-slate-600">{p.name}</td>
                   <td className="px-6 py-5 text-slate-500">{p.email || <span className="italic text-slate-300">Non renseigné</span>}</td>
                   <td className="px-6 py-5 text-right">
-                    <button 
-                      onClick={(e) => { e.preventDefault(); if(p.email) window.open(`mailto:${p.email}`, '_top'); }}
-                      className={`inline-flex items-center justify-center px-4 py-2 rounded-xl text-xs font-bold gap-2 transition-all ${p.email ? 'bg-blue-50 text-[#01189B] hover:bg-[#01189B] hover:text-white' : 'bg-slate-50 text-slate-400 cursor-not-allowed pointer-events-none'}`}
-                    >
-                      <Send size={14}/> Écrire
-                    </button>
+                    {p.email ? (
+                        <button 
+                          onClick={(e) => { e.preventDefault(); window.open(`mailto:${p.email}`, '_top'); }}
+                          className="inline-flex items-center justify-center px-4 py-2 rounded-xl text-xs font-bold gap-2 transition-all bg-blue-50 text-[#01189B] hover:bg-[#01189B] hover:text-white"
+                        >
+                          <Send size={14}/> Écrire
+                        </button>
+                    ) : (
+                        <button disabled className="inline-flex items-center justify-center px-4 py-2 rounded-xl text-xs font-bold gap-2 transition-all bg-slate-50 text-slate-400 cursor-not-allowed pointer-events-none">
+                          <Send size={14}/> Écrire
+                        </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -1198,9 +1207,9 @@ export default function App() {
               <Trash2 size={16}/> Supprimer Client
             </button>
             {selectedContact.email && (
-               <a href={`mailto:${selectedContact.email}`} className="px-6 py-3 text-white rounded-xl font-bold hover:shadow-lg hover:-translate-y-0.5 flex items-center justify-center gap-2 transition-all" style={{ backgroundColor: BRAND_COLOR }}>
+               <button onClick={() => window.open(`mailto:${selectedContact.email}`, '_top')} className="px-6 py-3 text-white rounded-xl font-bold hover:shadow-lg hover:-translate-y-0.5 flex items-center justify-center gap-2 transition-all" style={{ backgroundColor: BRAND_COLOR }}>
                  <Send size={16}/> Écrire Email
-               </a>
+               </button>
             )}
           </div>
         </div>
@@ -1638,7 +1647,7 @@ export default function App() {
                 <div className="flex justify-between items-start mb-8 relative z-10">
                     <h3 className="font-extrabold text-slate-800 font-poppins text-xl flex items-center gap-3"><TrendingUp style={{ color: BRAND_COLOR }} size={24}/> Évolution Mensuelle 2026</h3>
                     <div className="text-right">
-                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Total Annuel</p>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Total Annuel 2026</p>
                         <p className="text-lg font-black font-poppins text-[#01189B]">{renderCurrency(stats.caAnnuel)}</p>
                     </div>
                 </div>
@@ -1655,8 +1664,8 @@ export default function App() {
                             const months = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
                             return (
                                 <div key={idx} className="flex-1 flex flex-col items-center justify-end h-full relative">
-                                    <div className="w-full bg-blue-100/50 rounded-t-sm relative hover:bg-[#01189B] transition-all duration-300 cursor-pointer group" style={{ height: height === '0%' ? '4px' : height, backgroundColor: val > 0 ? '' : '#f1f5f9' }}>
-                                        <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[10px] font-bold py-1.5 px-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none shadow-xl">
+                                    <div className="w-full bg-blue-100/50 rounded-t-sm relative hover:bg-[#01189B] transition-all duration-300 cursor-pointer group/bar" style={{ height: height === '0%' ? '4px' : height, backgroundColor: val > 0 ? '' : '#f1f5f9' }}>
+                                        <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[10px] font-bold py-1.5 px-2 rounded-lg opacity-0 group-hover/bar:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none shadow-xl">
                                             {renderCurrency(val)}
                                         </div>
                                     </div>
@@ -1673,10 +1682,10 @@ export default function App() {
                 <div className="absolute top-0 right-0 p-32 bg-blue-50/30 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
                 <div className="flex justify-between items-start mb-8 relative z-10">
                     <div>
-                        <h3 className="font-extrabold text-slate-800 font-poppins text-xl flex items-center gap-3"><TrendingUp style={{ color: BRAND_COLOR }} size={24}/> Design 1 : Hybride</h3>
+                        <h3 className="font-extrabold text-slate-800 font-poppins text-xl flex items-center gap-3"><TrendingUp style={{ color: BRAND_COLOR }} size={24}/> Évolution Mensuelle 2026</h3>
                     </div>
                     <div className="bg-white border-2 border-[#01189B]/10 px-5 py-3 rounded-2xl shadow-sm">
-                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-0.5">CA Total Encaissé</p>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-0.5">CA Total Encaissé 2026</p>
                         <p className="text-3xl font-black font-poppins text-[#01189B]">{renderCurrency(stats.caAnnuel)}</p>
                     </div>
                 </div>
@@ -1705,8 +1714,8 @@ export default function App() {
                         const months = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
                         return (
                             <div key={idx} className="flex-1 flex flex-col items-center justify-end h-full relative">
-                                <div className="w-full bg-blue-100/50 rounded-t-xl relative hover:bg-[#01189B] transition-all duration-300 cursor-pointer group" style={{ height: height === '0%' ? '4px' : height, backgroundColor: val > 0 ? '' : '#f1f5f9' }}>
-                                    <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-xs font-bold py-2 px-3 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none shadow-xl">
+                                <div className="w-full bg-blue-100/50 rounded-t-xl relative hover:bg-[#01189B] transition-all duration-300 cursor-pointer group/month" style={{ height: height === '0%' ? '4px' : height, backgroundColor: val > 0 ? '' : '#f1f5f9' }}>
+                                    <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-xs font-bold py-2 px-3 rounded-lg opacity-0 group-hover/month:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none shadow-xl">
                                         {renderCurrency(val)}
                                     </div>
                                 </div>
@@ -2668,12 +2677,12 @@ export default function App() {
 
                 {/* FACTURE A4 */}
                 <div className="flex-1 overflow-auto bg-slate-200 p-8 flex justify-center custom-scrollbar relative">
-                    <div id="invoice-printable" className="bg-transparent w-[210mm] h-max text-slate-800 relative shrink-0 box-border flex flex-col gap-8">
+                    <div id="invoice-printable" className="bg-transparent w-[210mm] h-max text-slate-800 relative shrink-0 box-border block">
                         
-                        <div className="invoice-page-1 bg-white w-full min-h-[296mm] shadow-2xl p-[15mm] flex flex-col relative box-border">
+                        <div className="invoice-page-1 bg-white w-full h-[297mm] max-h-[297mm] overflow-hidden shadow-2xl p-[15mm] flex flex-col justify-between relative box-border mb-8 print:mb-0">
                             {/* Marqueur visuel de fin de page 1 (no-print) */}
-                            <div className="absolute top-[297mm] left-0 w-full border-b-2 border-red-300 border-dashed no-print z-[100] flex justify-center">
-                                 <span className="bg-red-50 px-2 text-[8px] text-red-500 font-bold uppercase tracking-widest -mt-2">Limite Page 1 (A4)</span>
+                            <div className="absolute bottom-0 left-0 w-full border-b-2 border-red-300 border-dashed no-print z-[100] flex justify-center">
+                                 <span className="bg-red-50 px-2 text-[8px] text-red-500 font-bold uppercase tracking-widest -mt-3">Limite Page 1 (A4)</span>
                             </div>
 
                             {currentInvoice.status === 'archive' && (
@@ -2681,33 +2690,83 @@ export default function App() {
                                     <span className="text-8xl font-extrabold uppercase tracking-widest text-slate-900">Archivée</span>
                                 </div>
                             )}
+                            {currentInvoice.status === 'annulee' && (
+                                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-12 opacity-10 pointer-events-none select-none">
+                                    <span className="text-8xl font-extrabold uppercase tracking-widest text-red-900">Annulée</span>
+                                </div>
+                            )}
 
-                            {/* TABLEAU DES LIGNES */}
-                            <table className="w-full text-sm text-left mt-8 mb-4 relative z-10">
+                            <div className="flex flex-col flex-1">
+                                <div className="flex justify-between mb-3 border-b-4 pb-3" style={{ borderColor: BRAND_COLOR }}>
+                                <div>
+                                    <h1 className="text-4xl font-extrabold uppercase mb-2 font-poppins tracking-tight" style={{ color: BRAND_COLOR }}>Facture</h1>
+                                    <div className="text-slate-500 font-medium text-xs space-y-0.5 mt-2">
+                                        <p><span className="font-bold w-20 inline-block">N° Facture</span> <span className="text-slate-800 font-mono font-bold bg-slate-100 px-2 py-0.5 rounded">{currentInvoice.id}</span></p>
+                                        <p><span className="font-bold w-20 inline-block">Date</span> {formatDate(currentInvoice.date)}</p>
+                                        <p><span className="font-bold w-20 inline-block">Échéance</span> {formatDate(new Date(new Date(currentInvoice.date).getTime() + 30*24*60*60*1000).toISOString())}</p>
+                                    </div>
+                                </div>
+                                <div className="text-right">
+                                    <h2 className="text-xl font-black font-poppins text-slate-800 tracking-tight">{settings.companyName}</h2>
+                                    <p className="text-xs text-slate-500 mt-1.5 whitespace-pre-wrap leading-relaxed">{settings.address}</p>
+                                    <p className="text-xs text-slate-500 mt-0.5">{settings.email}</p>
+                                    {settings.companyId && <p className="text-[10px] text-slate-400 mt-1.5 font-bold uppercase tracking-widest">{settings.companyId}</p>}
+                                </div>
+                                </div>
+
+                                <div className="mb-4 bg-slate-50 p-4 rounded-xl border border-slate-100 w-1/2 ml-auto">
+                                    <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">Facturé à</p>
+                                    <h3 className="text-sm font-extrabold text-slate-800 font-poppins">{currentInvoice.clientName || 'Nom du Client'}</h3>
+                                    {currentInvoice.clientAddress && <p className="text-xs text-slate-600 mt-1.5 whitespace-pre-wrap leading-relaxed font-medium">{currentInvoice.clientAddress}</p>}
+                                </div>
+
+                                {/* TABLEAU DES LIGNES */}
+                                <table className="w-full text-sm text-left mb-4 relative z-10">
                                 <thead className="bg-slate-50 text-slate-500 uppercase font-extrabold text-[10px] tracking-wider border-b border-slate-200">
                                     <tr>
                                         <th className="px-4 py-3 w-2/3">Désignation</th>
                                         <th className="px-4 py-3 text-right">Montant HT</th>
+                                        <th className="w-8 no-print"></th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
-                                    {(currentInvoice.items || []).map((item: any, idx: number) => (
-                                        <tr key={idx}>
-                                            <td className="px-4 py-4">
-                                                <p className="font-bold text-slate-800">{item.name}</p>
-                                                {item.description && <p className="text-xs text-slate-500 mt-1 whitespace-pre-wrap leading-relaxed">{item.description}</p>}
-                                            </td>
-                                            <td className="px-4 py-4 text-right font-mono font-bold text-slate-800">
-                                                {formatCurrency(item.price * (item.qty || 1))}
-                                            </td>
-                                        </tr>
+                                    {(currentInvoice.items || []).map((item: any, i: number) => (
+                                    <tr key={i} className="group hover:bg-slate-50/50 transition-colors">
+                                        <td className="px-4 py-4">
+                                            <input value={item.name} onChange={e => { const newItems = [...(currentInvoice.items || [])]; newItems[i].name = e.target.value; setCurrentInvoice({ ...currentInvoice, items: newItems }); }} className="font-bold text-slate-800 bg-transparent outline-none w-full print-input" placeholder="Nom de l'article" />
+                                            <textarea value={item.description || ''} onChange={e => { const newItems = [...(currentInvoice.items || [])]; newItems[i].description = e.target.value; setCurrentInvoice({ ...currentInvoice, items: newItems }); }} className="text-xs text-slate-500 mt-1 bg-transparent outline-none w-full resize-none overflow-hidden print-input leading-relaxed" placeholder="Description (optionnelle)" rows={2} />
+                                        </td>
+                                        <td className="px-4 py-4 text-right align-top pt-5">
+                                            <input type="number" value={item.price} onChange={e => { const newItems = [...(currentInvoice.items || [])]; newItems[i].price = Number(e.target.value); setCurrentInvoice({ ...currentInvoice, items: newItems }); }} className="font-mono font-bold text-slate-800 bg-transparent outline-none w-24 text-right print-input" />
+                                        </td>
+                                        <td className="py-4 no-print text-center align-top pt-5">
+                                            <button onClick={() => {
+                                                const newItems = [...(currentInvoice.items || [])];
+                                                newItems.splice(i, 1);
+                                                setCurrentInvoice({ ...currentInvoice, items: newItems });
+                                            }} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity bg-white shadow-sm p-1 rounded">
+                                                <Trash2 size={16}/>
+                                            </button>
+                                        </td>
+                                    </tr>
                                     ))}
+                                    {(currentInvoice.items || []).length === 0 && (
+                                    <tr><td colSpan={3} className="py-12 text-center text-slate-400 italic text-sm font-medium border-dashed border-2 border-slate-200 rounded-xl mt-4">Aucune prestation facturée. Utilisez le panneau à gauche pour générer les lignes.</td></tr>
+                                    )}
                                 </tbody>
-                            </table>
+                                </table>
+
+                                {/* Ligne d'ajout manuelle */}
+                                <div className="no-print mt-2 text-center">
+                                    <button onClick={() => setCurrentInvoice({ ...currentInvoice, items: [...(currentInvoice.items || []), { name: 'Nouvelle ligne', price: 0, qty: 1, description: '' }] })} className="text-xs font-bold text-[#01189B] bg-blue-50 hover:bg-blue-100 px-4 py-2 rounded-lg transition-colors inline-flex items-center gap-1.5 border border-blue-200">
+                                        <Plus size={14}/> Ajouter une ligne
+                                    </button>
+                                </div>
+                            </div>
 
                             {/* Bloc inséparable pour les totaux ET le footer (break-inside-avoid) collé en bas de la page 1 */}
-                            <div className="keep-together break-inside-avoid mt-auto w-full pt-2">
-                                <div className="flex justify-end mb-3 relative z-10">
+                            <div className="keep-together break-inside-avoid w-full pt-4 mt-auto">
+                                <div className="flex justify-end mb-4 relative z-10">
                                     <div className="w-80 space-y-1.5">
                                         <div className="flex justify-between text-slate-500 font-bold text-sm"><span>Sous-total HT</span> <span className="font-mono text-slate-800">{formatCurrency((currentInvoice.items || []).reduce((acc: number, i: any) => acc + i.price * (i.qty || 1), 0))}</span></div>
                                         <div className="flex justify-between text-slate-400 font-medium text-xs"><span>TVA (0.0%)</span> <span className="font-mono">0.00 CHF</span></div>
@@ -2718,7 +2777,7 @@ export default function App() {
                                 </div>
 
                                 <div className="relative z-10 bg-white">
-                                    <div className="border-t border-slate-200 grid grid-cols-2 gap-8 pt-3 mb-2">
+                                    <div className="border-t border-slate-200 grid grid-cols-2 gap-8 pt-4 mb-3">
                                         <div>
                                             <p className="font-extrabold text-slate-800 mb-1.5 uppercase tracking-widest text-[10px]">Coordonnées Bancaires</p>
                                             {settings.bankDetails ? (
@@ -2734,7 +2793,7 @@ export default function App() {
                                     </div>
 
                                     {settings.legalNotice && (
-                                        <div className="text-center w-full pt-2 pb-1 text-[10px] text-slate-400 font-medium uppercase tracking-widest border-t border-slate-100">
+                                        <div className="text-center w-full pt-3 pb-2 text-[10px] text-slate-400 font-medium uppercase tracking-widest border-t border-slate-100">
                                             {settings.legalNotice}
                                         </div>
                                     )}
@@ -2744,14 +2803,14 @@ export default function App() {
 
                         {/* --- PAGE CONTRAT (OPTIONNELLE) --- */}
                         {currentInvoice.includeContract && currentInvoice.contractText && (
-                            <div className="html2pdf__page-break bg-white w-full shadow-2xl p-[15mm] flex flex-col min-h-[296mm] box-border relative" style={{ pageBreakBefore: 'always' }}>
+                            <div className="html2pdf__page-break bg-white w-full h-[297mm] max-h-[297mm] shadow-2xl p-[15mm] flex flex-col relative box-border mt-8 print:mt-0" style={{ pageBreakBefore: 'always' }}>
                                 <h2 className="text-2xl font-extrabold uppercase mb-2 font-poppins" style={{ color: BRAND_COLOR }}>Contrat de Prestation</h2>
                                 <p className="font-bold text-sm text-slate-600 mb-8">Fait à {settings.address ? settings.address.split(',')[0].split('\n')[0] : 'Genève'}, le {formatDate(currentInvoice.date)}</p>
 
-                                <div className="whitespace-pre-wrap text-xs text-slate-700 leading-relaxed font-medium text-justify mb-12">
+                                <div className="whitespace-pre-wrap text-xs text-slate-700 leading-relaxed font-medium text-justify mb-12 flex-1 overflow-hidden">
                                     {currentInvoice.contractText}
                                 </div>
-                                <div className="mt-auto grid grid-cols-2 gap-8 break-inside-avoid pt-12 pb-4">
+                                <div className="mt-auto grid grid-cols-2 gap-8 break-inside-avoid pt-12 pb-4 shrink-0">
                                     <div>
                                         <p className="font-bold text-slate-800 text-xs uppercase mb-12 tracking-widest">Le Prestataire</p>
                                         <div className="border-b-2 border-slate-200 w-3/4"></div>
@@ -2769,65 +2828,44 @@ export default function App() {
                     </div>
                 </div>
             </div>
-          </div>
         </div>
-      )}
+      </div>
+    )}
 
-      {/* --- MODAL EMAIL DIRECT / APERÇU --- */}
-      {showEmailModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-[200] p-4">
-          <div className="bg-white p-8 rounded-3xl w-full max-w-4xl shadow-2xl border border-slate-100 animate-fade-in flex flex-col md:flex-row gap-8">
-            
-            {/* Colonne Explications / Templates */}
-            <div className="w-full md:w-1/3 flex flex-col gap-6">
-                <div>
-                    <h3 className="text-2xl font-extrabold font-poppins text-slate-800 flex items-center gap-3"><Send style={{ color: BRAND_COLOR }} size={24}/> Envoi Auto</h3>
-                    <p className="text-sm text-slate-500 mt-2 font-medium">Le CRM va générer le PDF et l'envoyer via votre Webhook. Choisissez un modèle pour préremplir le message.</p>
-                </div>
-                
-                <div className="space-y-3 flex-1 overflow-auto custom-scrollbar">
-                    <h4 className="font-bold text-slate-700 text-sm uppercase tracking-wider mb-2">Modèles de Message</h4>
-                    {(settings.emailTemplates || []).map((tpl: any) => (
-                        <button 
-                            key={tpl.id}
-                            onClick={() => applyEmailTemplate(tpl.id, currentInvoice, emailData.to)}
-                            className={`w-full text-left p-3 rounded-xl border-2 transition-all ${emailData.selectedTemplate === tpl.id ? 'border-[#01189B] bg-blue-50' : 'border-slate-100 hover:border-slate-200'}`}
-                        >
-                            <p className={`font-bold text-sm ${emailData.selectedTemplate === tpl.id ? 'text-[#01189B]' : 'text-slate-700'}`}>{tpl.name}</p>
-                            <p className="text-[10px] text-slate-500 mt-1 uppercase truncate font-bold">{tpl.subject}</p>
-                        </button>
-                    ))}
-                    {(settings.emailTemplates || []).length === 0 && (
-                        <p className="text-xs text-slate-400 italic">Aucun modèle créé. Allez dans Paramètres.</p>
-                    )}
-                </div>
-
-                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 mt-auto">
-                    <p className="text-xs font-bold text-slate-500 flex items-center gap-2 mb-2"><ShieldCheck size={16} className="text-emerald-500"/> Serveur Sécurisé</p>
-                    <p className="text-[10px] text-slate-400">La facture est envoyée via l'API. L'expéditeur affiché sera <strong>{settings.email}</strong>.</p>
-                </div>
-            </div>
-
-            {/* Colonne Formulaire Email */}
-            <div className="flex-1 space-y-5 bg-slate-50 p-6 rounded-2xl border border-slate-100 shadow-inner">
+    {/* EMAIL MODAL */}
+    {showEmailModal && (
+      <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-[200] p-4">
+        <div className="bg-white p-10 rounded-3xl w-full max-w-xl shadow-2xl border border-slate-100 animate-fade-in">
+          <h3 className="text-2xl font-extrabold mb-6 font-poppins text-slate-800 flex items-center gap-3"><Send style={{ color: BRAND_COLOR }} size={24}/> Envoyer par Email</h3>
+          
+          <div className="space-y-4 mb-6">
               <div>
-                <label className={UI_CLASSES.label}>Destinataire (À)</label>
-                <input value={emailData.to} onChange={e => setEmailData({...emailData, to: e.target.value})} className={UI_CLASSES.input} placeholder="email@client.com" />
+                  <label className={UI_CLASSES.label}>Modèle d'email</label>
+                  <select 
+                      value={emailData.selectedTemplate} 
+                      onChange={(e) => applyEmailTemplate(e.target.value, currentInvoice, emailData.to)}
+                      className={UI_CLASSES.input}
+                  >
+                      {(settings.emailTemplates || []).map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
               </div>
               <div>
-                <label className={UI_CLASSES.label}>Sujet de l'email</label>
-                <input value={emailData.subject} onChange={e => setEmailData({...emailData, subject: e.target.value})} className={`${UI_CLASSES.input} font-bold`} />
+                  <label className={UI_CLASSES.label}>Destinataire</label>
+                  <input value={emailData.to} onChange={e => setEmailData({...emailData, to: e.target.value})} className={UI_CLASSES.input} placeholder="client@email.com" />
               </div>
               <div>
-                <label className={`${UI_CLASSES.label} flex justify-between items-center`}>
-                    Message
-                    <button onClick={() => applyEmailTemplate(emailData.selectedTemplate, currentInvoice, emailData.to)} className="text-[10px] text-blue-500 hover:underline flex items-center gap-1"><RefreshCcw size={10}/> Réinitialiser avec le modèle</button>
-                </label>
-                <textarea value={emailData.body} onChange={e => setEmailData({...emailData, body: e.target.value})} className="w-full border-2 border-slate-200 bg-white p-4 rounded-xl h-48 outline-none focus:border-[#01189B] resize-none text-slate-700 transition-colors text-sm leading-relaxed custom-scrollbar"></textarea>
+                  <label className={UI_CLASSES.label}>Sujet</label>
+                  <input value={emailData.subject} onChange={e => setEmailData({...emailData, subject: e.target.value})} className={UI_CLASSES.input} />
               </div>
+              <div>
+                  <label className={UI_CLASSES.label}>Message</label>
+                  <textarea value={emailData.body} onChange={e => setEmailData({...emailData, body: e.target.value})} className={`${UI_CLASSES.input} h-40 resize-none text-sm leading-relaxed`} />
+              </div>
+          </div>
 
-              {/* Pièce jointe simulée visuellement */}
-              <div className="bg-white border-2 border-dashed border-blue-200 p-4 rounded-xl flex items-center justify-between">
+          {/* Pièce jointe simulée visuellement */}
+          <div className="bg-white border-2 border-dashed border-blue-200 p-4 rounded-xl flex flex-col gap-3">
+            <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="p-2 bg-red-50 rounded-lg text-red-500"><FileText size={20}/></div>
                   <div>
@@ -2836,63 +2874,63 @@ export default function App() {
                   </div>
                 </div>
                 <Paperclip className="text-blue-300" size={20}/>
-              </div>
-
-              {currentInvoice?.includeContract && (
-                  <div className="flex items-center gap-2 mt-2 bg-blue-50/50 p-3 rounded-xl border border-blue-100">
-                      <input 
-                          type="checkbox" 
-                          id="sep-contract" 
-                          checked={emailData.sendContractSeparately} 
-                          onChange={(e) => setEmailData({...emailData, sendContractSeparately: e.target.checked})} 
-                          className="w-4 h-4 text-[#01189B] rounded focus:ring-[#01189B]" 
-                      />
-                      <label htmlFor="sep-contract" className="text-sm font-bold text-slate-700 cursor-pointer">
-                          Envoyer le contrat dans un PDF séparé (Pièce jointe 2)
-                      </label>
-                  </div>
-              )}
-              
-              <div className="pt-4 flex gap-4 border-t border-slate-200 mt-6">
-                <button disabled={emailData.isSending} onClick={() => setShowEmailModal(false)} className={UI_CLASSES.btnSecondary}>Annuler</button>
-                <button disabled={emailData.isSending} onClick={handleSendEmailFromModal} className={UI_CLASSES.btnPrimary} style={{ backgroundColor: BRAND_COLOR }}>
-                  {emailData.isSending ? <><Loader size={18} className="animate-spin"/> Transmission API...</> : <><Send size={18}/> Envoyer le message</>}
-                </button>
-              </div>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* --- MODAL D'IMPORT CSV --- */}
-      {showImportModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-[200] p-4">
-          <div className="bg-white p-8 rounded-3xl w-full max-w-lg shadow-2xl border border-slate-100 animate-fade-in relative">
-            <button onClick={() => setShowImportModal(null)} className="absolute top-6 right-6 text-slate-400 hover:text-slate-600"><X size={24}/></button>
-            <h3 className={UI_CLASSES.title}><Upload style={{ color: BRAND_COLOR }} size={24}/> Importer des {showImportModal === 'contacts' ? 'Clients' : 'Factures'}</h3>
             
-            <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 text-sm text-blue-800 mb-6 space-y-2">
-                <p className="font-bold flex items-center gap-2"><Info size={16}/> Instructions (Google Sheets / Excel) :</p>
-                <p>1. Préparez vos colonnes exactement dans cet ordre :</p>
-                {showImportModal === 'contacts' ? (
-                    <code className="block bg-white p-2 rounded border border-blue-200 text-xs font-mono">Société, Contact, Email, Téléphone, Adresse, Type, Statut, Source, Budget</code>
-                ) : (
-                    <code className="block bg-white p-2 rounded border border-blue-200 text-xs font-mono">ID Facture, Client, Montant, Statut, Date</code>
-                )}
-                <p>2. Cliquez sur <b>Fichier &gt; Télécharger &gt; Valeurs séparées par des virgules (.csv)</b>.</p>
-                <p>3. Uploadez le fichier ci-dessous.</p>
-            </div>
-
-            <div className="border-2 border-dashed border-slate-200 rounded-2xl p-8 text-center hover:bg-slate-50 transition-colors relative cursor-pointer group">
-                <input type="file" accept=".csv" onChange={handleImportCSV} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
-                <Upload size={32} className="mx-auto text-slate-400 mb-3 group-hover:text-[#01189B] transition-colors" />
-                <p className="font-bold text-slate-600">Cliquez ou glissez votre fichier .CSV ici</p>
-                <p className="text-xs text-slate-400 mt-1">Séparateur : Virgule (,) ou Point-virgule (;)</p>
-            </div>
+            {currentInvoice?.includeContract && (
+                <div className="flex items-center gap-2 pt-3 border-t border-blue-100">
+                    <input 
+                        type="checkbox" 
+                        id="sep-contract" 
+                        checked={emailData.sendContractSeparately} 
+                        onChange={(e) => setEmailData({...emailData, sendContractSeparately: e.target.checked})} 
+                        className="w-4 h-4 text-[#01189B] rounded border-blue-200 focus:ring-[#01189B]" 
+                    />
+                    <label htmlFor="sep-contract" className="text-sm font-bold text-slate-700 cursor-pointer">
+                        Envoyer le contrat en pièce jointe séparée
+                    </label>
+                </div>
+            )}
+          </div>
+          
+          <div className="pt-4 flex gap-4 border-t border-slate-200 mt-6">
+            <button disabled={emailData.isSending} onClick={() => setShowEmailModal(false)} className={UI_CLASSES.btnSecondary}>Annuler</button>
+            <button disabled={emailData.isSending} onClick={handleSendEmailFromModal} className={UI_CLASSES.btnPrimary} style={{ backgroundColor: BRAND_COLOR }}>
+                {emailData.isSending ? <><Loader className="animate-spin" size={18}/> Envoi en cours...</> : <><Send size={18}/> Envoyer via Webhook</>}
+            </button>
           </div>
         </div>
-      )}
+      </div>
+    )}
 
-    </div>
-  );
+    {/* IMPORT CSV MODAL */}
+    {showImportModal && (
+      <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
+      <div className="bg-white p-10 rounded-3xl w-full max-w-lg shadow-2xl border border-slate-100 animate-fade-in relative">
+        <button onClick={() => setShowImportModal(null)} className="absolute top-6 right-6 text-slate-400 hover:text-slate-600"><X size={24}/></button>
+        <h3 className={UI_CLASSES.title}><Upload style={{ color: BRAND_COLOR }} size={24}/> Importer des {showImportModal === 'contacts' ? 'Clients' : 'Factures'}</h3>
+        
+        <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 text-sm text-blue-800 mb-6 space-y-2">
+            <p className="font-bold flex items-center gap-2"><Info size={16}/> Instructions (Google Sheets / Excel) :</p>
+            <p>1. Préparez vos colonnes exactement dans cet ordre :</p>
+            {showImportModal === 'contacts' ? (
+                <code className="block bg-white p-2 rounded border border-blue-200 text-xs font-mono">Société, Contact, Email, Téléphone, Adresse, Type, Statut, Source, Budget, Audience, Produits</code>
+            ) : (
+                <code className="block bg-white p-2 rounded border border-blue-200 text-xs font-mono">ID Facture, Client, Montant, Statut, Date</code>
+            )}
+            <p>2. Cliquez sur <b>Fichier &gt; Télécharger &gt; Valeurs séparées par des virgules (.csv)</b>.</p>
+            <p>3. Uploadez le fichier ci-dessous.</p>
+        </div>
+
+        <div className="border-2 border-dashed border-slate-200 rounded-2xl p-8 text-center hover:bg-slate-50 transition-colors relative cursor-pointer group">
+            <input type="file" accept=".csv" onChange={handleImportCSV} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+            <div className="w-16 h-16 bg-blue-50 text-[#01189B] rounded-full flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform"><Upload size={28}/></div>
+            <p className="font-bold text-slate-700">Cliquez ou glissez votre fichier CSV ici</p>
+            <p className="text-xs text-slate-400 mt-2">Format supporté : .csv (UTF-8 de préférence)</p>
+        </div>
+      </div>
+      </div>
+    )}
+
+  </div>
+);
 }
