@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '52.6';
+const APP_VERSION = '52.7';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -3192,15 +3192,22 @@ export default function App() {
 
                         {/* --- PAGE CONTRAT (OPTIONNELLE) --- */}
                         {currentInvoice.includeContract && currentInvoice.contractText && (
-                            <div className="html2pdf__page-break bg-white w-full h-[297mm] max-h-[297mm] shadow-2xl p-[10mm] flex flex-col relative box-border mt-8 print:mt-0 print:p-[10mm]" style={{ pageBreakBefore: 'always' }}>
-                                <div className="whitespace-pre-wrap text-[10px] text-slate-700 leading-[1.4] font-medium text-justify mb-6 flex-1 overflow-hidden">
+                            <div className="html2pdf__page-break bg-white w-full min-h-[297mm] h-max shadow-2xl p-[10mm] pb-[20mm] flex flex-col relative box-border mt-8 print:mt-0 print:p-[10mm] print:pb-[20mm]" style={{ pageBreakBefore: 'always' }}>
+                                <div className="text-[10px] text-slate-700 leading-[1.5] font-medium text-justify mb-6 flex-1">
                                     {currentInvoice.contractText
                                         .replace(/\{\{client_company\}\}/g, currentInvoice.clientName || '_______________')
                                         .replace(/\{\{client_address\}\}/g, currentInvoice.clientAddress || '_______________')
                                         .replace(/\{\{client_name\}\}/g, currentInvoice.clientContactName || '_______________')
-                                        .replace(/\{\{agency_company\}\}/g, settings.companyName || '_______________')}
+                                        .replace(/\{\{agency_company\}\}/g, settings.companyName || '_______________')
+                                        .split('\n\n')
+                                        .map((paragraph: string, idx: number) => (
+                                            <div key={idx} className="keep-together break-inside-avoid mb-4 whitespace-pre-wrap">
+                                                {paragraph}
+                                            </div>
+                                        ))
+                                    }
                                 </div>
-                                <div className="mt-auto grid grid-cols-2 gap-8 break-inside-avoid pt-6 pb-2 shrink-0">
+                                <div className="keep-together break-inside-avoid mt-8 grid grid-cols-2 gap-8 pt-6 pb-2 shrink-0">
                                     <div>
                                         <p className="font-bold text-slate-800 text-[10px] uppercase mb-2 tracking-widest">Le Prestataire</p>
                                         <div className="h-14 flex items-end mb-2">
