@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '52.0';
+const APP_VERSION = '52.2';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -967,7 +967,8 @@ export default function App() {
         };
 
         if (cleanBase64) payload.pdf_attachment_base64 = cleanBase64;
-        if (contractBase64) payload.contract_attachment_base64 = contractBase64;
+        // Force l'envoi de la variable à Make/Zapier, même si le contrat est vide
+        payload.contract_attachment_base64 = contractBase64 || '';
 
         const response = await fetch(activeWebhookUrl, {
             method: 'POST',
@@ -2903,12 +2904,7 @@ export default function App() {
                                     checked={currentInvoice.includeContract || false} 
                                     onChange={() => {
                                         const defaultText = settings.defaultContractText || '';
-                                        const replacedText = defaultText
-                                            .replace(/\{\{client_company\}\}/g, currentInvoice.clientName || '_______________')
-                                            .replace(/\{\{client_address\}\}/g, currentInvoice.clientAddress || '_______________')
-                                            .replace(/\{\{agency_company\}\}/g, settings.companyName || '_______________');
-                                        
-                                        setCurrentInvoice({...currentInvoice, includeContract: !currentInvoice.includeContract, contractText: currentInvoice.contractText || replacedText});
+                                        setCurrentInvoice({...currentInvoice, includeContract: !currentInvoice.includeContract, contractText: currentInvoice.contractText || defaultText});
                                     }}
                                     className="w-4 h-4 text-[#01189B] border-slate-300 rounded focus:ring-[#01189B] cursor-pointer"
                                 />
@@ -3065,18 +3061,21 @@ export default function App() {
 
                         {/* --- PAGE CONTRAT (OPTIONNELLE) --- */}
                         {currentInvoice.includeContract && currentInvoice.contractText && (
-                            <div className="html2pdf__page-break bg-white w-full h-[297mm] max-h-[297mm] shadow-2xl p-[15mm] flex flex-col relative box-border mt-8 print:mt-0" style={{ pageBreakBefore: 'always' }}>
-                                <div className="whitespace-pre-wrap text-xs text-slate-700 leading-relaxed font-medium text-justify mb-12 flex-1 overflow-hidden">
-                                    {currentInvoice.contractText}
+                            <div className="html2pdf__page-break bg-white w-full h-[297mm] max-h-[297mm] shadow-2xl p-[10mm] flex flex-col relative box-border mt-8 print:mt-0 print:p-[10mm]" style={{ pageBreakBefore: 'always' }}>
+                                <div className="whitespace-pre-wrap text-[10px] text-slate-700 leading-[1.4] font-medium text-justify mb-6 flex-1 overflow-hidden">
+                                    {currentInvoice.contractText
+                                        .replace(/\{\{client_company\}\}/g, currentInvoice.clientName || '_______________')
+                                        .replace(/\{\{client_address\}\}/g, currentInvoice.clientAddress || '_______________')
+                                        .replace(/\{\{agency_company\}\}/g, settings.companyName || '_______________')}
                                 </div>
-                                <div className="mt-auto grid grid-cols-2 gap-8 break-inside-avoid pt-12 pb-4 shrink-0">
+                                <div className="mt-auto grid grid-cols-2 gap-8 break-inside-avoid pt-6 pb-2 shrink-0">
                                     <div>
-                                        <p className="font-bold text-slate-800 text-xs uppercase mb-12 tracking-widest">Le Prestataire</p>
+                                        <p className="font-bold text-slate-800 text-[10px] uppercase mb-10 tracking-widest">Le Prestataire</p>
                                         <div className="border-b-2 border-slate-200 w-3/4"></div>
                                         <p className="text-[10px] mt-2 font-extrabold" style={{ color: BRAND_COLOR }}>{settings.companyName}</p>
                                     </div>
                                     <div className="text-right">
-                                        <p className="font-bold text-slate-800 text-xs uppercase mb-12 tracking-widest flex flex-col items-end"><span>Le Client</span> <span className="text-[9px] text-slate-500">(Lu et approuvé)</span></p>
+                                        <p className="font-bold text-slate-800 text-[10px] uppercase mb-10 tracking-widest flex flex-col items-end"><span>Le Client</span> <span className="text-[8px] text-slate-500">(Lu et approuvé)</span></p>
                                         <div className="border-b-2 border-slate-200 w-3/4 ml-auto"></div>
                                         <p className="text-[10px] text-slate-800 mt-2 font-bold">{currentInvoice.clientName}</p>
                                     </div>
