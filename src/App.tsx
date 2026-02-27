@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '51.8';
+const APP_VERSION = '52.0';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -354,7 +354,7 @@ export default function App() {
     webhookUrlProspection: '',
     emailTemplates: DEFAULT_EMAIL_TEMPLATES,
     prospectEmailTemplates: DEFAULT_PROSPECT_EMAIL_TEMPLATES,
-    defaultContractText: "CONDITIONS GÉNÉRALES DE PRESTATION DE SERVICES\n\nArticle 1 : Objet\nLe présent contrat a pour objet de définir les conditions dans lesquelles le Prestataire s'engage à fournir au Client les services de génération de leads et/ou d'optimisation publicitaire décrits dans la présente facture.\n\nArticle 2 : Durée\nLe présent contrat prend effet à compter de la date de paiement de la facture pour la durée du cycle de production stipulé (ex: 30 jours).\n\nArticle 3 : Modalités financières\nLe Client s'engage à régler le montant total indiqué sur la facture. Le démarrage des prestations est conditionné à la réception intégrale du paiement.\n\nArticle 4 : Obligations\nLe Prestataire s'engage à mettre en œuvre tous les moyens nécessaires pour atteindre les objectifs fixés, avec une obligation de moyens. Le Client s'engage à fournir tous les éléments nécessaires à la réalisation de la prestation.\n\nArticle 5 : Résiliation\nEn cas de manquement grave par l'une des parties à ses obligations, le contrat pourra être résilié de plein droit.\n\nFait pour valoir ce que de droit.",
+    defaultContractText: `CONTRAT DE PRESTATION DE SERVICES : GÉNÉRATION DE LEADS\n\nENTRE LES SOUSSIGNÉS :\n\n{{agency_company}}\nCi-après dénommé « le Prestataire »\n\nET :\n\n{{client_company}}\n{{client_address}}\nCi-après dénommé « le Client »\n\nArticle 1 : Objet du contrat\nLe présent contrat définit les conditions dans lesquelles le Prestataire s'engage à concevoir, gérer et optimiser des campagnes publicitaires digitales (notamment sur Meta, Google et TikTok) dans le but de générer des contacts commerciaux (ci-après « Leads ») pour le compte du Client. Les canaux spécifiques utilisés pour chaque campagne seront précisés sur les factures correspondantes.\n\nArticle 2 : Définition, Livraison et Exclusivité des Leads\nDéfinition : Un lead est considéré comme valide lorsqu'il comporte les informations de base requises pour le recontacter (notamment nom, prénom, adresse e-mail, et un numéro de téléphone).\n\nLivraison : Les leads sont transmis au Client en temps réel via un document Google Sheets partagé et sécurisé, mis à disposition par le Prestataire.\n\nExclusivité : Le Prestataire garantit que chaque lead généré dans le cadre de ce contrat est strictement exclusif au Client et ne sera ni vendu ni partagé à une entreprise tierce. Toutefois, le Prestataire n'accorde aucune exclusivité géographique au Client et se réserve le droit de collaborer avec d'autres entreprises du même secteur dans la même région.\n\nArticle 3 : Qualité et Politique de Remplacement\nLe Prestataire s'engage sur la pertinence du ciblage publicitaire. Si le Client constate qu'un lead contient un numéro de téléphone invalide (faux numéro ou numéro non attribué), il doit le signaler au Prestataire. Les leads invalides reconnus comme tels par le Prestataire seront remplacés sans frais supplémentaires lors du mois en cours ou lors de la campagne suivante.\n\nArticle 4 : Conditions Financières\nLe Client confie au Prestataire un budget global pour la réalisation de ses campagnes. Le Prestataire prélève des frais de gestion sur ce budget selon un barème dégressif. Le solde restant (Budget Net) est intégralement investi dans l'achat d'espace publicitaire sur les plateformes (Meta, Google, TikTok, etc.).\n\nLes frais de gestion s'appliquent sur le budget total confié par le Client selon les paliers suivants :\nDe 0 CHF à 4'999 CHF : 35% de frais de gestion.\nDe 5'000 CHF à 9'999 CHF : 30% de frais de gestion.\nDe 10'000 CHF à 14'999 CHF : 25% de frais de gestion.\n15'000 CHF et plus : 20% de frais de gestion.\n\nToute facturation est sujette à la TVA en vigueur (si applicable).\n\nArticle 5 : Paiement et Délais d'exécution\nModalités de paiement : Afin d'alimenter les comptes publicitaires et de lancer les campagnes, les factures sont payables immédiatement par le Client, à réception de la facture.\n\nLancement publicitaire : Le Prestataire s'engage à livrer les premiers leads dans un délai maximum de 7 jours ouvrés suivant la bonne réception du paiement.\n\nArticle 6 : Durée et Résiliation\nLe présent contrat est conclu sans durée d'engagement minimum. Le Client est libre de renouveler ou non le budget à l'issue de chaque campagne.\nEn l'absence d'engagement de durée, aucun préavis de résiliation n'est exigé de la part de l'une ou l'autre des parties pour cesser la collaboration.\n\nArticle 7 : Protection des Données (nLPD)\nConformément à la Loi fédérale sur la protection des données (nLPD), le Prestataire agit en tant que sous-traitant des données récoltées. Les données des leads sont collectées de manière transparente via les plateformes publicitaires dans le seul but d'être traitées par le Client. Le Client, en tant que responsable du traitement, s'engage à utiliser ces données dans le strict respect de la législation suisse en vigueur, à des fins de prospection légitime, et à gérer les éventuelles demandes de suppression de données des prospects.\n\nArticle 8 : Droit Applicable et For Juridique\nLe présent contrat est soumis au droit suisse. En cas de litige relatif à l'interprétation ou à l'exécution du présent contrat, et à défaut de résolution à l'amiable, le for juridique exclusif est fixé à Genève.`,
   });
 
   const [contacts, setContacts] = useState<any[]>([]);
@@ -2099,6 +2099,16 @@ export default function App() {
               {settingsActiveTab === 'contract' && (
                   <form onSubmit={handleSaveSettings} className="space-y-6 animate-fade-in">
                       <h3 className="font-extrabold text-xl mb-6 font-poppins border-b border-slate-100 pb-4 text-slate-800 flex items-center gap-2"><FileText size={22} className="text-[#01189B]"/> Modèle de Contrat</h3>
+                      
+                      <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 mb-4 text-sm text-blue-800">
+                          <p className="font-bold flex items-center gap-2 mb-2"><Info size={16}/> Variables disponibles :</p>
+                          <div className="flex gap-2">
+                              <code className="bg-white px-2 py-1 rounded border border-blue-200 text-xs font-bold">{'{{client_company}}'}</code>
+                              <code className="bg-white px-2 py-1 rounded border border-blue-200 text-xs font-bold">{'{{client_address}}'}</code>
+                              <code className="bg-white px-2 py-1 rounded border border-blue-200 text-xs font-bold">{'{{agency_company}}'}</code>
+                          </div>
+                      </div>
+
                       <div>
                           <label className={UI_CLASSES.label}>Texte du contrat par défaut</label>
                           <textarea name="defaultContractText" defaultValue={settings.defaultContractText} className={`${UI_CLASSES.input} h-64 resize-none custom-scrollbar text-sm`} placeholder="Texte de votre contrat type..." />
@@ -2214,7 +2224,7 @@ export default function App() {
                                   <li>Collez cette URL dans le champ ci-dessus et sauvegardez.</li>
                                   <li>Faites un envoi depuis la page <b>Prospection</b> pour que Make reçoive les données de test.</li>
                                   <li>Dans Make, ajoutez un module <b>Gmail / Outlook</b>, et mappez les variables reçues : <code className="bg-slate-100 px-1 py-0.5 rounded text-[#01189B] text-xs font-mono">to_email</code>, <code className="bg-slate-100 px-1 py-0.5 rounded text-[#01189B] text-xs font-mono">subject</code>, <code className="bg-slate-100 px-1 py-0.5 rounded text-[#01189B] text-xs font-mono">message</code>.</li>
-                                  <li>Pour la facturation, vous recevrez aussi <code className="bg-slate-100 px-1 py-0.5 rounded text-[#01189B] text-xs font-mono">pdf_attachment_base64</code> (à convertir en data binaire pour l'envoyer en pièce jointe).</li>
+                                  <li>Pour la facturation, vous recevrez aussi <code className="bg-slate-100 px-1 py-0.5 rounded text-[#01189B] text-xs font-mono">pdf_attachment_base64</code> et <code className="bg-slate-100 px-1 py-0.5 rounded text-[#01189B] text-xs font-mono">contract_attachment_base64</code> (à convertir en data binaire pour l'envoyer en pièces jointes distinctes).</li>
                               </ol>
                           </div>
                       </div>
@@ -2719,6 +2729,17 @@ export default function App() {
         )}
       </div>
 
+      {showImportModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-[2000] p-4">
+          <div className="bg-white p-10 rounded-3xl w-full max-w-md shadow-2xl border border-slate-100 animate-fade-in text-center">
+            <h3 className="text-2xl font-extrabold mb-4 font-poppins text-slate-800 flex items-center justify-center gap-3"><Upload style={{ color: BRAND_COLOR }} size={24}/> Importer {showImportModal === 'contacts' ? 'des Contacts' : 'des Factures'}</h3>
+            <p className="text-slate-500 mb-6 text-sm font-medium">Sélectionnez un fichier CSV structuré selon le modèle d'export.</p>
+            <input type="file" accept=".csv,.txt" onChange={handleImportCSV} className="mb-6 block w-full text-sm text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-bold file:bg-blue-50 file:text-[#01189B] hover:file:bg-blue-100 cursor-pointer outline-none border-2 border-slate-100 rounded-xl p-2 bg-slate-50" />
+            <button onClick={() => setShowImportModal(null)} className={UI_CLASSES.btnSecondary + " w-full"}>Annuler et fermer</button>
+          </div>
+        </div>
+      )}
+
       {showModal === 'contact' && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
           <div className="bg-white p-10 rounded-3xl w-full max-w-md shadow-2xl border border-slate-100 animate-fade-in overflow-y-auto max-h-[90vh]">
@@ -2880,7 +2901,15 @@ export default function App() {
                                 <input 
                                     type="checkbox" 
                                     checked={currentInvoice.includeContract || false} 
-                                    onChange={() => setCurrentInvoice({...currentInvoice, includeContract: !currentInvoice.includeContract, contractText: currentInvoice.contractText || settings.defaultContractText})}
+                                    onChange={() => {
+                                        const defaultText = settings.defaultContractText || '';
+                                        const replacedText = defaultText
+                                            .replace(/\{\{client_company\}\}/g, currentInvoice.clientName || '_______________')
+                                            .replace(/\{\{client_address\}\}/g, currentInvoice.clientAddress || '_______________')
+                                            .replace(/\{\{agency_company\}\}/g, settings.companyName || '_______________');
+                                        
+                                        setCurrentInvoice({...currentInvoice, includeContract: !currentInvoice.includeContract, contractText: currentInvoice.contractText || replacedText});
+                                    }}
                                     className="w-4 h-4 text-[#01189B] border-slate-300 rounded focus:ring-[#01189B] cursor-pointer"
                                 />
                                 <button onClick={() => setIsEditingContractInInvoice(!isEditingContractInInvoice)} className="text-[10px] font-bold uppercase text-slate-400 hover:text-[#01189B] flex items-center gap-1 transition-colors">
@@ -3037,9 +3066,6 @@ export default function App() {
                         {/* --- PAGE CONTRAT (OPTIONNELLE) --- */}
                         {currentInvoice.includeContract && currentInvoice.contractText && (
                             <div className="html2pdf__page-break bg-white w-full h-[297mm] max-h-[297mm] shadow-2xl p-[15mm] flex flex-col relative box-border mt-8 print:mt-0" style={{ pageBreakBefore: 'always' }}>
-                                <h2 className="text-2xl font-extrabold uppercase mb-2 font-poppins" style={{ color: BRAND_COLOR }}>Contrat de Prestation</h2>
-                                <p className="font-bold text-sm text-slate-600 mb-8">Fait à {settings.address ? settings.address.split(',')[0].split('\n')[0] : 'Genève'}, le {formatDate(currentInvoice.date)}</p>
-
                                 <div className="whitespace-pre-wrap text-xs text-slate-700 leading-relaxed font-medium text-justify mb-12 flex-1 overflow-hidden">
                                     {currentInvoice.contractText}
                                 </div>
@@ -3137,44 +3163,21 @@ export default function App() {
           )}
           
           <div className="pt-4 flex gap-4 border-t border-slate-200 mt-6">
-            <button disabled={emailData.isSending} onClick={() => setShowEmailModal(false)} className={UI_CLASSES.btnSecondary}>Annuler</button>
-            <button disabled={emailData.isSending} onClick={handleSendEmailFromModal} className={UI_CLASSES.btnPrimary} style={{ backgroundColor: BRAND_COLOR }}>
-                {emailData.isSending ? <><Loader className="animate-spin" size={18}/> Envoi en cours...</> : <><Send size={18}/> Envoyer via Webhook</>}
+            <button onClick={() => setShowEmailModal(false)} className={UI_CLASSES.btnSecondary} disabled={emailData.isSending}>Annuler</button>
+            <button 
+                onClick={handleSendEmailFromModal} 
+                disabled={emailData.isSending || !emailData.to}
+                className="flex-1 text-white font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 hover:shadow-lg hover:scale-[1.02] disabled:opacity-50" 
+                style={{ backgroundColor: BRAND_COLOR }}
+            >
+                {emailData.isSending ? <Loader className="animate-spin" size={18}/> : <Send size={18}/>}
+                {emailData.isSending ? 'Envoi en cours...' : 'Envoyer'}
             </button>
           </div>
         </div>
       </div>
     )}
 
-    {/* IMPORT CSV MODAL */}
-    {showImportModal && (
-      <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
-      <div className="bg-white p-10 rounded-3xl w-full max-w-lg shadow-2xl border border-slate-100 animate-fade-in relative">
-        <button onClick={() => setShowImportModal(null)} className="absolute top-6 right-6 text-slate-400 hover:text-slate-600"><X size={24}/></button>
-        <h3 className={UI_CLASSES.title}><Upload style={{ color: BRAND_COLOR }} size={24}/> Importer des {showImportModal === 'contacts' ? 'Clients' : 'Factures'}</h3>
-        
-        <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 text-sm text-blue-800 mb-6 space-y-2">
-            <p className="font-bold flex items-center gap-2"><Info size={16}/> Instructions (Google Sheets / Excel) :</p>
-            <p>1. Préparez vos colonnes exactement dans cet ordre :</p>
-            {showImportModal === 'contacts' ? (
-                <code className="block bg-white p-2 rounded border border-blue-200 text-xs font-mono">Société, Contact, Email, Téléphone, Adresse, Type, Statut, Source, Budget, Audience, Produits</code>
-            ) : (
-                <code className="block bg-white p-2 rounded border border-blue-200 text-xs font-mono">ID Facture, Client, Montant, Statut, Date</code>
-            )}
-            <p>2. Cliquez sur <b>Fichier &gt; Télécharger &gt; Valeurs séparées par des virgules (.csv)</b>.</p>
-            <p>3. Uploadez le fichier ci-dessous.</p>
-        </div>
-
-        <div className="border-2 border-dashed border-slate-200 rounded-2xl p-8 text-center hover:bg-slate-50 transition-colors relative cursor-pointer group">
-            <input type="file" accept=".csv" onChange={handleImportCSV} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
-            <div className="w-16 h-16 bg-blue-50 text-[#01189B] rounded-full flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform"><Upload size={28}/></div>
-            <p className="font-bold text-slate-700">Cliquez ou glissez votre fichier CSV ici</p>
-            <p className="text-xs text-slate-400 mt-2">Format supporté : .csv (UTF-8 de préférence)</p>
-        </div>
-      </div>
-      </div>
-    )}
-
-  </div>
-);
+    </div>
+  );
 }
