@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '50.8';
+const APP_VERSION = '50.9';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -98,6 +98,11 @@ const INVOICE_STATUSES: any = {
 const DEFAULT_EMAIL_TEMPLATES = [
   { id: 'std', name: 'Standard (Envoi de Facture)', subject: 'Nouvelle Facture {{facture}} - {{agence}}', body: "Bonjour {{prenom_contact}},\n\nVeuillez trouver ci-joint votre facture {{facture}} d'un montant de {{montant}} concernant nos prestations.\n\nNous restons à votre entière disposition pour toute question.\n\nCordialement,\nL'équipe {{agence}}" },
   { id: 'relance_1', name: 'Relance Aimable', subject: 'Relance : Facture {{facture}} en attente', body: "Bonjour {{prenom_contact}},\n\nSauf erreur ou omission de notre part, le règlement de la facture {{facture}} d'un montant de {{montant}} ne nous est pas encore parvenu.\n\nNous vous prions de bien vouloir procéder à son règlement.\n\nCordialement,\nL'équipe {{agence}}" }
+];
+
+const DEFAULT_PROSPECT_EMAIL_TEMPLATES = [
+  { id: 'prospect_1', name: 'Approche Directe', subject: 'Génération de leads pour {{societe}}', body: "Bonjour {{prenom_contact}},\n\nJe me permets de vous contacter car nous aidons les professionnels comme {{societe}} à scaler leur acquisition avec des leads exclusifs.\n\nSeriez-vous disponible pour un court appel afin d'en discuter ?\n\nCordialement,\n{{agence}}" },
+  { id: 'prospect_relance', name: 'Relance Prospection', subject: 'Suite à mon précédent email', body: "Bonjour {{prenom_contact}},\n\nJe me permets de revenir vers vous concernant mon précédent message.\n\nAvez-vous pu en prendre connaissance ?\n\nBien à vous,\n{{agence}}" }
 ];
 
 const formatDate = (dateStr: string) => {
@@ -329,7 +334,9 @@ export default function App() {
     monthlyGoal: 50000,
     dashboardLayout: ['objective', 'widget_finances_data', 'widget_finances_chart', 'stat_ca_month', 'stat_ca_total', 'stat_ca_potentiel', 'stat_pipeline', 'stat_campaigns', 'reminders', 'invoices', 'activity'],
     webhookUrl: '', 
+    webhookUrlProspection: '',
     emailTemplates: DEFAULT_EMAIL_TEMPLATES,
+    prospectEmailTemplates: DEFAULT_PROSPECT_EMAIL_TEMPLATES,
     defaultContractText: "CONDITIONS GÉNÉRALES DE PRESTATION DE SERVICES\n\nArticle 1 : Objet\nLe présent contrat a pour objet de définir les conditions dans lesquelles le Prestataire s'engage à fournir au Client les services de génération de leads et/ou d'optimisation publicitaire décrits dans la présente facture.\n\nArticle 2 : Durée\nLe présent contrat prend effet à compter de la date de paiement de la facture pour la durée du cycle de production stipulé (ex: 30 jours).\n\nArticle 3 : Modalités financières\nLe Client s'engage à régler le montant total indiqué sur la facture. Le démarrage des prestations est conditionné à la réception intégrale du paiement.\n\nArticle 4 : Obligations\nLe Prestataire s'engage à mettre en œuvre tous les moyens nécessaires pour atteindre les objectifs fixés, avec une obligation de moyens. Le Client s'engage à fournir tous les éléments nécessaires à la réalisation de la prestation.\n\nArticle 5 : Résiliation\nEn cas de manquement grave par l'une des parties à ses obligations, le contrat pourra être résilié de plein droit.\n\nFait pour valoir ce que de droit.",
   });
 
@@ -338,6 +345,7 @@ export default function App() {
   const [invoices, setInvoices] = useState<any[]>([]);
   const [interactions, setInteractions] = useState<any[]>([]);
   const [simulations, setSimulations] = useState<any[]>([]);
+  const [emailHistory, setEmailHistory] = useState<any[]>([]);
 
   const [selectedContactId, setSelectedContactId] = useState<any>(null);
   const selectedContact = useMemo(() => contacts.find((c) => c.id === selectedContactId) || null, [contacts, selectedContactId]);
@@ -470,11 +478,15 @@ export default function App() {
         onSnapshot(collection(db, `${basePath}/interactions`), (s) => setInteractions(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
         onSnapshot(collection(db, `${basePath}/simulations`), (s) => setSimulations(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
         onSnapshot(collection(db, `${basePath}/target_scenarios`), (s) => setScenarios(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
+        onSnapshot(collection(db, `${basePath}/email_logs`), (s) => setEmailHistory(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
         onSnapshot(doc(db, `${basePath}/config`, 'general'), (s) => { 
             if (s.exists()) {
                 const data = s.data();
                 if (!data.emailTemplates || data.emailTemplates.length === 0) {
                     data.emailTemplates = DEFAULT_EMAIL_TEMPLATES;
+                }
+                if (!data.prospectEmailTemplates || data.prospectEmailTemplates.length === 0) {
+                    data.prospectEmailTemplates = DEFAULT_PROSPECT_EMAIL_TEMPLATES;
                 }
                 setSettings((prev: any) => ({ ...prev, ...data })); 
             }
@@ -712,6 +724,7 @@ export default function App() {
       legalNotice: (fd.get('legalNotice') as string) || settings.legalNotice, 
       monthlyGoal: Number(fd.get('monthlyGoal')) || settings.monthlyGoal, 
       webhookUrl: (fd.get('webhookUrl') as string) || settings.webhookUrl, 
+      webhookUrlProspection: (fd.get('webhookUrlProspection') as string) || settings.webhookUrlProspection, 
       defaultContractText: (fd.get('defaultContractText') as string) || settings.defaultContractText,
       primaryColor: BRAND_COLOR,
     };
@@ -790,7 +803,8 @@ export default function App() {
 
   // --- GESTION DES EMAILS & TEMPLATES ---
   const applyEmailTemplate = (templateId: string, invoice: any, clientEmail: string, prospectContact: any = null) => {
-      const template = (settings.emailTemplates || []).find((t: any) => t.id === templateId) || settings.emailTemplates?.[0];
+      const templatesList = invoice ? (settings.emailTemplates || []) : (settings.prospectEmailTemplates || []);
+      const template = templatesList.find((t: any) => t.id === templateId) || templatesList[0];
       if (!template) return;
 
       const invId = invoice?.id || 'N/A';
@@ -843,13 +857,15 @@ export default function App() {
 
   const handleEmailProspect = (contact: any) => {
       setCurrentInvoice(null);
-      applyEmailTemplate(settings.emailTemplates?.[0]?.id || 'std', null, contact.email, contact);
+      applyEmailTemplate(settings.prospectEmailTemplates?.[0]?.id || 'prospect_1', null, contact.email, contact);
       setShowEmailModal(true);
   };
 
   const handleSendEmailFromModal = async () => {
+    const activeWebhookUrl = currentInvoice ? settings.webhookUrl : settings.webhookUrlProspection;
+
     if (!emailData.to) return addNotification('error', 'Veuillez renseigner une adresse email valide.');
-    if (!settings.webhookUrl) return addNotification('error', 'URL du Webhook non configurée dans les paramètres.');
+    if (!activeWebhookUrl) return addNotification('error', `URL du Webhook (${currentInvoice ? 'Facturation' : 'Prospection'}) non configurée.`);
     
     setEmailData(prev => ({ ...prev, isSending: true }));
     
@@ -913,13 +929,23 @@ export default function App() {
         if (cleanBase64) payload.pdf_attachment_base64 = cleanBase64;
         if (contractBase64) payload.contract_attachment_base64 = contractBase64;
 
-        const response = await fetch(settings.webhookUrl, {
+        const response = await fetch(activeWebhookUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
 
         if (response.ok) {
+            // Sauvegarde dans l'historique Firestore
+            if (user && !isOfflineMode) {
+                await handleCreate('email_logs', {
+                    to: emailData.to,
+                    subject: emailData.subject,
+                    type: currentInvoice ? 'Facture' : 'Prospection',
+                    date: new Date().toISOString()
+                });
+            }
+
             addNotification('success', `L'email a été transmis à votre outil d'automatisation.`);
             setShowEmailModal(false);
         } else {
@@ -1904,6 +1930,7 @@ export default function App() {
                   { id: 'contract', label: 'Contrat', icon: FileText },
                   { id: 'emails', label: 'Modèles d\'Emails', icon: Mail },
                   { id: 'integrations', label: 'Intégrations', icon: Link },
+                  { id: 'emailHistory', label: 'Historique Mails', icon: Clock },
                   { id: 'data', label: 'Données & Export', icon: Download },
               ].map(tab => (
                   <button 
@@ -1971,10 +1998,6 @@ export default function App() {
                   <div className="space-y-6 animate-fade-in">
                       <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
                           <h3 className="font-extrabold text-xl font-poppins text-slate-800 flex items-center gap-2"><Mail size={22} className="text-[#01189B]"/> Modèles d'Emails</h3>
-                          <button onClick={() => {
-                              const newTpl = { id: Math.random().toString(36).substr(2, 9), name: 'Nouveau Modèle', subject: 'Sujet...', body: 'Corps du message...' };
-                              handleSaveSettingsDirect({ emailTemplates: [...(settings.emailTemplates || []), newTpl] });
-                          }} className="bg-[#01189B] text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 hover:shadow-lg hover:-translate-y-0.5 transition-all"><Plus size={16}/> Ajouter</button>
                       </div>
 
                       <div className="bg-blue-50/50 p-6 rounded-2xl border border-blue-100 mb-6">
@@ -2002,6 +2025,13 @@ export default function App() {
                       </div>
 
                       <div className="space-y-6">
+                          <div className="flex justify-between items-center mb-4">
+                              <h4 className="font-bold text-lg text-slate-800">Envois de Facturation</h4>
+                              <button onClick={() => {
+                                  const newTpl = { id: Math.random().toString(36).substr(2, 9), name: 'Nouveau Modèle', subject: 'Sujet...', body: 'Corps du message...' };
+                                  handleSaveSettingsDirect({ emailTemplates: [...(settings.emailTemplates || []), newTpl] });
+                              }} className="bg-[#01189B] text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 hover:shadow-lg hover:-translate-y-0.5 transition-all"><Plus size={14}/> Ajouter Modèle</button>
+                          </div>
                           {(settings.emailTemplates || []).map((tpl: any) => (
                               <EmailTemplateEditor 
                                   key={tpl.id} 
@@ -2018,6 +2048,30 @@ export default function App() {
                                   }}
                               />
                           ))}
+
+                          <div className="flex justify-between items-center mb-4 mt-12 border-t border-slate-100 pt-8">
+                              <h4 className="font-bold text-lg text-slate-800">Prospection & Relances CRM</h4>
+                              <button onClick={() => {
+                                  const newTpl = { id: Math.random().toString(36).substr(2, 9), name: 'Nouveau Modèle', subject: 'Sujet...', body: 'Corps du message...' };
+                                  handleSaveSettingsDirect({ prospectEmailTemplates: [...(settings.prospectEmailTemplates || []), newTpl] });
+                              }} className="bg-purple-600 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 hover:shadow-lg hover:-translate-y-0.5 transition-all"><Plus size={14}/> Ajouter Modèle</button>
+                          </div>
+                          {(settings.prospectEmailTemplates || []).map((tpl: any) => (
+                              <EmailTemplateEditor 
+                                  key={tpl.id} 
+                                  tpl={tpl} 
+                                  onSave={(updated: any) => {
+                                      const list = (settings.prospectEmailTemplates || []).map((t: any) => t.id === updated.id ? updated : t);
+                                      handleSaveSettingsDirect({ prospectEmailTemplates: list });
+                                  }}
+                                  onDelete={() => {
+                                      openConfirm('Supprimer le modèle ?', 'Cette action est irréversible.', () => {
+                                          const list = (settings.prospectEmailTemplates || []).filter((t: any) => t.id !== tpl.id);
+                                          handleSaveSettingsDirect({ prospectEmailTemplates: list });
+                                      });
+                                  }}
+                              />
+                          ))}
                       </div>
                   </div>
               )}
@@ -2025,15 +2079,50 @@ export default function App() {
               {settingsActiveTab === 'integrations' && (
                   <form onSubmit={handleSaveSettings} className="space-y-6 animate-fade-in">
                       <h3 className="font-extrabold text-xl mb-6 font-poppins border-b border-slate-100 pb-4 text-slate-800 flex items-center gap-2"><Link size={22} className="text-purple-500"/> Intégrations & API</h3>
+                      
                       <div className="bg-purple-50 p-6 rounded-2xl border border-purple-100">
-                          <h4 className="font-bold text-purple-800 mb-2">Webhook d'envoi d'emails (Make.com / Zapier)</h4>
-                          <p className="text-sm text-purple-600 mb-4">L'URL ci-dessous recevra le PDF de la facture encodé en Base64 ainsi que les données du client lors du clic sur "Envoyer Email".</p>
+                          <h4 className="font-bold text-purple-800 mb-2">Webhook d'envoi d'emails (Facturation)</h4>
+                          <p className="text-sm text-purple-600 mb-4">L'URL ci-dessous recevra le PDF de la facture encodé en Base64 ainsi que les données du client.</p>
                           <input name="webhookUrl" defaultValue={settings.webhookUrl} className="w-full border-2 border-purple-200 bg-white p-3.5 rounded-xl outline-none focus:border-purple-400 font-medium text-slate-800" placeholder="https://hook.make.com/..." />
                       </div>
+
+                      <div className="bg-blue-50 p-6 rounded-2xl border border-blue-100">
+                          <h4 className="font-bold text-blue-800 mb-2">Webhook d'envoi d'emails (Prospection)</h4>
+                          <p className="text-sm text-blue-600 mb-4">Utilisé depuis la page Prospection ou Fiche Client (ne reçoit pas de PDF en pièce jointe).</p>
+                          <input name="webhookUrlProspection" defaultValue={settings.webhookUrlProspection} className="w-full border-2 border-blue-200 bg-white p-3.5 rounded-xl outline-none focus:border-[#01189B] font-medium text-slate-800" placeholder="https://hook.make.com/..." />
+                      </div>
+
                       <div className="pt-4 flex justify-end">
                           <button type="submit" className={UI_CLASSES.btnPrimary} style={{ backgroundColor: BRAND_COLOR }}><Save size={18}/> Sauvegarder</button>
                       </div>
                   </form>
+              )}
+
+              {settingsActiveTab === 'emailHistory' && (
+                  <div className="space-y-6 animate-fade-in">
+                      <h3 className="font-extrabold text-xl mb-6 font-poppins border-b border-slate-100 pb-4 text-slate-800 flex items-center gap-2"><Clock size={22} className="text-[#01189B]"/> Historique d'envoi d'Emails</h3>
+                      
+                      <div className="bg-white rounded-2xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
+                        <table className="w-full text-sm text-left">
+                          <thead className="bg-slate-50 text-slate-500 uppercase font-extrabold text-[10px] tracking-wider border-b border-slate-100">
+                            <tr><th className="px-6 py-4">Date</th><th className="px-6 py-4">Type</th><th className="px-6 py-4">Destinataire</th><th className="px-6 py-4">Sujet</th></tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-50">
+                            {[...emailHistory].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(log => (
+                                <tr key={log.id} className="hover:bg-slate-50/50">
+                                    <td className="px-6 py-4 font-medium text-slate-500">{formatDateTime(log.date)}</td>
+                                    <td className="px-6 py-4">
+                                        <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-widest ${log.type === 'Facture' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'}`}>{log.type}</span>
+                                    </td>
+                                    <td className="px-6 py-4 font-bold text-slate-800">{log.to}</td>
+                                    <td className="px-6 py-4 text-slate-600 line-clamp-1">{log.subject}</td>
+                                </tr>
+                            ))}
+                            {emailHistory.length === 0 && <tr><td colSpan={4} className="text-center py-12 text-slate-400 font-medium">Aucun email enregistré dans l'historique.</td></tr>}
+                          </tbody>
+                        </table>
+                      </div>
+                  </div>
               )}
 
               {settingsActiveTab === 'data' && (
@@ -2096,7 +2185,7 @@ export default function App() {
         <div className="p-8">
           <div className="flex items-center gap-4 mb-12 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => {setActiveView('dashboard'); setSelectedContactId(null);}}>
              <div className="w-12 h-12 rounded-xl flex items-center justify-center font-extrabold text-2xl shadow-sm text-white shrink-0" style={{ backgroundColor: BRAND_COLOR }}>
-                {settings.companyName.substring(0, 2).toUpperCase()}
+                LP
              </div>
              <div className="overflow-hidden">
                 <span className="font-extrabold text-xl font-poppins tracking-wide block leading-tight truncate" style={{ color: BRAND_COLOR }}>{settings.companyName}</span>
@@ -2448,7 +2537,7 @@ export default function App() {
                                   <td className="px-8 py-5">
                                     <div className="flex items-center gap-2 mb-1">
                                       <p className="font-extrabold text-slate-800 font-poppins text-lg">{c.company}</p>
-                                      <span className={`px-2 py-0.5 rounded-md text-[9px] uppercase font-bold tracking-widest ${typeBadge === 'Client' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>{typeBadge}</span>
+                                      <span className={`px-2 py-0.5 rounded-md text-[9px] uppercase font-bold tracking-widest ${typeBadge === 'Client' ? 'emerald-50 text-emerald-700 border border-emerald-200' : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>{typeBadge}</span>
                                     </div>
                                     <p className="text-slate-500 text-sm font-medium flex items-center gap-1"><Users size={14}/> {c.name}</p>
                                   </td>
@@ -2859,7 +2948,7 @@ export default function App() {
                       onChange={(e) => applyEmailTemplate(e.target.value, currentInvoice, emailData.to, emailData.prospectContact)}
                       className={UI_CLASSES.input}
                   >
-                      {(settings.emailTemplates || []).map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                      {(currentInvoice ? (settings.emailTemplates || []) : (settings.prospectEmailTemplates || [])).map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
                   </select>
               </div>
               <div>
