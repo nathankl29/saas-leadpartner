@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '52.4';
+const APP_VERSION = '52.6';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -316,6 +316,106 @@ const EmailTemplateEditor = ({ tpl, onSave, onDelete }: any) => {
                 <div className="flex justify-end pt-2">
                     <button onClick={() => onSave({ ...tpl, name, subject, body })} className="bg-emerald-500 text-white px-4 py-2 rounded-lg text-xs font-bold hover:shadow-md flex items-center gap-1"><Save size={14}/> Enregistrer ce modèle</button>
                 </div>
+            </div>
+        </div>
+    );
+};
+
+// --- COMPOSANT SIGNATURE PAD ---
+const SignaturePad = ({ onSave, onClear }: any) => {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const [isDrawing, setIsDrawing] = useState(false);
+
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (canvas) {
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+                ctx.strokeStyle = '#01189B';
+                ctx.lineWidth = 3;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+            }
+        }
+    }, []);
+
+    const getCoordinates = (e: any) => {
+        const canvas = canvasRef.current;
+        if (!canvas) return { x: 0, y: 0 };
+        const rect = canvas.getBoundingClientRect();
+        if (e.touches && e.touches.length > 0) {
+            return {
+                x: e.touches[0].clientX - rect.left,
+                y: e.touches[0].clientY - rect.top
+            };
+        }
+        return {
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top
+        };
+    };
+
+    const startDrawing = (e: any) => {
+        if (e.cancelable) e.preventDefault(); 
+        const { x, y } = getCoordinates(e);
+        const ctx = canvasRef.current?.getContext('2d');
+        if (ctx) {
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            setIsDrawing(true);
+        }
+    };
+
+    const draw = (e: any) => {
+        if (!isDrawing) return;
+        if (e.cancelable) e.preventDefault();
+        const { x, y } = getCoordinates(e);
+        const ctx = canvasRef.current?.getContext('2d');
+        if (ctx) {
+            ctx.lineTo(x, y);
+            ctx.stroke();
+        }
+    };
+
+    const stopDrawing = () => {
+        if (!isDrawing) return;
+        setIsDrawing(false);
+        const canvas = canvasRef.current;
+        if (canvas) {
+            onSave(canvas.toDataURL('image/png'));
+        }
+    };
+
+    const clearPad = () => {
+        const canvas = canvasRef.current;
+        if (canvas) {
+            const ctx = canvas.getContext('2d');
+            ctx?.clearRect(0, 0, canvas.width, canvas.height);
+            onClear();
+        }
+    };
+
+    return (
+        <div className="flex flex-col gap-3 items-start w-full max-w-md">
+            <div className="border-2 border-dashed border-blue-200 rounded-2xl overflow-hidden bg-blue-50/30 touch-none w-full relative">
+                <canvas
+                    ref={canvasRef}
+                    width={400}
+                    height={150}
+                    className="cursor-crosshair w-full"
+                    onMouseDown={startDrawing}
+                    onMouseMove={draw}
+                    onMouseUp={stopDrawing}
+                    onMouseOut={stopDrawing}
+                    onTouchStart={startDrawing}
+                    onTouchMove={draw}
+                    onTouchEnd={stopDrawing}
+                />
+                <div className="absolute bottom-2 right-3 text-[10px] text-blue-300 font-bold uppercase tracking-widest pointer-events-none">Signez ici</div>
+            </div>
+            <div className="flex gap-3 w-full items-center">
+                <button type="button" onClick={clearPad} className="text-xs text-red-500 font-bold bg-white hover:bg-red-50 px-4 py-2 rounded-xl transition-colors border border-red-200 shadow-sm flex items-center gap-1.5 shrink-0"><Trash2 size={14}/> Effacer le cadre</button>
+                <span className="text-[10px] text-slate-400 font-medium leading-tight">Sauvegarde automatique après le tracé.</span>
             </div>
         </div>
     );
@@ -2115,7 +2215,26 @@ export default function App() {
                           <label className={UI_CLASSES.label}>Texte du contrat par défaut</label>
                           <textarea name="defaultContractText" defaultValue={settings.defaultContractText} className={`${UI_CLASSES.input} h-64 resize-none custom-scrollbar text-sm`} placeholder="Texte de votre contrat type..." />
                       </div>
-                      <div className="pt-4 flex justify-end">
+                      
+                      <div className="border-t border-slate-100 pt-6">
+                          <label className={UI_CLASSES.label}>Signature de l'Agence</label>
+                          <div className="mt-4">
+                              {settings.agencySignature ? (
+                                  <div className="relative group inline-block">
+                                      <img src={settings.agencySignature} alt="Signature" className="h-24 object-contain border-2 border-slate-200 rounded-2xl p-4 bg-white shadow-sm" />
+                                      <button type="button" onClick={() => handleSaveSettingsDirect({ agencySignature: '' })} className="absolute -top-3 -right-3 bg-red-500 text-white rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-opacity shadow-md hover:scale-110"><X size={14}/></button>
+                                      <p className="text-[10px] text-slate-400 mt-3 font-medium flex items-center gap-1.5"><CheckCircle size={14} className="text-emerald-500"/> Signature enregistrée avec succès. Cliquez sur la croix rouge pour la refaire.</p>
+                                  </div>
+                              ) : (
+                                  <SignaturePad 
+                                      onSave={(base64: string) => handleSaveSettingsDirect({ agencySignature: base64 })} 
+                                      onClear={() => handleSaveSettingsDirect({ agencySignature: '' })}
+                                  />
+                              )}
+                          </div>
+                      </div>
+
+                      <div className="pt-4 flex justify-end mt-4">
                           <button type="submit" className={UI_CLASSES.btnPrimary} style={{ backgroundColor: BRAND_COLOR }}><Save size={18}/> Sauvegarder</button>
                       </div>
                   </form>
@@ -3083,7 +3202,14 @@ export default function App() {
                                 </div>
                                 <div className="mt-auto grid grid-cols-2 gap-8 break-inside-avoid pt-6 pb-2 shrink-0">
                                     <div>
-                                        <p className="font-bold text-slate-800 text-[10px] uppercase mb-10 tracking-widest">Le Prestataire</p>
+                                        <p className="font-bold text-slate-800 text-[10px] uppercase mb-2 tracking-widest">Le Prestataire</p>
+                                        <div className="h-14 flex items-end mb-2">
+                                            {settings.agencySignature ? (
+                                                <img src={settings.agencySignature} alt="Signature" className="max-h-12 object-contain" />
+                                            ) : (
+                                                <div className="h-8"></div>
+                                            )}
+                                        </div>
                                         <div className="border-b-2 border-slate-200 w-3/4"></div>
                                         <p className="text-[10px] mt-2 font-extrabold" style={{ color: BRAND_COLOR }}>{settings.companyName}</p>
                                     </div>
