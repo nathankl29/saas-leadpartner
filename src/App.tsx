@@ -6,7 +6,7 @@ import {
   Wallet, PieChart, Globe, Share2, Loader, LogIn, LogOut, Edit2, Save,
   Wand2, Send, X, AlertTriangle, Info, Rocket, Calendar as CalendarIcon,
   Mail, Percent, Download, MapPin, Eye, EyeOff, Activity,
-  Paperclip, Bell, CalendarClock, GripHorizontal, Link, Archive, Upload, Moon, Sun, Zap
+  Paperclip, Bell, CalendarClock, GripHorizontal, Link, Archive, Upload, Moon, Sun, Zap, RefreshCcw
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '52.3';
+const APP_VERSION = '52.4';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -2919,16 +2919,23 @@ export default function App() {
                             </div>
                         </div>
                         {isEditingContractInInvoice && currentInvoice.includeContract && (
-                            <textarea
-                                value={currentInvoice.contractText || ''}
-                                onChange={e => setCurrentInvoice({...currentInvoice, contractText: e.target.value})}
-                                className="w-full border-2 border-slate-100 bg-slate-50 p-3 rounded-xl font-medium outline-none focus:border-[#01189B] text-xs text-slate-700 h-64 custom-scrollbar resize-none animate-fade-in"
-                                placeholder="Texte du contrat..."
-                            />
+                            <div className="animate-fade-in">
+                                <div className="flex justify-end mb-2">
+                                    <button onClick={() => setCurrentInvoice({...currentInvoice, contractText: settings.defaultContractText || ''})} className="text-[10px] font-bold text-[#01189B] hover:text-blue-800 flex items-center gap-1 transition-colors bg-blue-50 px-2 py-1 rounded-lg">
+                                        <RefreshCcw size={12}/> Mettre à jour avec le modèle par défaut
+                                    </button>
+                                </div>
+                                <textarea
+                                    value={currentInvoice.contractText || ''}
+                                    onChange={e => setCurrentInvoice({...currentInvoice, contractText: e.target.value})}
+                                    className="w-full border-2 border-slate-100 bg-slate-50 p-3 rounded-xl font-medium outline-none focus:border-[#01189B] text-xs text-slate-700 h-64 custom-scrollbar resize-none"
+                                    placeholder="Texte du contrat..."
+                                />
+                            </div>
                         )}
                         {!isEditingContractInInvoice && currentInvoice.includeContract && (
                             <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl">
-                                <p className="text-[10px] text-blue-600 font-bold leading-tight">Le contrat sera ajouté automatiquement à la fin du PDF sur une nouvelle page.</p>
+                                <p className="text-[10px] text-blue-600 font-bold leading-tight">Le contrat sera ajouté automatiquement à la fin du PDF sur une nouvelle page. Les variables sont remplacées dynamiquement.</p>
                             </div>
                         )}
                     </div>
