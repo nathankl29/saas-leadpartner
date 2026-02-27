@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '52';
+const APP_VERSION = '50.8';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -789,20 +789,20 @@ export default function App() {
   };
 
   // --- GESTION DES EMAILS & TEMPLATES ---
-  const applyEmailTemplate = (templateId: string, invoice: any, clientEmail: string) => {
+  const applyEmailTemplate = (templateId: string, invoice: any, clientEmail: string, prospectContact: any = null) => {
       const template = (settings.emailTemplates || []).find((t: any) => t.id === templateId) || settings.emailTemplates?.[0];
       if (!template) return;
 
-      const invId = invoice.id || 'N/A';
+      const invId = invoice?.id || 'N/A';
       
       // Calcul du montant en temps réel (même si la facture n'est pas encore sauvegardée)
-      const invoiceTotal = invoice.amount || (invoice.items || []).reduce((acc: number, item: any) => acc + Number(item.price) * (item.qty || 1), 0);
-      const amount = formatCurrency(invoiceTotal);
+      const invoiceTotal = invoice ? (invoice.amount || (invoice.items || []).reduce((acc: number, item: any) => acc + Number(item.price) * (item.qty || 1), 0)) : 0;
+      const amount = invoice ? formatCurrency(invoiceTotal) : '';
       
       const company = settings.companyName;
-      const clientName = invoice.clientName || 'Client';
+      const clientName = invoice?.clientName || prospectContact?.company || 'Client';
 
-      const contactAssocie = contacts.find(c => c.id === invoice.clientId);
+      const contactAssocie = prospectContact || contacts.find(c => c.id === invoice?.clientId);
       const nomCompletContact = contactAssocie?.name || '';
       const prenomContact = nomCompletContact.split(' ')[0] || '';
 
@@ -818,13 +818,15 @@ export default function App() {
             .replace(/\{\{prenom_contact\}\}/g, prenomContact);
       };
 
-      setEmailData({ 
+      setEmailData((prev: any) => ({ 
+          ...prev,
           to: clientEmail, 
           subject: replaceVars(template.subject), 
           body: replaceVars(template.body), 
           isSending: false, 
-          selectedTemplate: template.id 
-      });
+          selectedTemplate: template.id,
+          prospectContact: prospectContact
+      }));
   };
 
   const handleEmailInvoice = async () => {
@@ -839,6 +841,12 @@ export default function App() {
       setShowEmailModal(true);
   };
 
+  const handleEmailProspect = (contact: any) => {
+      setCurrentInvoice(null);
+      applyEmailTemplate(settings.emailTemplates?.[0]?.id || 'std', null, contact.email, contact);
+      setShowEmailModal(true);
+  };
+
   const handleSendEmailFromModal = async () => {
     if (!emailData.to) return addNotification('error', 'Veuillez renseigner une adresse email valide.');
     if (!settings.webhookUrl) return addNotification('error', 'URL du Webhook non configurée dans les paramètres.');
@@ -846,45 +854,48 @@ export default function App() {
     setEmailData(prev => ({ ...prev, isSending: true }));
     
     try {
-        const element = document.getElementById('invoice-printable');
-        if (!element) throw new Error("Document HTML introuvable");
-
-        const html2pdf = await requireHtml2Pdf();
         let cleanBase64 = '';
         let contractBase64 = '';
 
-        if (emailData.sendContractSeparately && currentInvoice.includeContract && currentInvoice.contractText) {
-            // Cacher le contrat pour capturer la facture seule
-            const contractEl = element.querySelector('.html2pdf__page-break') as HTMLElement;
-            if (contractEl) contractEl.style.display = 'none';
-            
-            const optInv = getPdfOptions(`Facture_${currentInvoice?.id}.pdf`);
-            const rawPdfBase64: any = await new Promise((resolve) => {
-                 html2pdf().set(optInv).from(element).toPdf().get('pdf').then((pdf: any) => resolve(pdf.output('datauristring')));
-            });
-            cleanBase64 = rawPdfBase64.includes('base64,') ? rawPdfBase64.substring(rawPdfBase64.indexOf('base64,') + 7) : rawPdfBase64;
+        if (currentInvoice) {
+            const element = document.getElementById('invoice-printable');
+            if (!element) throw new Error("Document HTML introuvable");
 
-            // Remettre le contrat, cacher la facture, pour capturer le contrat seul
-            if (contractEl) {
-                contractEl.style.display = 'flex';
-                const invoicePage1 = element.querySelector('.invoice-page-1') as HTMLElement;
-                if (invoicePage1) invoicePage1.style.display = 'none';
+            const html2pdf = await requireHtml2Pdf();
 
-                const optCont = getPdfOptions(`Contrat_${currentInvoice?.id}.pdf`);
-                const rawContBase64: any = await new Promise((resolve) => {
-                    html2pdf().set(optCont).from(element).toPdf().get('pdf').then((pdf: any) => resolve(pdf.output('datauristring')));
-                });
-                contractBase64 = rawContBase64.includes('base64,') ? rawContBase64.substring(rawContBase64.indexOf('base64,') + 7) : rawContBase64;
+            if (emailData.sendContractSeparately && currentInvoice.includeContract && currentInvoice.contractText) {
+                // Cacher le contrat pour capturer la facture seule
+                const contractEl = element.querySelector('.html2pdf__page-break') as HTMLElement;
+                if (contractEl) contractEl.style.display = 'none';
                 
-                // Réafficher la facture
-                if (invoicePage1) invoicePage1.style.display = 'flex';
+                const optInv = getPdfOptions(`Facture_${currentInvoice?.id}.pdf`);
+                const rawPdfBase64: any = await new Promise((resolve) => {
+                     html2pdf().set(optInv).from(element).toPdf().get('pdf').then((pdf: any) => resolve(pdf.output('datauristring')));
+                });
+                cleanBase64 = rawPdfBase64.includes('base64,') ? rawPdfBase64.substring(rawPdfBase64.indexOf('base64,') + 7) : rawPdfBase64;
+
+                // Remettre le contrat, cacher la facture, pour capturer le contrat seul
+                if (contractEl) {
+                    contractEl.style.display = 'flex';
+                    const invoicePage1 = element.querySelector('.invoice-page-1') as HTMLElement;
+                    if (invoicePage1) invoicePage1.style.display = 'none';
+
+                    const optCont = getPdfOptions(`Contrat_${currentInvoice?.id}.pdf`);
+                    const rawContBase64: any = await new Promise((resolve) => {
+                        html2pdf().set(optCont).from(element).toPdf().get('pdf').then((pdf: any) => resolve(pdf.output('datauristring')));
+                    });
+                    contractBase64 = rawContBase64.includes('base64,') ? rawContBase64.substring(rawContBase64.indexOf('base64,') + 7) : rawContBase64;
+                    
+                    // Réafficher la facture
+                    if (invoicePage1) invoicePage1.style.display = 'flex';
+                }
+            } else {
+                const opt = getPdfOptions(`Facture_${currentInvoice?.id}.pdf`);
+                const rawPdfBase64: any = await new Promise((resolve) => {
+                     html2pdf().set(opt).from(element).toPdf().get('pdf').then((pdf: any) => resolve(pdf.output('datauristring')));
+                });
+                cleanBase64 = rawPdfBase64.includes('base64,') ? rawPdfBase64.substring(rawPdfBase64.indexOf('base64,') + 7) : rawPdfBase64;
             }
-        } else {
-            const opt = getPdfOptions(`Facture_${currentInvoice?.id}.pdf`);
-            const rawPdfBase64: any = await new Promise((resolve) => {
-                 html2pdf().set(opt).from(element).toPdf().get('pdf').then((pdf: any) => resolve(pdf.output('datauristring')));
-            });
-            cleanBase64 = rawPdfBase64.includes('base64,') ? rawPdfBase64.substring(rawPdfBase64.indexOf('base64,') + 7) : rawPdfBase64;
         }
 
         // Conversion des sauts de ligne textuels en balises HTML <br> pour l'affichage email
@@ -895,14 +906,12 @@ export default function App() {
             subject: emailData.subject,
             message: formattedMessage,
             reply_to: settings.email,
-            invoice_id: currentInvoice?.id || 'Facture',
-            client_name: currentInvoice?.clientName || 'Client',
-            pdf_attachment_base64: cleanBase64
+            invoice_id: currentInvoice?.id || 'Prospection',
+            client_name: currentInvoice?.clientName || emailData.prospectContact?.company || emailData.to,
         };
 
-        if (contractBase64) {
-            payload.contract_attachment_base64 = contractBase64;
-        }
+        if (cleanBase64) payload.pdf_attachment_base64 = cleanBase64;
+        if (contractBase64) payload.contract_attachment_base64 = contractBase64;
 
         const response = await fetch(settings.webhookUrl, {
             method: 'POST',
@@ -911,7 +920,7 @@ export default function App() {
         });
 
         if (response.ok) {
-            addNotification('success', `La facture a été transmise à votre outil d'automatisation.`);
+            addNotification('success', `L'email a été transmis à votre outil d'automatisation.`);
             setShowEmailModal(false);
         } else {
             throw new Error("Erreur de réponse du Webhook");
@@ -1098,7 +1107,7 @@ export default function App() {
                   <td className="px-6 py-5 text-right">
                     {p.email ? (
                         <button 
-                          onClick={(e) => { e.preventDefault(); window.open(`mailto:${p.email}`, '_top'); }}
+                          onClick={() => handleEmailProspect(p)}
                           className="inline-flex items-center justify-center px-4 py-2 rounded-xl text-xs font-bold gap-2 transition-all bg-blue-50 text-[#01189B] hover:bg-[#01189B] hover:text-white"
                         >
                           <Send size={14}/> Écrire
@@ -1193,7 +1202,7 @@ export default function App() {
               </div>
               
               <div className="flex items-center gap-6 mt-6 text-sm font-bold text-slate-600">
-                {selectedContact.email && <a href={`mailto:${selectedContact.email}`} className="flex items-center gap-2 hover:text-[#01189B] transition-colors bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm"><Mail size={16}/> {selectedContact.email}</a>}
+                {selectedContact.email && <button onClick={() => handleEmailProspect(selectedContact)} className="flex items-center gap-2 hover:text-[#01189B] transition-colors bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm"><Mail size={16}/> {selectedContact.email}</button>}
                 {selectedContact.phone && <a href={`tel:${selectedContact.phone}`} className="flex items-center gap-2 hover:text-[#01189B] transition-colors bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm">📞 {selectedContact.phone}</a>}
               </div>
             </div>
@@ -1207,7 +1216,11 @@ export default function App() {
               <Trash2 size={16}/> Supprimer Client
             </button>
             {selectedContact.email && (
-               <button onClick={() => window.open(`mailto:${selectedContact.email}`, '_top')} className="px-6 py-3 text-white rounded-xl font-bold hover:shadow-lg hover:-translate-y-0.5 flex items-center justify-center gap-2 transition-all" style={{ backgroundColor: BRAND_COLOR }}>
+               <button 
+                 onClick={() => handleEmailProspect(selectedContact)}
+                 className="px-6 py-3 text-white rounded-xl font-bold hover:shadow-lg hover:-translate-y-0.5 flex items-center justify-center gap-2 transition-all" 
+                 style={{ backgroundColor: BRAND_COLOR }}
+               >
                  <Send size={16}/> Écrire Email
                </button>
             )}
@@ -2843,7 +2856,7 @@ export default function App() {
                   <label className={UI_CLASSES.label}>Modèle d'email</label>
                   <select 
                       value={emailData.selectedTemplate} 
-                      onChange={(e) => applyEmailTemplate(e.target.value, currentInvoice, emailData.to)}
+                      onChange={(e) => applyEmailTemplate(e.target.value, currentInvoice, emailData.to, emailData.prospectContact)}
                       className={UI_CLASSES.input}
                   >
                       {(settings.emailTemplates || []).map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -2863,34 +2876,36 @@ export default function App() {
               </div>
           </div>
 
-          {/* Pièce jointe simulée visuellement */}
-          <div className="bg-white border-2 border-dashed border-blue-200 p-4 rounded-xl flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-red-50 rounded-lg text-red-500"><FileText size={20}/></div>
-                  <div>
-                    <p className="font-bold text-[#01189B] text-sm">Facture_{currentInvoice?.clientName || 'Client'}_{currentInvoice?.id}.pdf</p>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Sera généré automatiquement</p>
-                  </div>
+          {/* Pièce jointe simulée visuellement (Masquée si ce n'est pas une facture) */}
+          {currentInvoice && (
+              <div className="bg-white border-2 border-dashed border-blue-200 p-4 rounded-xl flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-red-50 rounded-lg text-red-500"><FileText size={20}/></div>
+                      <div>
+                        <p className="font-bold text-[#01189B] text-sm">Facture_{currentInvoice?.clientName || 'Client'}_{currentInvoice?.id}.pdf</p>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Sera généré automatiquement</p>
+                      </div>
+                    </div>
+                    <Paperclip className="text-blue-300" size={20}/>
                 </div>
-                <Paperclip className="text-blue-300" size={20}/>
-            </div>
-            
-            {currentInvoice?.includeContract && (
-                <div className="flex items-center gap-2 pt-3 border-t border-blue-100">
-                    <input 
-                        type="checkbox" 
-                        id="sep-contract" 
-                        checked={emailData.sendContractSeparately} 
-                        onChange={(e) => setEmailData({...emailData, sendContractSeparately: e.target.checked})} 
-                        className="w-4 h-4 text-[#01189B] rounded border-blue-200 focus:ring-[#01189B]" 
-                    />
-                    <label htmlFor="sep-contract" className="text-sm font-bold text-slate-700 cursor-pointer">
-                        Envoyer le contrat en pièce jointe séparée
-                    </label>
-                </div>
-            )}
-          </div>
+                
+                {currentInvoice?.includeContract && (
+                    <div className="flex items-center gap-2 pt-3 border-t border-blue-100">
+                        <input 
+                            type="checkbox" 
+                            id="sep-contract" 
+                            checked={emailData.sendContractSeparately} 
+                            onChange={(e) => setEmailData({...emailData, sendContractSeparately: e.target.checked})} 
+                            className="w-4 h-4 text-[#01189B] rounded border-blue-200 focus:ring-[#01189B]" 
+                        />
+                        <label htmlFor="sep-contract" className="text-sm font-bold text-slate-700 cursor-pointer">
+                            Envoyer le contrat en pièce jointe séparée
+                        </label>
+                    </div>
+                )}
+              </div>
+          )}
           
           <div className="pt-4 flex gap-4 border-t border-slate-200 mt-6">
             <button disabled={emailData.isSending} onClick={() => setShowEmailModal(false)} className={UI_CLASSES.btnSecondary}>Annuler</button>
