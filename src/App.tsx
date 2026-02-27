@@ -1,12 +1,12 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   LayoutDashboard, Users, Settings, Plus, Search, ChevronLeft,
   FileText, Package, Trash2, CheckCircle, Clock, MessageSquare,
   Briefcase, PlayCircle, Target, TrendingUp, Calculator, ArrowRight,
   Wallet, PieChart, Globe, Share2, Loader, LogIn, LogOut, Edit2, Save,
   Wand2, Send, X, AlertTriangle, Info, Rocket, Calendar as CalendarIcon,
-  Mail, Percent, Download, MapPin, Eye, EyeOff, Activity, ShieldCheck,
-  Paperclip, Bell, CalendarClock, RefreshCcw, GripHorizontal, Link, Archive, Upload, Moon, Sun, Zap
+  Mail, Percent, Download, MapPin, Eye, EyeOff, Activity,
+  Paperclip, Bell, CalendarClock, GripHorizontal, Link, Archive, Upload, Moon, Sun, Zap
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '51.1';
+const APP_VERSION = '51.8';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -95,6 +95,22 @@ const INVOICE_STATUSES: any = {
   archive: { label: 'Archivée', color: 'bg-slate-800 text-white' },
 };
 
+const AVAILABLE_WIDGETS = [
+  { id: 'objective', label: 'Objectif Mensuel' },
+  { id: 'widget_finances_data', label: 'CA & Bénéfices' },
+  { id: 'widget_finances_chart', label: 'Évolution Mensuelle' },
+  { id: 'chart_annual_1', label: 'Bilan Annuel Complet' },
+  { id: 'stat_ca_month', label: 'CA Mensuel (Mini)' },
+  { id: 'stat_ca_total', label: 'CA Total (Mini)' },
+  { id: 'stat_ca_potentiel', label: 'CA Potentiel (Mini)' },
+  { id: 'stat_pipeline', label: 'Valeur Pipeline (Mini)' },
+  { id: 'stat_campaigns', label: 'Campagnes Actives (Mini)' },
+  { id: 'widget_ca_details', label: 'Détail CA par Client' },
+  { id: 'reminders', label: 'Rappels & Relances' },
+  { id: 'invoices', label: 'Facturation Récente' },
+  { id: 'activity', label: 'Activité CRM' }
+];
+
 const DEFAULT_EMAIL_TEMPLATES = [
   { id: 'std', name: 'Standard (Envoi de Facture)', subject: 'Nouvelle Facture {{facture}} - {{agence}}', body: "Bonjour {{prenom_contact}},\n\nVeuillez trouver ci-joint votre facture {{facture}} d'un montant de {{montant}} concernant nos prestations.\n\nNous restons à votre entière disposition pour toute question.\n\nCordialement,\nL'équipe {{agence}}" },
   { id: 'relance_1', name: 'Relance Aimable', subject: 'Relance : Facture {{facture}} en attente', body: "Bonjour {{prenom_contact}},\n\nSauf erreur ou omission de notre part, le règlement de la facture {{facture}} d'un montant de {{montant}} ne nous est pas encore parvenu.\n\nNous vous prions de bien vouloir procéder à son règlement.\n\nCordialement,\nL'équipe {{agence}}" }
@@ -121,7 +137,7 @@ const formatCurrency = (amount: number) => {
 
 // --- HELPERS PDF ---
 const getPdfOptions = (filename: string) => ({
-  margin: [10, 0, 10, 0],
+  margin: 0,
   filename,
   image: { type: 'jpeg', quality: 1 },
   pagebreak: { mode: 'css', avoid: ['tr', '.keep-together'] },
@@ -314,6 +330,7 @@ export default function App() {
   const [isOfflineMode, setIsOfflineMode] = useState(false);
   const [isSecretMode, setIsSecretMode] = useState(false);
   const [isEditingContractInInvoice, setIsEditingContractInInvoice] = useState(false);
+  const [isEditingLayout, setIsEditingLayout] = useState(false);
 
   const [notifications, setNotifications] = useState<any[]>([]);
   const [confirmState, setConfirmState] = useState({ isOpen: false, title: '', message: '', onConfirm: () => {} });
@@ -393,12 +410,12 @@ export default function App() {
   // --- HELPERS UI ---
   const addNotification = (type: string, message: string) => {
     const id = Math.random().toString(36).substr(2, 9);
-    setNotifications((prev) => [...prev, { id, type, message }]);
-    setTimeout(() => setNotifications((prev) => prev.filter((n) => n.id !== id)), 4000);
+    setNotifications((prev: any[]) => [...prev, { id, type, message }]);
+    setTimeout(() => setNotifications((prev: any[]) => prev.filter((n: any) => n.id !== id)), 4000);
   };
 
   const openConfirm = (title: string, message: string, onConfirm: any) => {
-    setConfirmState({ isOpen: true, title, message, onConfirm: () => { onConfirm(); setConfirmState((prev) => ({ ...prev, isOpen: false })); } });
+    setConfirmState({ isOpen: true, title, message, onConfirm: () => { onConfirm(); setConfirmState((prev: any) => ({ ...prev, isOpen: false })); } });
   };
 
   // --- AUTH ---
@@ -517,6 +534,8 @@ export default function App() {
     let caAnnuel = 0;
     let beneficePapierTotal = 0;
     
+    let caPerClient: any = {};
+
     invoices.forEach((i) => {
       const amt = Number(i.amount ?? 0);
       // CA Encaissé (uniquement les factures PAYÉES)
@@ -526,13 +545,18 @@ export default function App() {
           if (d.getFullYear() === currentYear) {
               monthlyCA[d.getMonth()] += amt;
               caAnnuel += amt;
-              const frais = i.items?.filter((it: any) => it.name.includes('Gestion') || it.name.includes('Frais'))
-                               .reduce((acc: number, it: any) => acc + (it.price * (it.qty || 1)), 0) || (amt * 0.35);
+              // Calcul de la marge basé sur le % enregistré ou 35% par défaut
+              const marginPercent = i.marginPercent !== undefined ? i.marginPercent : 35;
+              const frais = amt * (marginPercent / 100);
               beneficePapierTotal += frais;
           }
           if (d.getMonth() === currentMonth && d.getFullYear() === currentYear) {
               monthlyInvoicesAmount += amt;
           }
+
+          const clientId = i.clientId || i.clientName || 'Inconnu';
+          if (!caPerClient[clientId]) caPerClient[clientId] = { name: i.clientName || 'Inconnu', total: 0 };
+          caPerClient[clientId].total += amt;
       } 
       // CA Potentiel (factures en cours, brouillons, en retard - tout sauf payée, annulée et archivée)
       else if (i.status !== 'annulee' && i.status !== 'archive') {
@@ -546,14 +570,24 @@ export default function App() {
 
     simulations.forEach((s) => {
       const budget = Number(s.budget ?? 0);
-      totalSimulations += budget;
       const d = new Date(s.createdAt);
       if (d.getFullYear() === currentYear) {
           beneficeReelTotal += (s.stats?.profit || 0);
           arbitrageTotal += (s.stats?.arbitrage || 0);
       }
-      if (d.getMonth() === currentMonth && d.getFullYear() === currentYear) monthlySimulationsAmount += budget;
+      
+      // On n'ajoute au CA que les cycles créés MANUELLEMENT pour éviter les doublons avec les factures
+      if (!s.invoiceId) {
+          totalSimulations += budget;
+          if (d.getMonth() === currentMonth && d.getFullYear() === currentYear) monthlySimulationsAmount += budget;
+
+          const clientId = s.clientId || s.clientName || 'Inconnu';
+          if (!caPerClient[clientId]) caPerClient[clientId] = { name: s.clientName || 'Inconnu', total: 0 };
+          caPerClient[clientId].total += budget;
+      }
     });
+
+    const caDetails = Object.values(caPerClient).sort((a: any, b: any) => b.total - a.total);
 
     const pipelineValue = contacts.reduce((acc, c) => (c.status !== 'gagne' && c.status !== 'perdu') ? acc + Number(c.projectedBudget ?? 0) : acc, 0);
 
@@ -567,7 +601,8 @@ export default function App() {
       caAnnuel,
       beneficePapierTotal,
       beneficeReelTotal,
-      arbitrageTotal
+      arbitrageTotal,
+      caDetails
     };
   }, [invoices, contacts, simulations]);
 
@@ -612,18 +647,17 @@ export default function App() {
       await handleUpdate('invoices', inv.id, { status: newStatus });
       
       if (newStatus === 'payee' && inv.status !== 'payee') {
+          // Vérifier si une prod a déjà été lancée pour éviter les doublons
+          const existingSim = simulations.find((s: any) => s.invoiceId === inv.id);
+          if (existingSim) return;
+
           const client = contacts.find(c => c.id === inv.clientId);
-          const activeProduct = products.find(p => p.id === client?.interestedProductId) || products[0];
+          const activeProduct = products.find(p => p.id === inv.themeId) || products.find(p => p.id === client?.interestedProductId) || products[0];
 
           if (activeProduct) {
-              let mediaBudget = 0;
-              let mgtFees = 0;
-              (inv.items || []).forEach((item: any) => {
-                  if (item.name.includes('Gestion') || item.name.includes('Frais')) mgtFees += Number(item.price) * (item.qty || 1);
-                  else mediaBudget += Number(item.price) * (item.qty || 1);
-              });
-
-              if (mediaBudget === 0) mediaBudget = inv.amount * 0.65;
+              const marginPercent = inv.marginPercent !== undefined ? inv.marginPercent : 35;
+              const mgtFees = inv.amount * (marginPercent / 100);
+              const mediaBudget = inv.amount - mgtFees;
 
               const volumeTotal = Math.floor(mediaBudget / activeProduct.price);
               const costTotal = volumeTotal * (activeProduct.cost || (activeProduct.price * 0.4));
@@ -631,6 +665,7 @@ export default function App() {
               const profit = mgtFees + arbitrage;
 
               const simData = { 
+                  invoiceId: inv.id, // On lie le cycle à la facture
                   budget: inv.amount, 
                   productId: activeProduct.id, 
                   productName: activeProduct.name, 
@@ -764,7 +799,12 @@ export default function App() {
         price: mgtFees, qty: 1 
       },
     ];
-    setCurrentInvoice({ ...(currentInvoice || {}), items: [...(currentInvoice?.items || []), ...newItems] });
+    setCurrentInvoice({ 
+      ...(currentInvoice || {}), 
+      themeId: theme?.id, 
+      marginPercent: invoiceMarginPercent, 
+      items: [...(currentInvoice?.items || []), ...newItems] 
+    });
     addNotification('success', 'Lignes calculées avec volume de leads estimé.');
   };
 
@@ -867,7 +907,7 @@ export default function App() {
     if (!emailData.to) return addNotification('error', 'Veuillez renseigner une adresse email valide.');
     if (!activeWebhookUrl) return addNotification('error', `URL du Webhook (${currentInvoice ? 'Facturation' : 'Prospection'}) non configurée.`);
     
-    setEmailData(prev => ({ ...prev, isSending: true }));
+    setEmailData((prev: any) => ({ ...prev, isSending: true }));
     
     try {
         let cleanBase64 = '';
@@ -955,7 +995,7 @@ export default function App() {
         console.error("Erreur d'envoi:", error);
         addNotification('error', "Échec de l'envoi. Vérifiez l'URL de votre Webhook.");
     } finally {
-        setEmailData(prev => ({ ...prev, isSending: false }));
+        setEmailData((prev: any) => ({ ...prev, isSending: false }));
     }
   };
 
@@ -1604,13 +1644,25 @@ export default function App() {
       .sort((a,b) => new Date(a.nextContactDate).getTime() - new Date(b.nextContactDate).getTime())
       .slice(0, 5);
 
-    const defaultLayout = ['objective', 'widget_finances_data', 'widget_finances_chart', 'stat_ca_month', 'stat_ca_total', 'stat_ca_potentiel', 'stat_pipeline', 'stat_campaigns', 'reminders', 'invoices', 'activity'];
-    let currentLayout = settings.dashboardLayout && settings.dashboardLayout.length > 0 ? settings.dashboardLayout : defaultLayout;
+    const defaultLayout = ['objective', 'widget_finances_data', 'widget_finances_chart', 'stat_ca_month', 'stat_ca_total', 'stat_ca_potentiel', 'stat_pipeline', 'widget_ca_details', 'stat_campaigns', 'reminders', 'invoices', 'activity'];
+    let currentLayout = settings.dashboardLayout !== undefined ? settings.dashboardLayout : defaultLayout;
 
-    // Reset du layout si les nouveaux widgets ou les anciens réintégrés sont manquants (pour montrer les designs)
-    if (!currentLayout.includes('widget_finances_data') || !currentLayout.includes('stat_ca_potentiel')) {
-        currentLayout = defaultLayout;
-    }
+    const toggleWidget = async (widgetId: string) => {
+        let newLayout = [...currentLayout];
+        if (newLayout.includes(widgetId)) {
+            newLayout = newLayout.filter(id => id !== widgetId);
+        } else {
+            newLayout.push(widgetId);
+        }
+        setSettings((prev: any) => ({ ...prev, dashboardLayout: newLayout }));
+        if (user && !isOfflineMode) {
+            try {
+                await setDoc(doc(db, `artifacts/${getAppId()}/users/${user.uid}/config`, 'general'), { dashboardLayout: newLayout }, { merge: true });
+            } catch(err) {
+                console.error("Erreur save layout", err);
+            }
+        }
+    };
 
     const handleDragStart = (e: any, id: string) => {
         e.dataTransfer.setData('widget_id', id);
@@ -1650,6 +1702,7 @@ export default function App() {
         stat_ca_potentiel: 'col-span-1 lg:col-span-1',
         stat_pipeline: 'col-span-1 lg:col-span-1',
         stat_campaigns: 'col-span-1 lg:col-span-1',
+        widget_ca_details: 'col-span-1 md:col-span-2',
         reminders: 'col-span-1 md:col-span-2',
         invoices: 'col-span-1 md:col-span-2',
         activity: 'col-span-1 md:col-span-2',
@@ -1818,6 +1871,26 @@ export default function App() {
                 <h3 className="text-3xl font-extrabold text-indigo-600 mt-1 font-poppins">{renderNumber(stats.activeCampaigns)} <span className="text-sm font-medium text-slate-400 font-inter">en prod.</span></h3>
             </div>
         ),
+        widget_ca_details: (
+            <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] h-full">
+                <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
+                    <h3 className="font-extrabold text-slate-800 font-poppins text-lg flex items-center gap-2"><Wallet className="text-emerald-500" size={20}/> Détail CA par Client</h3>
+                    <span className="text-xs font-bold text-slate-400 bg-slate-100 px-3 py-1 rounded-full">{stats.caDetails?.length || 0} clients</span>
+                </div>
+                {(!stats.caDetails || stats.caDetails.length === 0) ? (
+                    <p className="text-slate-400 text-sm italic text-center py-6">Aucun CA encaissé pour le moment.</p>
+                ) : (
+                    <div className="space-y-3 max-h-64 overflow-y-auto custom-scrollbar pr-2">
+                        {stats.caDetails.map((client: any, idx: number) => (
+                            <div key={idx} className="flex justify-between items-center p-3 bg-slate-50 border border-slate-100 rounded-xl hover:bg-emerald-50 hover:border-emerald-200 transition-colors">
+                                <p className="font-bold text-slate-800 text-sm truncate pr-4">{client.name}</p>
+                                <p className="font-mono font-extrabold text-emerald-600 whitespace-nowrap">{renderCurrency(client.total)}</p>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        ),
         reminders: (
             <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] h-full">
                 <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
@@ -1898,6 +1971,44 @@ export default function App() {
 
     return (
       <div className="space-y-8 animate-fade-in max-w-7xl mx-auto pb-12">
+        <div className="flex justify-between items-center">
+            <h2 className="text-3xl font-extrabold text-slate-800 font-poppins"><LayoutDashboard style={{ color: BRAND_COLOR }} className="inline-block mr-3" size={32}/> Tableau de bord</h2>
+            <button onClick={() => setIsEditingLayout(!isEditingLayout)} className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors shadow-sm ${isEditingLayout ? 'bg-[#01189B] text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                <Settings size={16}/> {isEditingLayout ? 'Terminer' : 'Personnaliser'}
+            </button>
+        </div>
+
+        {isEditingLayout && (
+            <div className="bg-white p-6 rounded-3xl border-2 border-[#01189B] shadow-lg animate-fade-in">
+                <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><LayoutDashboard size={18} style={{color: BRAND_COLOR}}/> Activer/Désactiver les Widgets</h4>
+                <div className="flex flex-wrap gap-3">
+                    {AVAILABLE_WIDGETS.map(w => {
+                        const isActive = currentLayout.includes(w.id);
+                        return (
+                            <button
+                                key={w.id}
+                                onClick={() => toggleWidget(w.id)}
+                                className={`px-4 py-2 rounded-xl text-xs font-bold border-2 transition-all flex items-center gap-2 ${isActive ? 'bg-blue-50 border-[#01189B] text-[#01189B] shadow-sm' : 'bg-slate-50 border-slate-200 text-slate-500 hover:border-slate-300'}`}
+                            >
+                                {isActive ? <CheckCircle size={14}/> : <Plus size={14}/>} {w.label}
+                            </button>
+                        );
+                    })}
+                </div>
+            </div>
+        )}
+
+        {currentLayout.length === 0 && !isEditingLayout && (
+            <div className="bg-white p-12 text-center rounded-3xl border border-slate-100 shadow-sm flex flex-col items-center mt-8">
+                <LayoutDashboard size={48} className="text-slate-300 mb-4" />
+                <h3 className="text-xl font-bold text-slate-700 font-poppins mb-2">Votre tableau de bord est vide</h3>
+                <p className="text-slate-500 mb-6">Personnalisez votre espace en ajoutant les widgets dont vous avez besoin.</p>
+                <button onClick={() => setIsEditingLayout(true)} className="px-6 py-3 bg-[#01189B] text-white rounded-xl font-bold hover:shadow-lg transition-all flex items-center gap-2">
+                    <Plus size={18}/> Ajouter des widgets
+                </button>
+            </div>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 auto-rows-min">
             {currentLayout.map((widgetId: string) => {
                 if (!widgets[widgetId]) return null;
@@ -2094,6 +2205,18 @@ export default function App() {
                           <h4 className="font-bold text-blue-800 mb-2">Webhook d'envoi d'emails (Prospection)</h4>
                           <p className="text-sm text-blue-600 mb-4">Utilisé depuis la page Prospection ou Fiche Client (ne reçoit pas de PDF en pièce jointe).</p>
                           <input name="webhookUrlProspection" defaultValue={settings.webhookUrlProspection} className="w-full border-2 border-blue-200 bg-white p-3.5 rounded-xl outline-none focus:border-[#01189B] font-medium text-slate-800" placeholder="https://hook.make.com/..." />
+                          
+                          <div className="mt-6 p-4 bg-white rounded-xl border border-blue-200 text-sm text-slate-700 space-y-2">
+                              <h5 className="font-bold text-[#01189B] flex items-center gap-2"><Info size={16}/> Comment activer le Webhook (Make / Zapier) ?</h5>
+                              <ol className="list-decimal pl-5 space-y-1.5 mt-2 marker:text-blue-500 marker:font-bold">
+                                  <li>Créez un scénario sur <a href="https://make.com" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline font-bold">Make.com</a> ou Zapier.</li>
+                                  <li>Ajoutez un déclencheur <b>"Custom Webhook"</b> et copiez l'URL fournie.</li>
+                                  <li>Collez cette URL dans le champ ci-dessus et sauvegardez.</li>
+                                  <li>Faites un envoi depuis la page <b>Prospection</b> pour que Make reçoive les données de test.</li>
+                                  <li>Dans Make, ajoutez un module <b>Gmail / Outlook</b>, et mappez les variables reçues : <code className="bg-slate-100 px-1 py-0.5 rounded text-[#01189B] text-xs font-mono">to_email</code>, <code className="bg-slate-100 px-1 py-0.5 rounded text-[#01189B] text-xs font-mono">subject</code>, <code className="bg-slate-100 px-1 py-0.5 rounded text-[#01189B] text-xs font-mono">message</code>.</li>
+                                  <li>Pour la facturation, vous recevrez aussi <code className="bg-slate-100 px-1 py-0.5 rounded text-[#01189B] text-xs font-mono">pdf_attachment_base64</code> (à convertir en data binaire pour l'envoyer en pièce jointe).</li>
+                              </ol>
+                          </div>
                       </div>
 
                       <div className="pt-4 flex justify-end">
@@ -2199,7 +2322,7 @@ export default function App() {
           <nav className="space-y-2">
             {[
               { id: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard },
-              { id: 'contacts', label: 'Pipeline CRM', icon: Users },
+              { id: 'contacts', label: 'CRM', icon: Users },
               { id: 'prospection', label: 'Prospection', icon: Mail },
               { id: 'calendar', label: 'Cycles Actifs', icon: CalendarIcon },
               { id: 'invoices', label: 'Facturation', icon: FileText },
@@ -2509,7 +2632,7 @@ export default function App() {
               {activeView === 'contacts' && (
                 <div className="flex flex-col h-full animate-fade-in pb-8">
                   <div className="flex justify-between items-center mb-8">
-                     <h2 className={UI_CLASSES.title}><Users style={{ color: BRAND_COLOR }} size={32}/> Base CRM & Pipeline</h2>
+                     <h2 className={UI_CLASSES.title}><Users style={{ color: BRAND_COLOR }} size={32}/> CRM</h2>
                      <div className="flex gap-3">
                          <button onClick={handleExportContactsCSV} className="bg-white text-slate-600 px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 border border-slate-200 shadow-sm transition-all"><Download size={18} /> Exporter (Template)</button>
                          <button onClick={() => setShowImportModal('contacts')} className="bg-slate-100 text-slate-600 px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-200 transition-all"><Upload size={18} /> Importer (CSV)</button>
@@ -2588,7 +2711,7 @@ export default function App() {
               <h3 className="text-2xl font-extrabold text-center mb-3 font-poppins text-slate-800">{confirmState.title}</h3>
               <p className="text-slate-500 text-center font-medium mb-8 leading-relaxed">{confirmState.message}</p>
               <div className="flex gap-4">
-                <button onClick={() => setConfirmState((prev) => ({ ...prev, isOpen: false }))} className={UI_CLASSES.btnSecondary}>Annuler</button>
+                <button onClick={() => setConfirmState((prev: any) => ({ ...prev, isOpen: false }))} className={UI_CLASSES.btnSecondary}>Annuler</button>
                 <button onClick={confirmState.onConfirm} className={UI_CLASSES.btnPrimary} style={{ backgroundColor: BRAND_COLOR }}>Confirmer</button>
               </div>
             </div>
@@ -2785,7 +2908,7 @@ export default function App() {
                 <div className="flex-1 overflow-auto bg-slate-200 p-8 flex justify-center custom-scrollbar relative">
                     <div id="invoice-printable" className="bg-transparent w-[210mm] h-max text-slate-800 relative shrink-0 box-border block">
                         
-                        <div className="invoice-page-1 bg-white w-full h-[297mm] max-h-[297mm] overflow-hidden shadow-2xl p-[10mm] flex flex-col justify-between relative box-border mb-8 print:mb-0">
+                        <div className="invoice-page-1 bg-white w-full h-[297mm] max-h-[297mm] overflow-hidden shadow-2xl px-[10mm] pt-[10mm] pb-[20mm] flex flex-col justify-between relative box-border mb-8 print:mb-0">
                             {/* Marqueur visuel de fin de page 1 (no-print) */}
                             <div className="absolute bottom-0 left-0 w-full border-b-2 border-red-300 border-dashed no-print z-[100] flex justify-center">
                                  <span className="bg-red-50 px-2 text-[8px] text-red-500 font-bold uppercase tracking-widest -mt-3">Limite Page 1 (A4)</span>
@@ -2987,20 +3110,29 @@ export default function App() {
                     <Paperclip className="text-blue-300" size={20}/>
                 </div>
                 
-                {currentInvoice?.includeContract && (
-                    <div className="flex items-center gap-2 pt-3 border-t border-blue-100">
-                        <input 
-                            type="checkbox" 
-                            id="sep-contract" 
-                            checked={emailData.sendContractSeparately} 
-                            onChange={(e) => setEmailData({...emailData, sendContractSeparately: e.target.checked})} 
-                            className="w-4 h-4 text-[#01189B] rounded border-blue-200 focus:ring-[#01189B]" 
-                        />
-                        <label htmlFor="sep-contract" className="text-sm font-bold text-slate-700 cursor-pointer">
-                            Joindre le contrat en PDF (Pièce jointe séparée)
-                        </label>
-                    </div>
-                )}
+                <div className="pt-3 border-t border-blue-100 mt-2">
+                    {currentInvoice?.includeContract ? (
+                        <div className="flex items-center gap-2">
+                            <input 
+                                type="checkbox" 
+                                id="sep-contract" 
+                                checked={emailData.sendContractSeparately} 
+                                onChange={(e) => setEmailData({...emailData, sendContractSeparately: e.target.checked})} 
+                                className="w-4 h-4 text-[#01189B] rounded border-blue-200 focus:ring-[#01189B]" 
+                            />
+                            <label htmlFor="sep-contract" className="text-sm font-bold text-slate-700 cursor-pointer">
+                                Joindre le contrat en PDF (Pièce jointe séparée)
+                            </label>
+                        </div>
+                    ) : (
+                        <div className="flex items-center gap-2">
+                            <input type="checkbox" disabled className="w-4 h-4 rounded border-slate-200 cursor-not-allowed bg-slate-100" />
+                            <label className="text-sm font-medium text-slate-400 cursor-not-allowed">
+                                Option contrat indisponible (Non activé sur cette facture)
+                            </label>
+                        </div>
+                    )}
+                </div>
               </div>
           )}
           
