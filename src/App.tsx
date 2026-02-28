@@ -4,8 +4,8 @@ import {
   FileText, Package, Trash2, CheckCircle, Clock, MessageSquare,
   Briefcase, PlayCircle, Target, TrendingUp, Calculator, ArrowRight,
   Wallet, PieChart, Globe, Share2, Loader, LogIn, LogOut, Edit2, Save,
-  Wand2, Send, X, AlertTriangle, Info, Rocket, Calendar as CalendarIcon,
-  Mail, Percent, Download, MapPin, Eye, EyeOff, Activity,
+  Wand2, Send, X, AlertTriangle, Info, Calendar as CalendarIcon,
+  Mail, Download, MapPin, Eye, EyeOff, Activity,
   Paperclip, Bell, CalendarClock, GripHorizontal, Link, Archive, Upload, Moon, Sun, Zap, RefreshCcw
 } from 'lucide-react';
 
@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '52.9';
+const APP_VERSION = '53.3';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -98,13 +98,7 @@ const INVOICE_STATUSES: any = {
 const AVAILABLE_WIDGETS = [
   { id: 'objective', label: 'Objectif Mensuel' },
   { id: 'widget_finances_data', label: 'CA & Bénéfices' },
-  { id: 'widget_finances_chart', label: 'Évolution Mensuelle' },
   { id: 'chart_annual_1', label: 'Bilan Annuel Complet' },
-  { id: 'stat_ca_month', label: 'CA Mensuel (Mini)' },
-  { id: 'stat_ca_total', label: 'CA Total (Mini)' },
-  { id: 'stat_ca_potentiel', label: 'CA Potentiel (Mini)' },
-  { id: 'stat_pipeline', label: 'Valeur Pipeline (Mini)' },
-  { id: 'stat_campaigns', label: 'Campagnes Actives (Mini)' },
   { id: 'widget_ca_details', label: 'Détail CA par Client' },
   { id: 'reminders', label: 'Rappels & Relances' },
   { id: 'invoices', label: 'Facturation Récente' },
@@ -436,7 +430,6 @@ export default function App() {
   const [notifications, setNotifications] = useState<any[]>([]);
   const [confirmState, setConfirmState] = useState({ isOpen: false, title: '', message: '', onConfirm: () => {} });
 
-  const [targetToolState, setTargetToolState] = useState({ scenarioName: 'Nouveau Scénario', totalBudget: 6000, agencyMargin: 35, targetCPL: 80, realCPL: 30, spentBudget: 0, remainingDays: 15, useMargin: true });
   const [scenarios, setScenarios] = useState<any[]>([]);
 
   const [settings, setSettings] = useState<any>({
@@ -450,7 +443,7 @@ export default function App() {
     legalNotice: 'Entreprise individuelle non soumise à la TVA',
     primaryColor: BRAND_COLOR,
     monthlyGoal: 50000,
-    dashboardLayout: ['objective', 'widget_finances_data', 'widget_finances_chart', 'chart_annual_1', 'stat_ca_month', 'stat_ca_total', 'stat_ca_potentiel', 'stat_pipeline', 'stat_campaigns', 'widget_ca_details', 'reminders', 'invoices', 'activity'],
+    dashboardLayout: ['objective', 'widget_finances_data', 'chart_annual_1', 'widget_ca_details', 'invoices', 'reminders'],
     webhookUrl: '', 
     webhookUrlProspection: '',
     emailTemplates: DEFAULT_EMAIL_TEMPLATES,
@@ -634,6 +627,8 @@ export default function App() {
     const monthlyCA = new Array(12).fill(0);
     let caAnnuel = 0;
     let beneficePapierTotal = 0;
+    let beneficeMensuel = 0;
+    let arbitrageTotal = 0;
     
     let caPerClient: any = {};
 
@@ -643,51 +638,67 @@ export default function App() {
       if (i.status === 'payee') {
           totalPaidInvoices += amt;
           const d = new Date(i.date);
+          const marginPercent = i.marginPercent !== undefined ? i.marginPercent : 35;
+          const frais = amt * (marginPercent / 100);
+
           if (d.getFullYear() === currentYear) {
               monthlyCA[d.getMonth()] += amt;
               caAnnuel += amt;
-              // Calcul de la marge basé sur le % enregistré ou 35% par défaut
-              const marginPercent = i.marginPercent !== undefined ? i.marginPercent : 35;
-              const frais = amt * (marginPercent / 100);
               beneficePapierTotal += frais;
               
               // Only count client CA for the selected year!
               const clientId = i.clientId || i.clientName || 'Inconnu';
               if (!caPerClient[clientId]) caPerClient[clientId] = { name: i.clientName || 'Inconnu', total: 0 };
               caPerClient[clientId].total += amt;
-          }
-          if (d.getMonth() === currentMonth && d.getFullYear() === new Date().getFullYear()) {
-              monthlyInvoicesAmount += amt;
+
+              if (d.getMonth() === currentMonth) {
+                  monthlyInvoicesAmount += amt;
+                  beneficeMensuel += frais; // Ajout au bénéfice du mois en cours
+              }
           }
       } 
       // CA Potentiel (factures en cours, brouillons, en retard - tout sauf payée, annulée et archivée)
       else if (i.status !== 'annulee' && i.status !== 'archive') {
-          caPotentielInvoices += amt;
+          const d = new Date(i.date);
+          if (d.getFullYear() === currentYear) {
+              caPotentielInvoices += amt;
+          }
       }
     });
 
     let monthlySimulationsAmount = 0, totalSimulations = 0;
-    let beneficeReelTotal = 0;
-    let arbitrageTotal = 0;
 
     simulations.forEach((s) => {
       const budget = Number(s.budget ?? 0);
       const d = new Date(s.createdAt);
+
       if (d.getFullYear() === currentYear) {
-          beneficeReelTotal += (s.stats?.profit || 0);
+          // L'arbitrage est toujours calculé via les simulations (qu'elles soient manuelles ou liées à une facture)
           arbitrageTotal += (s.stats?.arbitrage || 0);
           
           if (!s.invoiceId) {
+              // Simulation manuelle (sans facture) : On ajoute le CA et les Frais qui n'ont pas pu être comptés par la boucle des factures
+              caAnnuel += budget;
+              monthlyCA[d.getMonth()] += budget;
+              beneficePapierTotal += (s.stats?.fees || 0);
+
               const clientId = s.clientId || s.clientName || 'Inconnu';
               if (!caPerClient[clientId]) caPerClient[clientId] = { name: s.clientName || 'Inconnu', total: 0 };
               caPerClient[clientId].total += budget;
           }
+
+          if (d.getMonth() === currentMonth) {
+              beneficeMensuel += (s.stats?.arbitrage || 0); // Ajout de l'arbitrage au bénéfice du mois
+              if (!s.invoiceId) {
+                  monthlySimulationsAmount += budget;
+                  beneficeMensuel += (s.stats?.fees || 0); // Ajout des frais de gestion manuels
+              }
+          }
       }
       
-      // On n'ajoute au CA que les cycles créés MANUELLEMENT pour éviter les doublons avec les factures
+      // On n'ajoute au CA global absolu que les cycles créés MANUELLEMENT pour éviter les doublons
       if (!s.invoiceId) {
           totalSimulations += budget;
-          if (d.getMonth() === currentMonth && d.getFullYear() === new Date().getFullYear()) monthlySimulationsAmount += budget;
       }
     });
 
@@ -704,8 +715,9 @@ export default function App() {
       monthlyCA,
       caAnnuel,
       beneficePapierTotal,
-      beneficeReelTotal,
+      beneficeReelTotal: beneficePapierTotal + arbitrageTotal,
       arbitrageTotal,
+      beneficeMensuel,
       caDetails
     };
   }, [invoices, contacts, simulations, dashboardYear]); // <-- DEPENDANCE dashboardYear AJOUTEE
@@ -1104,15 +1116,6 @@ export default function App() {
     }
   };
 
-  const handleSaveTargetScenario = async () => {
-      if(!user) return;
-      const data = { name: targetToolState.scenarioName || 'Scénario', totalBudget: targetToolState.totalBudget, agencyMargin: targetToolState.agencyMargin, targetCPL: targetToolState.targetCPL, currentRealCPL: targetToolState.realCPL, spentBudget: targetToolState.spentBudget, remainingDays: targetToolState.remainingDays, createdAt: new Date().toISOString() };
-      try {
-          await addDoc(collection(db, `artifacts/${getAppId()}/users/${user.uid}/target_scenarios`), data);
-          addNotification('success', 'Scénario sauvegardé');
-      } catch(e) { addNotification('error', 'Erreur sauvegarde scénario'); }
-  }
-
   const handleExportData = () => {
       const exportData = {
           exportDate: new Date().toISOString(),
@@ -1311,9 +1314,24 @@ export default function App() {
 
     // Calculs pour la fiche client
     const clientInvoices = invoices.filter(inv => inv.clientId === selectedContact.id).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    const caEncaisse = clientInvoices.filter(i => i.status === 'payee').reduce((acc, i) => acc + i.amount, 0);
+    let caEncaisse = clientInvoices.filter(i => i.status === 'payee').reduce((acc, i) => acc + i.amount, 0);
+    
+    let clientMgtFees = 0;
+    clientInvoices.filter(i => i.status === 'payee').forEach(inv => {
+        const marginPercent = inv.marginPercent !== undefined ? inv.marginPercent : 35;
+        clientMgtFees += inv.amount * (marginPercent / 100);
+    });
+    
     const clientSimulations = simulations.filter(s => s.clientId === selectedContact.id);
-    const beneficeEstime = clientSimulations.reduce((acc, s) => acc + (s.stats?.profit || 0), 0);
+    const clientArbitrage = clientSimulations.reduce((acc, s) => acc + (s.stats?.arbitrage || 0), 0);
+
+    // Ajout des simulations manuelles (sans facture associée) au CA et Marges du client
+    clientSimulations.filter(s => !s.invoiceId).forEach(s => {
+        caEncaisse += Number(s.budget || 0);
+        clientMgtFees += Number(s.stats?.fees || 0);
+    });
+
+    const beneficeTotalClient = clientMgtFees + clientArbitrage;
 
     // Analyse du rappel (Reminder)
     const hasReminder = !!selectedContact.nextContactDate;
@@ -1544,17 +1562,30 @@ export default function App() {
             </div>
 
             {/* WIDGET : VALEUR RÉELLE CLIENT LTV */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]">
-               <h4 className="font-extrabold text-slate-800 mb-5 font-poppins text-lg flex items-center gap-2"><TrendingUp size={20} className="text-emerald-500"/> Valeur Réelle Client</h4>
-               <div className="space-y-4">
-                 <div className="flex justify-between items-center p-4 bg-emerald-50/50 rounded-xl border border-emerald-100">
-                    <span className="text-xs font-bold text-emerald-700 uppercase tracking-wide">CA Encaissé (Facturé)</span>
-                    <span className="font-extrabold text-emerald-600 font-mono text-xl">{renderCurrency(caEncaisse)}</span>
-                 </div>
-                 <div className="flex justify-between items-center p-4 bg-blue-50/50 rounded-xl border border-blue-100">
-                    <span className="text-xs font-bold text-[#01189B] uppercase tracking-wide">Bénéfice Net (Est.)</span>
-                    <span className="font-extrabold text-[#01189B] font-mono text-xl">{renderCurrency(beneficeEstime)}</span>
-                 </div>
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] relative overflow-hidden">
+               <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-50 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
+               <h4 className="font-extrabold text-slate-800 mb-5 font-poppins text-lg flex items-center gap-2 relative z-10"><TrendingUp size={20} className="text-emerald-500"/> Valeur Réelle Client LTV</h4>
+               
+               <div className="grid grid-cols-2 gap-3 mb-4 relative z-10">
+                   <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 flex flex-col justify-center">
+                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">CA Encaissé</span>
+                       <span className="font-black text-slate-800 font-mono text-xl">{renderCurrency(caEncaisse)}</span>
+                   </div>
+                   <div className="bg-emerald-500 p-4 rounded-xl border border-emerald-400 shadow-md flex flex-col justify-center text-white">
+                       <span className="text-[10px] font-bold text-emerald-100 uppercase tracking-widest mb-1">Bénéfice Net</span>
+                       <span className="font-black font-mono text-xl">{renderCurrency(beneficeTotalClient)}</span>
+                   </div>
+               </div>
+
+               <div className="flex gap-2 relative z-10">
+                   <div className="flex-1 p-3 bg-orange-50 rounded-xl border border-orange-100 flex justify-between items-center">
+                      <span className="text-[9px] font-bold text-orange-600 uppercase tracking-wider">Gestion</span>
+                      <span className="font-extrabold text-orange-700 font-mono text-xs">{renderCurrency(clientMgtFees)}</span>
+                   </div>
+                   <div className="flex-1 p-3 bg-purple-50 rounded-xl border border-purple-100 flex justify-between items-center">
+                      <span className="text-[9px] font-bold text-purple-600 uppercase tracking-wider">Arbitrage</span>
+                      <span className="font-extrabold text-purple-700 font-mono text-xs">{renderCurrency(clientArbitrage)}</span>
+                   </div>
                </div>
             </div>
 
@@ -1749,8 +1780,9 @@ export default function App() {
       .sort((a,b) => new Date(a.nextContactDate).getTime() - new Date(b.nextContactDate).getTime())
       .slice(0, 5);
 
-    const defaultLayout = ['objective', 'widget_finances_data', 'widget_finances_chart', 'chart_annual_1', 'stat_ca_month', 'stat_ca_total', 'stat_ca_potentiel', 'stat_pipeline', 'stat_campaigns', 'widget_ca_details', 'reminders', 'invoices', 'activity'];
-    let currentLayout = settings.dashboardLayout !== undefined ? settings.dashboardLayout : defaultLayout;
+    const defaultLayout = ['objective', 'widget_finances_data', 'chart_annual_1', 'widget_ca_details', 'invoices', 'reminders'];
+    let currentLayout = (settings.dashboardLayout !== undefined ? settings.dashboardLayout : defaultLayout).filter((id: string) => AVAILABLE_WIDGETS.map(w=>w.id).includes(id));
+    if (currentLayout.length === 0) currentLayout = defaultLayout;
 
     const toggleWidget = async (widgetId: string) => {
         let newLayout = [...currentLayout];
@@ -1800,13 +1832,7 @@ export default function App() {
     const widgetSpans: Record<string, string> = {
         objective: 'col-span-1 md:col-span-2 lg:col-span-4',
         widget_finances_data: 'col-span-1 md:col-span-2 lg:col-span-4',
-        widget_finances_chart: 'col-span-1 md:col-span-2 lg:col-span-4',
         chart_annual_1: 'col-span-1 md:col-span-2 lg:col-span-4',
-        stat_ca_month: 'col-span-1 md:col-span-2 lg:col-span-2',
-        stat_ca_total: 'col-span-1 lg:col-span-1',
-        stat_ca_potentiel: 'col-span-1 lg:col-span-1',
-        stat_pipeline: 'col-span-1 lg:col-span-1',
-        stat_campaigns: 'col-span-1 lg:col-span-1',
         widget_ca_details: 'col-span-1 md:col-span-2',
         reminders: 'col-span-1 md:col-span-2',
         invoices: 'col-span-1 md:col-span-2',
@@ -2472,7 +2498,6 @@ export default function App() {
               { id: 'invoices', label: 'Facturation', icon: FileText },
               { id: 'products', label: 'Catalogue Offres', icon: Package },
               { id: 'projections', label: 'Production Média', icon: Calculator },
-              { id: 'target-tool', label: 'Objectifs & Scénarios', icon: Rocket },
               { id: 'settings', label: 'Paramètres Agence', icon: Settings },
             ].map((item) => (
               <button
@@ -2611,87 +2636,6 @@ export default function App() {
               )}
               {activeView === 'settings' && renderSettings()}
               {activeView === 'projections' && renderProjections()}
-              {activeView === 'target-tool' && (
-                  <div className="max-w-6xl mx-auto animate-fade-in space-y-8 pb-12">
-                      <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-4">
-                              <div className="p-4 rounded-2xl text-white shadow-[0_8px_30px_rgb(1,24,155,0.3)]" style={{ backgroundColor: BRAND_COLOR }}>
-                                  <Rocket size={32} />
-                              </div>
-                              <div>
-                                  <h2 className="text-3xl font-extrabold text-slate-800 font-poppins">Objectifs & Scénarios</h2>
-                                  <p className="text-slate-500 text-lg">Simulez vos bénéfices nets par campagne avant de signer le client.</p>
-                              </div>
-                          </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 mt-8">
-                          <div className="lg:col-span-4 space-y-6">
-                              <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] relative overflow-hidden">
-                                  <div className="absolute top-0 left-0 w-full h-1.5" style={{ backgroundColor: BRAND_COLOR }}></div>
-                                  <h3 className="font-extrabold text-lg flex items-center gap-2 mb-6 font-poppins text-slate-800"><Settings size={20} style={{ color: BRAND_COLOR }}/> Données du Client</h3>
-                                  <div className="space-y-5">
-                                      <div>
-                                          <label className={UI_CLASSES.label}>Nom de la Simulation</label>
-                                          <input className={UI_CLASSES.input} value={targetToolState.scenarioName} onChange={(e) => setTargetToolState({...targetToolState, scenarioName: e.target.value})} placeholder="Ex: Client ABC - Plombier" />
-                                      </div>
-                                      <div>
-                                          <label className={UI_CLASSES.label}>Budget Mensuel (Facturé)</label>
-                                          <div className="relative">
-                                              <Wallet className="absolute left-4 top-3.5 text-slate-400" size={20} />
-                                              <input type="number" className={`${UI_CLASSES.input} pl-12 text-xl font-extrabold`} value={targetToolState.totalBudget} onChange={(e) => setTargetToolState({...targetToolState, totalBudget: Number(e.target.value)})} />
-                                          </div>
-                                      </div>
-                                      
-                                      <div className="border-t border-slate-100 pt-5">
-                                          <h4 className="font-bold text-slate-700 mb-4 text-sm uppercase tracking-wide flex items-center gap-2"><Target size={16}/> Pricing Leads</h4>
-                                          <div className="grid grid-cols-2 gap-4">
-                                              <div>
-                                                  <label className="block text-[10px] font-bold text-[#01189B] uppercase mb-2">Prix Vente (CPL)</label>
-                                                  <input type="number" className="w-full px-3 py-3 bg-blue-50 border-2 border-blue-100 rounded-xl font-bold text-blue-800 outline-none focus:border-[#01189B]" value={targetToolState.targetCPL} onChange={(e) => setTargetToolState({...targetToolState, targetCPL: Number(e.target.value)})} />
-                                              </div>
-                                              <div>
-                                                  <label className="block text-[10px] font-bold text-orange-600 uppercase mb-2">Coût Achat (Est.)</label>
-                                                  <input type="number" className="w-full px-3 py-3 bg-orange-50 border-2 border-orange-100 rounded-xl font-bold text-orange-800 outline-none focus:border-orange-400" value={targetToolState.realCPL} onChange={(e) => setTargetToolState({...targetToolState, realCPL: Number(e.target.value)})} />
-                                              </div>
-                                          </div>
-                                      </div>
-
-                                      <div className="border-t border-slate-100 pt-5">
-                                          <div className="flex justify-between items-center mb-3">
-                                              <label className="block text-xs font-bold text-slate-400 uppercase tracking-wide flex items-center gap-1"><Briefcase size={14}/> Frais de Gestion</label>
-                                              <button onClick={() => setTargetToolState({...targetToolState, useMargin: !targetToolState.useMargin})} className={`text-[10px] uppercase font-bold px-2 py-1 rounded-md border transition-colors ${targetToolState.useMargin ? 'bg-blue-50 text-[#01189B] border-blue-200' : 'bg-slate-100 text-slate-400 border-slate-200'}`}>{targetToolState.useMargin ? 'Actif' : 'Inactif'}</button>
-                                          </div>
-                                          <div className={`relative transition-opacity ${!targetToolState.useMargin ? 'opacity-40' : ''}`}>
-                                              <Percent className="absolute left-4 top-3.5 text-slate-400" size={18} />
-                                              <input type="number" className={`${UI_CLASSES.input} pl-12 text-lg font-extrabold`} value={targetToolState.agencyMargin} disabled={!targetToolState.useMargin} onChange={(e) => setTargetToolState({...targetToolState, agencyMargin: Number(e.target.value)})} />
-                                          </div>
-                                      </div>
-
-                                      <button onClick={handleSaveTargetScenario} className={`${UI_CLASSES.btnPrimary} w-full mt-6`} style={{ backgroundColor: BRAND_COLOR }}>
-                                          <Save size={18}/> Sauvegarder ce Scénario
-                                      </button>
-                                  </div>
-                              </div>
-                          </div>
-
-                          <div className="lg:col-span-8 space-y-6">
-                              {/* Rendu des calculs (simplifié pour le layout) */}
-                              <div className="rounded-3xl p-8 text-white shadow-2xl relative overflow-hidden" style={{ background: `linear-gradient(135deg, ${BRAND_COLOR} 0%, #0a2540 100%)` }}>
-                                  <div className="absolute top-0 right-0 p-32 bg-white rounded-full blur-3xl opacity-10 -mr-16 -mt-16 pointer-events-none"></div>
-                                  <div className="relative z-10">
-                                      <p className="text-blue-200 font-bold uppercase tracking-widest text-sm mb-2">Bénéfice Net Dans Votre Poche</p>
-                                      <div className="flex items-end gap-4 mb-4">
-                                          <h2 className="text-6xl md:text-7xl font-extrabold font-poppins">
-                                            {renderCurrency((targetToolState.totalBudget * ((targetToolState.useMargin ? targetToolState.agencyMargin : 0)/100)) + ((targetToolState.totalBudget - (targetToolState.totalBudget * ((targetToolState.useMargin ? targetToolState.agencyMargin : 0)/100))) - ((targetToolState.targetCPL > 0 ? Math.floor(targetToolState.totalBudget / targetToolState.targetCPL) : 0) * targetToolState.realCPL)))}
-                                          </h2>
-                                      </div>
-                                  </div>
-                              </div>
-                          </div>
-                      </div>
-                  </div>
-              )}
               {activeView === 'products' && (
                 <div className="max-w-6xl mx-auto space-y-8 animate-fade-in pb-12">
                   <div className="flex justify-between items-center mb-6">
