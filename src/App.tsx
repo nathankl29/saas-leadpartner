@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '53.5';
+const APP_VERSION = '53.7';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -667,39 +667,16 @@ export default function App() {
       }
     });
 
-    let monthlySimulationsAmount = 0, totalSimulations = 0;
-
     simulations.forEach((s) => {
-      const budget = Number(s.budget ?? 0);
       const d = new Date(s.createdAt);
 
       if (d.getFullYear() === currentYear) {
           // L'arbitrage est toujours calculé via les simulations (qu'elles soient manuelles ou liées à une facture)
           arbitrageTotal += (s.stats?.arbitrage || 0);
-          
-          if (!s.invoiceId) {
-              // Simulation manuelle (sans facture) : On ajoute le CA et les Frais qui n'ont pas pu être comptés par la boucle des factures
-              caAnnuel += budget;
-              monthlyCA[d.getMonth()] += budget;
-              beneficePapierTotal += (s.stats?.fees || 0);
-
-              const clientId = s.clientId || s.clientName || 'Inconnu';
-              if (!caPerClient[clientId]) caPerClient[clientId] = { name: s.clientName || 'Inconnu', total: 0 };
-              caPerClient[clientId].total += budget;
-          }
 
           if (d.getMonth() === currentMonth) {
               beneficeMensuel += (s.stats?.arbitrage || 0); // Ajout de l'arbitrage au bénéfice du mois
-              if (!s.invoiceId) {
-                  monthlySimulationsAmount += budget;
-                  beneficeMensuel += (s.stats?.fees || 0); // Ajout des frais de gestion manuels
-              }
           }
-      }
-      
-      // On n'ajoute au CA global absolu que les cycles créés MANUELLEMENT pour éviter les doublons
-      if (!s.invoiceId) {
-          totalSimulations += budget;
       }
     });
 
@@ -708,8 +685,8 @@ export default function App() {
     const pipelineValue = contacts.reduce((acc, c) => (c.status !== 'gagne' && c.status !== 'perdu') ? acc + Number(c.projectedBudget ?? 0) : acc, 0);
 
     return {
-      caMensuel: monthlyInvoicesAmount + monthlySimulationsAmount,
-      caTotal: totalPaidInvoices + totalSimulations,
+      caMensuel: monthlyInvoicesAmount,
+      caTotal: totalPaidInvoices,
       caPotentiel: caPotentielInvoices,
       pipelineValue,
       activeCampaigns: simulations.length,
@@ -1326,12 +1303,6 @@ export default function App() {
     
     const clientSimulations = simulations.filter(s => s.clientId === selectedContact.id);
     const clientArbitrage = clientSimulations.reduce((acc, s) => acc + (s.stats?.arbitrage || 0), 0);
-
-    // Ajout des simulations manuelles (sans facture associée) au CA et Marges du client
-    clientSimulations.filter(s => !s.invoiceId).forEach(s => {
-        caEncaisse += Number(s.budget || 0);
-        clientMgtFees += Number(s.stats?.fees || 0);
-    });
 
     const beneficeTotalClient = clientMgtFees + clientArbitrage;
 
