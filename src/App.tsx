@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '53.3';
+const APP_VERSION = '53.5';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -480,6 +480,7 @@ export default function App() {
   const [invoiceMarginPercent, setInvoiceMarginPercent] = useState(35);
 
   const [planBudget, setPlanBudget] = useState(1000);
+  const [planDuration, setPlanDuration] = useState(30);
   const [planProductId, setPlanProductId] = useState('');
   const [planClientId, setPlanClientId] = useState('');
 
@@ -783,6 +784,7 @@ export default function App() {
               const simData = { 
                   invoiceId: inv.id, // On lie le cycle à la facture
                   budget: inv.amount, 
+                  duration: 30,
                   productId: activeProduct.id, 
                   productName: activeProduct.name, 
                   clientId: inv.clientId || '', 
@@ -854,7 +856,7 @@ export default function App() {
     const activeProduct = products.find((p) => p.id === planProductId);
     if (!activeProduct) return;
     const activeClient = contacts.find((c) => c.id === planClientId);
-    const simData = { budget: planBudget, productId: planProductId, productName: activeProduct.name, productPlatform: activeProduct.platform, clientId: planClientId, clientName: activeClient ? activeClient.company : 'Client Inconnu', stats: simStats, createdAt: new Date().toISOString() };
+    const simData = { budget: planBudget, duration: planDuration, productId: planProductId, productName: activeProduct.name, productPlatform: activeProduct.platform, clientId: planClientId, clientName: activeClient ? activeClient.company : 'Client Inconnu', stats: simStats, createdAt: new Date().toISOString() };
     await addDoc(collection(db, `artifacts/${getAppId()}/users/${user.uid}/simulations`), simData);
     addNotification('success', 'Production média activée dans vos cycles.');
   };
@@ -1370,6 +1372,10 @@ export default function App() {
                   {PIPELINE_STAGES.find(s => s.id === selectedContact.status)?.label}
                 </span>
               </div>
+              <div className="flex gap-3 mb-4">
+                  <span className="text-sm font-bold text-slate-700 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm flex items-center gap-2"><Wallet size={16}/> CA : {renderCurrency(caEncaisse)}</span>
+                  <span className="text-sm font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 shadow-sm flex items-center gap-2"><TrendingUp size={16}/> Bénéfice : {renderCurrency(beneficeTotalClient)}</span>
+              </div>
               <p className="text-slate-500 flex items-center gap-2 font-medium text-lg"><Users size={20}/> {selectedContact.name}</p>
               {selectedContact.address && <p className="text-slate-400 flex items-center gap-2 font-medium mt-1 text-sm"><MapPin size={16}/> {selectedContact.address}</p>}
 
@@ -1538,55 +1544,38 @@ export default function App() {
                 </div>
             </div>
 
-            {/* WIDGET : FINANCES POTENTIELLES */}
+            {/* WIDGET : CAMPAGNES EN COURS */}
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]">
-               <h4 className="font-extrabold text-slate-800 mb-5 font-poppins text-lg flex items-center gap-2"><Wallet size={20} className="text-slate-400"/> Finances (Potentiel)</h4>
-               <div>
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wide">Budget Mensuel Alloué (CHF)</label>
-                  <div className="relative mt-2">
-                     <Wallet className="absolute left-4 top-3.5 text-slate-400" size={20}/>
-                     <input 
-                       type="number" 
-                       value={selectedContact.projectedBudget || ''} 
-                       onChange={e => handleUpdate('contacts', selectedContact.id, { projectedBudget: Number(e.target.value) })}
-                       className="w-full border-2 border-slate-100 bg-slate-50 p-3 pl-12 rounded-xl font-extrabold text-xl outline-none focus:border-[#01189B] focus:bg-white transition-all text-slate-800"
-                       placeholder="0.00"
-                       onBlur={() => addNotification('success', 'Budget mis à jour')}
-                     />
-                  </div>
-               </div>
-               <div className="mt-5 p-4 bg-blue-50 rounded-xl border border-blue-100">
-                  <p className="text-xs font-bold text-[#01189B] mb-2 uppercase tracking-wide">Action Rapide</p>
-                  <button onClick={() => { setPlanClientId(selectedContact.id); setActiveView('projections'); setSelectedContactId(null); }} className="w-full py-2.5 bg-white border border-blue-200 text-[#01189B] font-bold rounded-lg hover:shadow-sm transition-all text-sm flex items-center justify-center gap-2"><PlayCircle size={16}/> Lancer Production Média</button>
-               </div>
-            </div>
-
-            {/* WIDGET : VALEUR RÉELLE CLIENT LTV */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] relative overflow-hidden">
-               <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-50 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
-               <h4 className="font-extrabold text-slate-800 mb-5 font-poppins text-lg flex items-center gap-2 relative z-10"><TrendingUp size={20} className="text-emerald-500"/> Valeur Réelle Client LTV</h4>
-               
-               <div className="grid grid-cols-2 gap-3 mb-4 relative z-10">
-                   <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 flex flex-col justify-center">
-                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">CA Encaissé</span>
-                       <span className="font-black text-slate-800 font-mono text-xl">{renderCurrency(caEncaisse)}</span>
+               <h4 className="font-extrabold text-slate-800 mb-4 font-poppins text-lg flex items-center gap-2"><PlayCircle size={20} className="text-indigo-500"/> Campagnes en cours</h4>
+               {clientSimulations.length === 0 ? (
+                   <p className="text-xs text-slate-400 italic text-center py-4">Aucune campagne active.</p>
+               ) : (
+                   <div className="space-y-4">
+                       {clientSimulations.map(sim => {
+                           const duration = sim.duration || 30;
+                           const start = new Date(sim.createdAt);
+                           const diffDays = Math.max(0, Math.floor((new Date().getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+                           const day = Math.min(diffDays, duration);
+                           const isFinished = day >= duration;
+                           const endDate = new Date(start.getTime() + duration * 24 * 60 * 60 * 1000);
+                           return (
+                               <div key={sim.id} className="p-4 rounded-xl border border-slate-100 bg-slate-50 relative overflow-hidden">
+                                   <div className="flex justify-between items-start mb-2 relative z-10">
+                                       <span className="font-bold text-sm text-slate-700 flex items-center gap-1"><Package size={14}/> {sim.productName}</span>
+                                       <span className={`text-[10px] px-2 py-1 rounded font-bold uppercase tracking-widest ${isFinished ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>{isFinished ? 'Terminé' : 'En cours'}</span>
+                                   </div>
+                                   <div className="w-full bg-slate-200 rounded-full h-1.5 mb-2 overflow-hidden relative z-10">
+                                       <div className={`h-full rounded-full transition-all ${isFinished ? 'bg-emerald-500' : 'bg-[#01189B]'}`} style={{ width: `${(day/duration)*100}%` }}></div>
+                                   </div>
+                                   <div className="flex justify-between text-[10px] text-slate-500 font-bold uppercase tracking-wider relative z-10">
+                                       <span>J-{day} / {duration}</span>
+                                       <span>Fin : {formatDate(endDate.toISOString())}</span>
+                                   </div>
+                               </div>
+                           )
+                       })}
                    </div>
-                   <div className="bg-emerald-500 p-4 rounded-xl border border-emerald-400 shadow-md flex flex-col justify-center text-white">
-                       <span className="text-[10px] font-bold text-emerald-100 uppercase tracking-widest mb-1">Bénéfice Net</span>
-                       <span className="font-black font-mono text-xl">{renderCurrency(beneficeTotalClient)}</span>
-                   </div>
-               </div>
-
-               <div className="flex gap-2 relative z-10">
-                   <div className="flex-1 p-3 bg-orange-50 rounded-xl border border-orange-100 flex justify-between items-center">
-                      <span className="text-[9px] font-bold text-orange-600 uppercase tracking-wider">Gestion</span>
-                      <span className="font-extrabold text-orange-700 font-mono text-xs">{renderCurrency(clientMgtFees)}</span>
-                   </div>
-                   <div className="flex-1 p-3 bg-purple-50 rounded-xl border border-purple-100 flex justify-between items-center">
-                      <span className="text-[9px] font-bold text-purple-600 uppercase tracking-wider">Arbitrage</span>
-                      <span className="font-extrabold text-purple-700 font-mono text-xs">{renderCurrency(clientArbitrage)}</span>
-                   </div>
-               </div>
+               )}
             </div>
 
             {/* WIDGET : HISTORIQUE FACTURES */}
@@ -1671,7 +1660,7 @@ export default function App() {
     let planStats = { volumeTotal: 0, costTotal: 0, profit: 0, dailyVolume: 0, dailyBudget: 0, margin: 0, fees: 0, arbitrage: 0 };
     if (activeProduct && planBudget > 0 && activeProduct.price > 0) {
       const fees = planBudget * 0.35; const netMedia = planBudget * 0.65; const volumeTotal = Math.floor(netMedia / activeProduct.price); const costTotal = volumeTotal * Number(activeProduct.cost ?? 0);
-      const arbitrage = netMedia - costTotal; const profit = fees + arbitrage; planStats = { volumeTotal, costTotal, profit, dailyVolume: volumeTotal / 30, dailyBudget: costTotal / 30, margin: (profit / planBudget) * 100, fees, arbitrage };
+      const arbitrage = netMedia - costTotal; const profit = fees + arbitrage; planStats = { volumeTotal, costTotal, profit, dailyVolume: volumeTotal / planDuration, dailyBudget: costTotal / planDuration, margin: (profit / planBudget) * 100, fees, arbitrage };
     }
 
     const totalSimulations = simulations.length;
@@ -1700,11 +1689,12 @@ export default function App() {
               <h2 className="text-lg font-extrabold flex items-center gap-2 font-poppins text-slate-800"><Calculator style={{ color: BRAND_COLOR }} size={20} /> Convertir Contrat en Production Média</h2>
               <p className="text-slate-500 text-sm mt-1">Ajoutez un contrat signé pour l'activer dans les cycles (Cela générera les graphiques dans le calendrier).</p>
             </div>
-            <div className="p-8 grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
+            <div className="p-8 grid grid-cols-1 md:grid-cols-5 gap-6 items-end">
               <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2 tracking-wide">1. Choix Client</label><select value={planClientId} onChange={(e) => setPlanClientId(e.target.value)} className={UI_CLASSES.input}><option value="">-- Aucun --</option>{contacts.map((c) => (<option key={c.id} value={c.id}>{c.company}</option>))}</select></div>
               <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2 tracking-wide">2. Thématique</label><select value={planProductId} onChange={(e) => setPlanProductId(e.target.value)} className={UI_CLASSES.input}><option value="">-- Choisir --</option>{products.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}</select></div>
               <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2 tracking-wide">3. Budget Signé</label><input type="number" value={planBudget} onChange={(e) => setPlanBudget(Number(e.target.value))} className={`${UI_CLASSES.input} text-[#01189B] text-lg font-extrabold`} /></div>
-              <button onClick={() => handleSaveSimulation(planStats)} className="w-full text-white py-3.5 rounded-xl font-bold flex items-center justify-center gap-2 hover:shadow-lg hover:-translate-y-0.5 transition-all text-lg" style={{ backgroundColor: BRAND_COLOR }}><Plus size={20} /> Démarrer la prod.</button>
+              <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2 tracking-wide">4. Durée (Jours)</label><input type="number" value={planDuration} onChange={(e) => setPlanDuration(Number(e.target.value))} className={`${UI_CLASSES.input} text-slate-700 text-lg font-extrabold`} /></div>
+              <button onClick={() => handleSaveSimulation(planStats)} className="w-full text-white py-3.5 rounded-xl font-bold flex items-center justify-center gap-2 hover:shadow-lg hover:-translate-y-0.5 transition-all text-lg" style={{ backgroundColor: BRAND_COLOR }}><Plus size={20} /> Lancer</button>
             </div>
           </div>
 
@@ -1719,11 +1709,12 @@ export default function App() {
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {simulations.map((sim) => {
+                      const duration = sim.duration || 30;
                       const start = new Date(sim.createdAt);
                       const diffDays = Math.max(0, Math.floor((new Date().getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
-                      const day = Math.min(diffDays, 30);
-                      const daysPercent = (day / 30) * 100;
-                      const isFinished = day >= 30;
+                      const day = Math.min(diffDays, duration);
+                      const daysPercent = (day / duration) * 100;
+                      const isFinished = day >= duration;
 
                       return (
                       <tr key={sim.id} className="hover:bg-blue-50/30 transition-colors">
@@ -1733,7 +1724,7 @@ export default function App() {
                         </td>
                         <td className="px-6 py-5 w-48">
                           <div className="flex justify-between text-[10px] font-bold text-slate-400 mb-1">
-                            <span>J-{day}</span><span>30 J</span>
+                            <span>J-{day}</span><span>{duration} J</span>
                           </div>
                           <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
                             <div className={`h-full rounded-full transition-all ${isFinished ? 'bg-emerald-500' : 'bg-blue-500'}`} style={{ width: `${daysPercent}%` }}></div>
@@ -2567,7 +2558,7 @@ export default function App() {
                           <CalendarIcon size={32} style={{ color: BRAND_COLOR }}/> Cycles de Livraison Actifs
                         </h2>
                       </div>
-                      <p className="text-slate-500 text-lg mb-8">Vue d'ensemble graphique de l'avancement de vos productions média en cours (Cycle 30 Jours).</p>
+                      <p className="text-slate-500 text-lg mb-8">Vue d'ensemble graphique de l'avancement de vos productions média en cours.</p>
 
                       {simulations.length === 0 ? (
                         <div className="bg-white p-16 text-center rounded-3xl border border-slate-100 shadow-sm">
@@ -2580,15 +2571,16 @@ export default function App() {
                       ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                           {simulations.map(sim => {
+                            const duration = sim.duration || 30;
                             const start = new Date(sim.createdAt);
                             const diffDays = Math.max(0, Math.floor((new Date().getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
-                            const day = Math.min(diffDays, 30);
-                            const daysPercent = (day / 30) * 100;
+                            const day = Math.min(diffDays, duration);
+                            const daysPercent = (day / duration) * 100;
                             
                             const targetLeads = sim.stats?.volumeTotal || 0;
-                            const expectedLeads = Math.min(Math.floor((targetLeads / 30) * day), targetLeads); 
+                            const expectedLeads = Math.min(Math.floor((targetLeads / duration) * day), targetLeads); 
                             const leadsPercent = targetLeads > 0 ? (expectedLeads / targetLeads) * 100 : 0;
-                            const isFinished = day >= 30;
+                            const isFinished = day >= duration;
                             
                             return (
                               <div key={sim.id} className={`bg-white rounded-2xl border-2 shadow-sm p-6 relative hover:shadow-lg transition-all ${isFinished ? 'border-red-200' : 'border-slate-100 hover:border-[#01189B]'}`}>
@@ -2610,7 +2602,7 @@ export default function App() {
                                   <div>
                                     <div className="flex justify-between text-xs font-extrabold mb-2">
                                       <span className="text-slate-500 uppercase tracking-wider flex items-center gap-1"><Clock size={12}/> Temps écoulé</span>
-                                      <span className="text-slate-700 font-mono text-sm">{day} <span className="text-[10px] text-slate-400">/ 30 jours</span></span>
+                                      <span className="text-slate-700 font-mono text-sm">{day} <span className="text-[10px] text-slate-400">/ {duration} jours</span></span>
                                     </div>
                                     <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden shadow-inner">
                                       <div className={`h-full rounded-full transition-all duration-1000 ${isFinished ? 'bg-red-500' : 'bg-[#01189B]'}`} style={{ width: `${daysPercent}%` }}></div>
