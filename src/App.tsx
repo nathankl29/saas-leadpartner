@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '52.8';
+const APP_VERSION = '52.9';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -450,12 +450,12 @@ export default function App() {
     legalNotice: 'Entreprise individuelle non soumise à la TVA',
     primaryColor: BRAND_COLOR,
     monthlyGoal: 50000,
-    dashboardLayout: ['objective', 'widget_finances_data', 'widget_finances_chart', 'stat_ca_month', 'stat_ca_total', 'stat_ca_potentiel', 'stat_pipeline', 'stat_campaigns', 'reminders', 'invoices', 'activity'],
+    dashboardLayout: ['objective', 'widget_finances_data', 'widget_finances_chart', 'chart_annual_1', 'stat_ca_month', 'stat_ca_total', 'stat_ca_potentiel', 'stat_pipeline', 'stat_campaigns', 'widget_ca_details', 'reminders', 'invoices', 'activity'],
     webhookUrl: '', 
     webhookUrlProspection: '',
     emailTemplates: DEFAULT_EMAIL_TEMPLATES,
     prospectEmailTemplates: DEFAULT_PROSPECT_EMAIL_TEMPLATES,
-    defaultContractText: `CONTRAT DE PRESTATION DE SERVICES : GÉNÉRATION DE LEADS\n\nENTRE LES SOUSSIGNÉS :\n\n{{agency_company}}\nCi-après dénommé « le Prestataire »\n\nET :\n\n{{client_company}}\nSiège social : {{client_address}}\nReprésenté par : {{client_name}}\nCi-après dénommé « le Client »\n\nArticle 1 : Objet du contrat\nLe présent contrat définit les conditions dans lesquelles le Prestataire s'engage à concevoir, gérer et optimiser des campagnes publicitaires digitales (notamment sur Meta, Google et TikTok) dans le but de générer des contacts commerciaux (ci-après « Leads ») pour le compte du Client. Les canaux spécifiques utilisés pour chaque campagne seront précisés sur les factures correspondantes.\n\nArticle 2 : Définition, Livraison et Exclusivité des Leads\nDéfinition : Un lead est considéré comme valide lorsqu'il comporte les informations de base requises pour le recontacter (notamment nom, prénom, adresse e-mail, et un numéro de téléphone).\n\nLivraison : Les leads sont transmis au Client en temps réel via un document Google Sheets partagé et sécurisé, mis à disposition par le Prestataire.\n\nExclusivité : Le Prestataire garantit que chaque lead généré dans le cadre de ce contrat est strictement exclusif au Client et ne sera ni vendu ni partagé à une entreprise tierce. Toutefois, le Prestataire n'accorde aucune exclusivité géographique au Client et se réserve le droit de collaborer avec d'autres entreprises du même secteur dans la même région.\n\nArticle 3 : Qualité et Politique de Remplacement\nLe Prestataire s'engage sur la pertinence du ciblage publicitaire. Si le Client constate qu'un lead contient un numéro de téléphone invalide (faux numéro ou numéro non attribué), il doit le signaler au Prestataire. Les leads invalides reconnus comme tels par le Prestataire seront remplacés sans frais supplémentaires lors du mois en cours ou lors de la campagne suivante.\n\nArticle 4 : Conditions Financières\nLe Client confie au Prestataire un budget global pour la réalisation de ses campagnes. Le Prestataire prélève des frais de gestion sur ce budget selon un barème dégressif. Le solde restant (Budget Net) est intégralement investi dans l'achat d'espace publicitaire sur les plateformes (Meta, Google, TikTok, etc.).\n\nLes frais de gestion s'appliquent sur le budget total confié par le Client selon les paliers suivants :\nDe 0 CHF à 4'999 CHF : 35% de frais de gestion.\nDe 5'000 CHF à 9'999 CHF : 30% de frais de gestion.\nDe 10'000 CHF à 14'999 CHF : 25% de frais de gestion.\n15'000 CHF et plus : 20% de frais de gestion.\n\nToute facturation est sujette à la TVA en vigueur (si applicable).\n\nArticle 5 : Paiement et Délais d'exécution\nModalités de paiement : Afin d'alimenter les comptes publicitaires et de lancer les campagnes, les factures sont payables immédiatement par le Client, à réception de la facture.\n\nLancement publicitaire : Le Prestataire s'engage à livrer les premiers leads dans un délai maximum de 7 jours ouvrés suivant la bonne réception du paiement.\n\nArticle 6 : Durée et Résiliation\nLe présent contrat est conclu sans durée d'engagement minimum. Le Client est libre de renouveler ou non le budget à l'issue de chaque campagne.\nEn l'absence d'engagement de durée, aucun préavis de résiliation n'est exigé de la part de l'une ou l'autre des parties pour cesser la collaboration.\n\nArticle 7 : Protection des Données (nLPD)\nConformément à la Loi fédérale sur la protection des données (nLPD), le Prestataire agit en tant que sous-traitant des données récoltées. Les données des leads sont collectées de manière transparente via les plateformes publicitaires dans le seul but d'être traitées par le Client. Le Client, en tant que responsable du traitement, s'engage à utiliser ces données dans le strict respect de la législation suisse en vigueur, à des fins de prospection légitime, et à gérer les éventuelles demandes de suppression de données des prospects.\n\nArticle 8 : Droit Applicable et For Juridique\nLe présent contrat est soumis au droit suisse. En cas de litige relatif à l'interprétation ou à l'exécution du présent contrat, et à défaut de résolution à l'amiable, le for juridique exclusif est fixé à Genève.`,
+    defaultContractText: `CONTRAT DE PRESTATION DE SERVICES : GÉNÉRATION DE LEADS\n\nENTRE LES SOUSSIGNÉS :\n\n{{agency_company}}\nCi-après dénommé « le Prestataire »\n\nET :\n\n{{client_company}}\nSiège social : {{client_address}}\nReprésenté par : {{client_name}}\nCi-après dénommé « le Client »\n\nArticle 1 : Objet du contrat\nLe présent contrat définit les conditions dans lesquelles le Prestataire s'engage à concevoir, gérer et optimiser des campagnes publicitaires digitales (notamment sur Meta, Google et TikTok) dans le but de générer des contacts commerciaux (ci-après « Leads ») pour le compte du Client. Les canaux spécifiques utilisés pour chaque campagne seront précisés sur les factures correspondantes.\n\nArticle 2 : Définition, Livraison et Exclusivité des Leads\nDéfinition : Un lead est considéré comme valide lorsqu'il comporte les informations de base requises pour le recontacter (notamment nom, prénom, adresse e-mail, et un numéro de téléphone).\n\nLivraison : Les leads sont transmis au Client en temps réel via un document Google Sheets partagé et sécurisé, mis à disposition par le Prestataire.\n\nExclusivité : Le Prestataire garantit que chaque lead généré dans le cadre de ce contrat est strictement exclusif au Client et ne sera ni vendu ni partagé à une entreprise tierce. Toutefois, le Prestataire n'accorde aucune exclusivité géographique au Client et se réserve le droit de collaborer avec d'autres entreprises du même secteur dans la même région.\n\nArticle 3 : Qualité et Politique de Remplacement\nLe Prestataire s'engage sur la pertinence du ciblage publicitaire. Si le Client constate qu'un lead contient un numéro de téléphone invalide (faux numéro ou numéro non attribué), il doit le signaler au Prestataire. Les leads invalides reconnus comme tels par le Prestataire seront remplacés sans frais supplémentaires lors du mois en cours ou lors de la campagne suivante.\n\nArticle 4 : Conditions Financières\nLe Client confie au Prestataire un budget global pour la réalisation de ses campagnes. Le Prestataire prélève des frais de gestion sur ce budget selon un barème dégressif. Le solde restant (Budget Net) est intégralement investi dans l'achat d'espace publicitaire sur les plateformes (Meta, Google, TikTok, etc.).\n\nLes frais de gestion s'appliquent sur le budget total confié par le Client selon les paliers suivants :\nDe 0 CHF à 4'999 CHF : 35% de frais de gestion.\nDe 5'000 CHF à 9'999 CHF : 30% de frais de gestion.\nDe 10'000 CHF à 14'999 CHF : 25% de frais de gestion.\n15'000 CHF et plus : 20% de frais de gestion.\n\nToute facturation est sujette à la TVA en vigueur (si applicable).\n\nArticle 5 : Paiement et Délais d'exécution\nModalités de paiement : Afin d'alimenter les comptes publicitaires et de lancer les campagnes, les factures sont payables immédiatement par le Client, à réception de la facture.\n\nLancement publicitaire : Le Prestataire s'engage à livrer les premiers leads dans un délai maximum de 7 jours ouvrés suivant la bonne réception du paiement.\n---\nArticle 6 : Durée et Résiliation\nLe présent contrat est conclu sans durée d'engagement minimum. Le Client est libre de renouveler ou non le budget à l'issue de chaque campagne.\nEn l'absence d'engagement de durée, aucun préavis de résiliation n'est exigé de la part de l'une ou l'autre des parties pour cesser la collaboration.\n\nArticle 7 : Protection des Données (nLPD)\nConformément à la Loi fédérale sur la protection des données (nLPD), le Prestataire agit en tant que sous-traitant des données récoltées. Les données des leads sont collectées de manière transparente via les plateformes publicitaires dans le seul but d'être traitées par le Client. Le Client, en tant que responsable du traitement, s'engage à utiliser ces données dans le strict respect de la législation suisse en vigueur, à des fins de prospection légitime, et à gérer les éventuelles demandes de suppression de données des prospects.\n\nArticle 8 : Droit Applicable et For Juridique\nLe présent contrat est soumis au droit suisse. En cas de litige relatif à l'interprétation ou à l'exécution du présent contrat, et à défaut de résolution à l'amiable, le for juridique exclusif est fixé à Genève.`,
   });
 
   const [contacts, setContacts] = useState<any[]>([]);
@@ -628,7 +628,7 @@ export default function App() {
 
   const stats = useMemo(() => {
     const currentMonth = new Date().getMonth();
-    const currentYear = dashboardYear;
+    const currentYear = dashboardYear; // <--- UPDATE CA GRÂCE A LA VARIABLE
 
     let monthlyInvoicesAmount = 0, totalPaidInvoices = 0, caPotentielInvoices = 0;
     const monthlyCA = new Array(12).fill(0);
@@ -650,14 +650,15 @@ export default function App() {
               const marginPercent = i.marginPercent !== undefined ? i.marginPercent : 35;
               const frais = amt * (marginPercent / 100);
               beneficePapierTotal += frais;
+              
+              // Only count client CA for the selected year!
+              const clientId = i.clientId || i.clientName || 'Inconnu';
+              if (!caPerClient[clientId]) caPerClient[clientId] = { name: i.clientName || 'Inconnu', total: 0 };
+              caPerClient[clientId].total += amt;
           }
           if (d.getMonth() === currentMonth && d.getFullYear() === new Date().getFullYear()) {
               monthlyInvoicesAmount += amt;
           }
-
-          const clientId = i.clientId || i.clientName || 'Inconnu';
-          if (!caPerClient[clientId]) caPerClient[clientId] = { name: i.clientName || 'Inconnu', total: 0 };
-          caPerClient[clientId].total += amt;
       } 
       // CA Potentiel (factures en cours, brouillons, en retard - tout sauf payée, annulée et archivée)
       else if (i.status !== 'annulee' && i.status !== 'archive') {
@@ -675,16 +676,18 @@ export default function App() {
       if (d.getFullYear() === currentYear) {
           beneficeReelTotal += (s.stats?.profit || 0);
           arbitrageTotal += (s.stats?.arbitrage || 0);
+          
+          if (!s.invoiceId) {
+              const clientId = s.clientId || s.clientName || 'Inconnu';
+              if (!caPerClient[clientId]) caPerClient[clientId] = { name: s.clientName || 'Inconnu', total: 0 };
+              caPerClient[clientId].total += budget;
+          }
       }
       
       // On n'ajoute au CA que les cycles créés MANUELLEMENT pour éviter les doublons avec les factures
       if (!s.invoiceId) {
           totalSimulations += budget;
           if (d.getMonth() === currentMonth && d.getFullYear() === new Date().getFullYear()) monthlySimulationsAmount += budget;
-
-          const clientId = s.clientId || s.clientName || 'Inconnu';
-          if (!caPerClient[clientId]) caPerClient[clientId] = { name: s.clientName || 'Inconnu', total: 0 };
-          caPerClient[clientId].total += budget;
       }
     });
 
@@ -705,7 +708,7 @@ export default function App() {
       arbitrageTotal,
       caDetails
     };
-  }, [invoices, contacts, simulations]);
+  }, [invoices, contacts, simulations, dashboardYear]); // <-- DEPENDANCE dashboardYear AJOUTEE
 
   // --- ACTIONS ---
   const handleCreate = async (col: string, data: any) => {
@@ -1746,7 +1749,7 @@ export default function App() {
       .sort((a,b) => new Date(a.nextContactDate).getTime() - new Date(b.nextContactDate).getTime())
       .slice(0, 5);
 
-    const defaultLayout = ['objective', 'widget_finances_data', 'widget_finances_chart', 'stat_ca_month', 'stat_ca_total', 'stat_ca_potentiel', 'stat_pipeline', 'widget_ca_details', 'stat_campaigns', 'reminders', 'invoices', 'activity'];
+    const defaultLayout = ['objective', 'widget_finances_data', 'widget_finances_chart', 'chart_annual_1', 'stat_ca_month', 'stat_ca_total', 'stat_ca_potentiel', 'stat_pipeline', 'stat_campaigns', 'widget_ca_details', 'reminders', 'invoices', 'activity'];
     let currentLayout = settings.dashboardLayout !== undefined ? settings.dashboardLayout : defaultLayout;
 
     const toggleWidget = async (widgetId: string) => {
@@ -2211,13 +2214,14 @@ export default function App() {
                       <h3 className="font-extrabold text-xl mb-6 font-poppins border-b border-slate-100 pb-4 text-slate-800 flex items-center gap-2"><FileText size={22} className="text-[#01189B]"/> Modèle de Contrat</h3>
                       
                       <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 mb-4 text-sm text-blue-800">
-                          <p className="font-bold flex items-center gap-2 mb-2"><Info size={16}/> Variables disponibles :</p>
-                          <div className="flex flex-wrap gap-2">
+                          <p className="font-bold flex items-center gap-2 mb-2"><Info size={16}/> Astuces & Variables :</p>
+                          <div className="flex flex-wrap gap-2 mb-2">
                               <code className="bg-white px-2 py-1 rounded border border-blue-200 text-xs font-bold">{'{{client_company}}'}</code>
                               <code className="bg-white px-2 py-1 rounded border border-blue-200 text-xs font-bold">{'{{client_address}}'}</code>
                               <code className="bg-white px-2 py-1 rounded border border-blue-200 text-xs font-bold">{'{{client_name}}'}</code>
                               <code className="bg-white px-2 py-1 rounded border border-blue-200 text-xs font-bold">{'{{agency_company}}'}</code>
                           </div>
+                          <p className="text-xs">Insérez <code className="bg-white px-1 rounded font-bold">---</code> (3 tirets) dans votre texte pour forcer un saut de page manuel sur le PDF.</p>
                       </div>
 
                       <div>
@@ -3063,7 +3067,7 @@ export default function App() {
                         )}
                         {!isEditingContractInInvoice && currentInvoice.includeContract && (
                             <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl">
-                                <p className="text-[10px] text-blue-600 font-bold leading-tight">Le contrat sera ajouté automatiquement à la fin du PDF sur une nouvelle page. Les variables sont remplacées dynamiquement.</p>
+                                <p className="text-[10px] text-blue-600 font-bold leading-tight">Le contrat sera ajouté automatiquement à la fin du PDF. <br/><span className="text-xl inline-block mt-1">💡</span> <b>Astuce :</b> Tapez <code className="bg-white px-1.5 py-0.5 rounded shadow-sm text-black">---</code> (3 tirets consécutifs) dans votre texte pour forcer un saut de page manuel vers la page suivante.</p>
                             </div>
                         )}
                     </div>
@@ -3209,11 +3213,16 @@ export default function App() {
                                         .replace(/\{\{client_name\}\}/g, currentInvoice.clientContactName || '_______________')
                                         .replace(/\{\{agency_company\}\}/g, settings.companyName || '_______________')
                                         .split('\n\n')
-                                        .map((paragraph: string, idx: number) => (
-                                            <div key={idx} className="keep-together mb-4 whitespace-pre-wrap block" style={{ pageBreakInside: 'avoid' }}>
-                                                {paragraph}
-                                            </div>
-                                        ))
+                                        .map((paragraph: string, idx: number) => {
+                                            if (paragraph.trim() === '---') {
+                                                return <div key={idx} className="html2pdf__page-break" style={{ pageBreakBefore: 'always', height: '1px', width: '100%' }}></div>;
+                                            }
+                                            return (
+                                                <div key={idx} className="keep-together mb-4 whitespace-pre-wrap block" style={{ pageBreakInside: 'avoid' }}>
+                                                    {paragraph}
+                                                </div>
+                                            )
+                                        })
                                     }
                                 </div>
                                 <div className="keep-together mt-8 grid grid-cols-2 gap-8 pt-6 pb-2 shrink-0 block" style={{ pageBreakInside: 'avoid' }}>
