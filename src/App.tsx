@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '52.7';
+const APP_VERSION = '52.8';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -140,7 +140,7 @@ const getPdfOptions = (filename: string) => ({
   margin: 0,
   filename,
   image: { type: 'jpeg', quality: 1 },
-  pagebreak: { mode: 'css', avoid: ['tr', '.keep-together'] },
+  pagebreak: { mode: ['css', 'legacy'], avoid: ['.keep-together', 'tr'] },
   html2canvas: { 
       scale: 2, useCORS: true, scrollY: 0,
       onclone: (doc: any) => {
@@ -424,6 +424,7 @@ const SignaturePad = ({ onSave, onClear }: any) => {
 // --- COMPOSANT PRINCIPAL ---
 export default function App() {
   const [activeView, setActiveView] = useState('dashboard');
+  const [dashboardYear, setDashboardYear] = useState(new Date().getFullYear());
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [isAppAuthenticated, setIsAppAuthenticated] = useState(false);
@@ -627,7 +628,7 @@ export default function App() {
 
   const stats = useMemo(() => {
     const currentMonth = new Date().getMonth();
-    const currentYear = new Date().getFullYear();
+    const currentYear = dashboardYear;
 
     let monthlyInvoicesAmount = 0, totalPaidInvoices = 0, caPotentielInvoices = 0;
     const monthlyCA = new Array(12).fill(0);
@@ -650,7 +651,7 @@ export default function App() {
               const frais = amt * (marginPercent / 100);
               beneficePapierTotal += frais;
           }
-          if (d.getMonth() === currentMonth && d.getFullYear() === currentYear) {
+          if (d.getMonth() === currentMonth && d.getFullYear() === new Date().getFullYear()) {
               monthlyInvoicesAmount += amt;
           }
 
@@ -679,7 +680,7 @@ export default function App() {
       // On n'ajoute au CA que les cycles créés MANUELLEMENT pour éviter les doublons avec les factures
       if (!s.invoiceId) {
           totalSimulations += budget;
-          if (d.getMonth() === currentMonth && d.getFullYear() === currentYear) monthlySimulationsAmount += budget;
+          if (d.getMonth() === currentMonth && d.getFullYear() === new Date().getFullYear()) monthlySimulationsAmount += budget;
 
           const clientId = s.clientId || s.clientName || 'Inconnu';
           if (!caPerClient[clientId]) caPerClient[clientId] = { name: s.clientName || 'Inconnu', total: 0 };
@@ -1842,9 +1843,9 @@ export default function App() {
         widget_finances_chart: (
             <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] h-full flex flex-col relative overflow-hidden min-h-[300px]">
                 <div className="flex justify-between items-start mb-8 relative z-10">
-                    <h3 className="font-extrabold text-slate-800 font-poppins text-xl flex items-center gap-3"><TrendingUp style={{ color: BRAND_COLOR }} size={24}/> Évolution Mensuelle 2026</h3>
+                    <h3 className="font-extrabold text-slate-800 font-poppins text-xl flex items-center gap-3"><TrendingUp style={{ color: BRAND_COLOR }} size={24}/> Évolution Mensuelle {dashboardYear}</h3>
                     <div className="text-right">
-                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Total Annuel 2026</p>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Total Annuel {dashboardYear}</p>
                         <p className="text-lg font-black font-poppins text-[#01189B]">{renderCurrency(stats.caAnnuel)}</p>
                     </div>
                 </div>
@@ -1879,10 +1880,10 @@ export default function App() {
                 <div className="absolute top-0 right-0 p-32 bg-blue-50/30 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
                 <div className="flex justify-between items-start mb-8 relative z-10">
                     <div>
-                        <h3 className="font-extrabold text-slate-800 font-poppins text-xl flex items-center gap-3"><TrendingUp style={{ color: BRAND_COLOR }} size={24}/> Évolution Mensuelle 2026</h3>
+                        <h3 className="font-extrabold text-slate-800 font-poppins text-xl flex items-center gap-3"><TrendingUp style={{ color: BRAND_COLOR }} size={24}/> Évolution Mensuelle {dashboardYear}</h3>
                     </div>
                     <div className="bg-white border-2 border-[#01189B]/10 px-5 py-3 rounded-2xl shadow-sm">
-                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-0.5">CA Total Encaissé 2026</p>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-0.5">CA Total Encaissé {dashboardYear}</p>
                         <p className="text-3xl font-black font-poppins text-[#01189B]">{renderCurrency(stats.caAnnuel)}</p>
                     </div>
                 </div>
@@ -2072,11 +2073,19 @@ export default function App() {
 
     return (
       <div className="space-y-8 animate-fade-in max-w-7xl mx-auto pb-12">
-        <div className="flex justify-between items-center">
+        <div className="flex justify-between items-center flex-wrap gap-4">
             <h2 className="text-3xl font-extrabold text-slate-800 font-poppins"><LayoutDashboard style={{ color: BRAND_COLOR }} className="inline-block mr-3" size={32}/> Tableau de bord</h2>
-            <button onClick={() => setIsEditingLayout(!isEditingLayout)} className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors shadow-sm ${isEditingLayout ? 'bg-[#01189B] text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
-                <Settings size={16}/> {isEditingLayout ? 'Terminer' : 'Personnaliser'}
-            </button>
+            <div className="flex gap-3">
+                <select value={dashboardYear} onChange={e => setDashboardYear(Number(e.target.value))} className="px-4 py-2 rounded-xl text-sm font-bold bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors shadow-sm outline-none cursor-pointer">
+                    <option value={2027}>Année 2027</option>
+                    <option value={2026}>Année 2026</option>
+                    <option value={2025}>Année 2025</option>
+                    <option value={2024}>Année 2024</option>
+                </select>
+                <button onClick={() => setIsEditingLayout(!isEditingLayout)} className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors shadow-sm ${isEditingLayout ? 'bg-[#01189B] text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                    <Settings size={16}/> {isEditingLayout ? 'Terminer' : 'Personnaliser'}
+                </button>
+            </div>
         </div>
 
         {isEditingLayout && (
@@ -3087,7 +3096,7 @@ export default function App() {
                                     <h1 className="text-3xl font-extrabold uppercase mb-1 font-poppins tracking-tight" style={{ color: BRAND_COLOR }}>Facture</h1>
                                     <div className="text-slate-500 font-medium text-[11px] space-y-0.5 mt-1">
                                         <p className="flex items-center gap-1"><span className="font-bold w-20 inline-block">N° Facture</span> <input value={currentInvoice.id} onChange={e => setCurrentInvoice({...currentInvoice, id: e.target.value})} className="text-slate-800 font-mono font-bold bg-slate-100 px-1.5 py-0.5 rounded outline-none border-none print-input w-28 text-[11px]" /></p>
-                                        <p className="flex items-center gap-1"><span className="font-bold w-20 inline-block">Date</span> <input type="date" value={currentInvoice.date ? currentInvoice.date.split('T')[0] : ''} onChange={e => e.target.value && setCurrentInvoice({...currentInvoice, date: new Date(e.target.value).toISOString()})} className="bg-transparent outline-none border-none print-input text-[11px] font-medium font-sans w-28" /></p>
+                                        <p className="flex items-center gap-1"><span className="font-bold w-20 inline-block">Date</span> <input type="date" value={currentInvoice.date ? currentInvoice.date.split('T')[0] : ''} onChange={e => e.target.value && setCurrentInvoice({...currentInvoice, date: new Date(e.target.value).toISOString()})} className="bg-slate-100 px-1.5 py-0.5 rounded outline-none border-none print-input text-[11px] font-medium font-sans w-28 cursor-pointer hover:bg-slate-200 transition-colors" title="Modifie le mois d'attribution du CA" /></p>
                                         <p className="flex items-center gap-1"><span className="font-bold w-20 inline-block">Échéance</span> <span className="px-1.5 py-0.5">{formatDate(new Date(new Date(currentInvoice.date).getTime() + 30*24*60*60*1000).toISOString())}</span></p>
                                     </div>
                                 </div>
@@ -3192,8 +3201,8 @@ export default function App() {
 
                         {/* --- PAGE CONTRAT (OPTIONNELLE) --- */}
                         {currentInvoice.includeContract && currentInvoice.contractText && (
-                            <div className="html2pdf__page-break bg-white w-full min-h-[297mm] h-max shadow-2xl p-[10mm] pb-[20mm] flex flex-col relative box-border mt-8 print:mt-0 print:p-[10mm] print:pb-[20mm]" style={{ pageBreakBefore: 'always' }}>
-                                <div className="text-[10px] text-slate-700 leading-[1.5] font-medium text-justify mb-6 flex-1">
+                            <div className="html2pdf__page-break bg-white w-full h-max shadow-2xl p-[10mm] pb-[20mm] box-border block mt-8 print:mt-0 print:p-[10mm] print:pb-[20mm]" style={{ pageBreakBefore: 'always' }}>
+                                <div className="text-[10px] text-slate-700 leading-[1.5] font-medium text-justify mb-6 block">
                                     {currentInvoice.contractText
                                         .replace(/\{\{client_company\}\}/g, currentInvoice.clientName || '_______________')
                                         .replace(/\{\{client_address\}\}/g, currentInvoice.clientAddress || '_______________')
@@ -3201,13 +3210,13 @@ export default function App() {
                                         .replace(/\{\{agency_company\}\}/g, settings.companyName || '_______________')
                                         .split('\n\n')
                                         .map((paragraph: string, idx: number) => (
-                                            <div key={idx} className="keep-together break-inside-avoid mb-4 whitespace-pre-wrap">
+                                            <div key={idx} className="keep-together mb-4 whitespace-pre-wrap block" style={{ pageBreakInside: 'avoid' }}>
                                                 {paragraph}
                                             </div>
                                         ))
                                     }
                                 </div>
-                                <div className="keep-together break-inside-avoid mt-8 grid grid-cols-2 gap-8 pt-6 pb-2 shrink-0">
+                                <div className="keep-together mt-8 grid grid-cols-2 gap-8 pt-6 pb-2 shrink-0 block" style={{ pageBreakInside: 'avoid' }}>
                                     <div>
                                         <p className="font-bold text-slate-800 text-[10px] uppercase mb-2 tracking-widest">Le Prestataire</p>
                                         <div className="h-14 flex items-end mb-2">
