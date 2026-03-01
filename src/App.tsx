@@ -136,8 +136,13 @@ const getPdfOptions = (filename: string) => ({
   image: { type: 'jpeg', quality: 1 },
   pagebreak: { mode: ['css', 'legacy'], avoid: ['.keep-together', 'tr'] },
   html2canvas: { 
-      scale: 2, useCORS: true, scrollY: 0,
+      scale: 2, useCORS: true, scrollY: 0, scrollX: 0,
       onclone: (doc: any) => {
+          const printEl = doc.getElementById('invoice-printable');
+          if (printEl) {
+              printEl.style.margin = '0';
+              printEl.style.transform = 'none';
+          }
           doc.querySelectorAll('.no-print').forEach((el: any) => el.style.display = 'none');
           doc.querySelectorAll('textarea.print-input').forEach((el: any) => {
               const div = doc.createElement('div');
@@ -2981,10 +2986,10 @@ export default function App() {
                 </div>
 
                 {/* FACTURE A4 */}
-                <div className="flex-1 overflow-auto bg-slate-200 p-8 flex justify-center custom-scrollbar relative">
-                    <div id="invoice-printable" className="bg-transparent w-[210mm] h-max text-slate-800 relative shrink-0 box-border block">
+                <div className="flex-1 overflow-auto bg-slate-200 p-4 md:p-8 flex justify-center custom-scrollbar relative">
+                    <div id="invoice-printable" className="bg-transparent w-[210mm] max-w-[210mm] text-slate-800 relative shrink-0 box-border mx-auto block">
                         
-                        <div className="invoice-page-1 bg-white w-full h-[297mm] max-h-[297mm] overflow-hidden shadow-2xl px-[10mm] pt-[10mm] pb-[20mm] flex flex-col justify-between relative box-border mb-8 print:mb-0">
+                        <div className="invoice-page-1 bg-white w-[210mm] h-[296.5mm] overflow-hidden shadow-2xl px-[15mm] pt-[15mm] pb-[25mm] flex flex-col relative box-border mb-8 print:mb-0 print:shadow-none">
                             {/* Marqueur visuel de fin de page 1 (no-print) */}
                             <div className="absolute bottom-0 left-0 w-full border-b-2 border-red-300 border-dashed no-print z-[100] flex justify-center">
                                  <span className="bg-red-50 px-2 text-[8px] text-red-500 font-bold uppercase tracking-widest -mt-3">Limite Page 1 (A4)</span>
@@ -3074,8 +3079,8 @@ export default function App() {
                             </div>
 
                             {/* Bloc inséparable pour les totaux ET le footer (break-inside-avoid) collé en bas de la page 1 */}
-                            <div className="keep-together break-inside-avoid w-full pt-2 mt-auto">
-                                <div className="flex justify-end mb-2 relative z-10">
+                            <div className="keep-together break-inside-avoid w-full pt-4 mt-auto">
+                                <div className="flex justify-end mb-4 relative z-10">
                                     <div className="w-80 space-y-1.5">
                                         <div className="flex justify-between text-slate-500 font-bold text-sm"><span>Sous-total HT</span> <span className="font-mono text-slate-800">{formatCurrency((currentInvoice.items || []).reduce((acc: number, i: any) => acc + i.price * (i.qty || 1), 0))}</span></div>
                                         <div className="flex justify-between text-slate-400 font-medium text-xs"><span>TVA (0.0%)</span> <span className="font-mono">0.00 CHF</span></div>
@@ -3112,7 +3117,7 @@ export default function App() {
 
                         {/* --- PAGE CONTRAT (OPTIONNELLE) --- */}
                         {currentInvoice.includeContract && currentInvoice.contractText && (
-                            <div className="html2pdf__page-break bg-white w-full h-max shadow-2xl p-[10mm] pb-[20mm] box-border block mt-8 print:mt-0 print:p-[10mm] print:pb-[20mm]" style={{ pageBreakBefore: 'always' }}>
+                            <div className="html2pdf__page-break bg-white w-[210mm] h-max shadow-2xl p-[15mm] pb-[25mm] box-border block mt-8 print:mt-0 print:p-[15mm] print:pb-[25mm] print:shadow-none" style={{ pageBreakBefore: 'always' }}>
                                 <div className="text-[10px] text-slate-700 leading-[1.5] font-medium text-justify mb-6 block">
                                     {currentInvoice.contractText
                                         .replace(/\{\{client_company\}\}/g, currentInvoice.clientName || '_______________')
