@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '55.6';
+const APP_VERSION = '55.8';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -1261,55 +1261,79 @@ export default function App() {
                                 onClick={() => {
                                     const script = `/**
  * SCRIPT DIRECT : MASTER LEADS -> FIREBASE CRM LEADPARTNER
- * Ne nécessite ni Make ni Zapier. Authentification anonyme incluse.
+ * À lier à un déclencheur temporel (Toutes les minutes).
  */
-function envoyerLeadAuCRM(e) {
+function synchroniserLeadsVersCRM() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  let rowNum = sheet.getLastRow();
-  if (e && e.range) rowNum = e.range.getRow();
-  
-  const rowData = sheet.getRange(rowNum, 1, 1, 10).getValues()[0];
-  
-  // A ADAPTER SELON VOS COLONNES DU MASTER LEADS (A=0, B=1, C=2...) :
-  const dateStr = rowData[0] ? new Date(rowData[0]).toISOString() : new Date().toISOString();
-  const campagne = rowData[1] || "Campagne Globale";
-  const agentId = rowData[2] || "Agent_Non_Defini"; 
+  const dataRange = sheet.getDataRange();
+  const data = dataRange.getValues();
   
   const apiKey = "${fallbackFirebaseConfig.apiKey}";
   const projectId = "${fallbackFirebaseConfig.projectId}";
   const appId = "${getAppId()}";
   const uid = "${user?.uid || 'VOTRE_UID'}";
   
-  try {
-    // 1. Authentification pour sécuriser l'écriture Firebase
-    const authUrl = "https://identitytoolkit.googleapis.com/v1/accounts:signInAnonymously?key=" + apiKey;
-    const authRes = UrlFetchApp.fetch(authUrl, { method: "post", payload: "{}" });
-    const idToken = JSON.parse(authRes.getContentText()).idToken;
+  let idToken = null;
+
+  // Boucle sur toutes les lignes (en commençant à 1 pour ignorer l'en-tête)
+  for (let i = 1; i < data.length; i++) {
+    const rowData = data[i];
     
-    // 2. Envoi des données vers Firestore
-    const firebaseUrl = "https://firestore.googleapis.com/v1/projects/" + projectId + "/databases/(default)/documents/artifacts/" + appId + "/users/" + uid + "/lead_deliveries";
+    // Colonne K (index 10) = Statut Synchro
+    const statutSynchro = rowData[10]; 
     
-    const payload = {
-      fields: {
-        date: { stringValue: dateStr },
-        campagne: { stringValue: String(campagne) },
-        agentName: { stringValue: String(agentId) },
-        createdAt: { stringValue: new Date().toISOString() }
+    if (statutSynchro === "" || statutSynchro === undefined) {
+      
+      // G(6)=Date, H(7)=Campagne, I(8)=Id Agent, J(9)=Agent
+      let dateStr = new Date().toISOString();
+      if (rowData[6]) {
+        const parsedDate = new Date(rowData[6]);
+        if (!isNaN(parsedDate.getTime())) {
+          dateStr = parsedDate.toISOString();
+        }
       }
-    };
-    
-    const options = {
-      method: "post",
-      contentType: "application/json",
-      headers: { "Authorization": "Bearer " + idToken },
-      payload: JSON.stringify(payload),
-      muteHttpExceptions: true
-    };
-    
-    const response = UrlFetchApp.fetch(firebaseUrl, options);
-    Logger.log("Succès CRM: " + response.getContentText());
-  } catch (error) {
-    Logger.log("Erreur CRM: " + error.toString());
+      
+      const campagne = rowData[7] || "Campagne Globale";
+      const idAgent = rowData[8] || "ID_Non_Defini"; 
+      const agentName = rowData[9] || idAgent;
+      
+      if (!idToken) {
+        try {
+          const authUrl = "https://identitytoolkit.googleapis.com/v1/accounts:signInAnonymously?key=" + apiKey;
+          const authRes = UrlFetchApp.fetch(authUrl, { method: "post", payload: "{}" });
+          idToken = JSON.parse(authRes.getContentText()).idToken;
+        } catch (error) {
+          Logger.log("Erreur auth Firebase"); return;
+        }
+      }
+      
+      const firebaseUrl = "https://firestore.googleapis.com/v1/projects/" + projectId + "/databases/(default)/documents/artifacts/" + appId + "/users/" + uid + "/lead_deliveries";
+      
+      const payload = {
+        fields: {
+          date: { stringValue: dateStr },
+          campagne: { stringValue: String(campagne) },
+          agentName: { stringValue: String(agentName) },
+          agentId: { stringValue: String(idAgent) },
+          createdAt: { stringValue: new Date().toISOString() }
+        }
+      };
+      
+      const options = {
+        method: "post",
+        contentType: "application/json",
+        headers: { "Authorization": "Bearer " + idToken },
+        payload: JSON.stringify(payload),
+        muteHttpExceptions: true
+      };
+      
+      try {
+        const response = UrlFetchApp.fetch(firebaseUrl, options);
+        if (response.getResponseCode() >= 200 && response.getResponseCode() < 300) {
+          sheet.getRange(i + 1, 11).setValue("OK"); // Marque OK en col K
+        }
+      } catch (e) {}
+    }
   }
 }`;
                                     navigator.clipboard.writeText(script);
@@ -1321,7 +1345,7 @@ function envoyerLeadAuCRM(e) {
                             </button>
                             <textarea 
                                 readOnly 
-                                value={`/**\n * SCRIPT DIRECT : MASTER LEADS -> FIREBASE CRM LEADPARTNER\n * Ne nécessite ni Make ni Zapier. Authentification anonyme incluse.\n */\nfunction envoyerLeadAuCRM(e) {\n  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();\n  let rowNum = sheet.getLastRow();\n  if (e && e.range) rowNum = e.range.getRow();\n  \n  const rowData = sheet.getRange(rowNum, 1, 1, 10).getValues()[0];\n  \n  // A ADAPTER SELON VOS COLONNES DU MASTER LEADS (A=0, B=1, C=2...) :\n  const dateStr = rowData[0] ? new Date(rowData[0]).toISOString() : new Date().toISOString();\n  const campagne = rowData[1] || "Campagne Globale";\n  const agentId = rowData[2] || "Agent_Non_Defini"; \n  \n  const apiKey = "${fallbackFirebaseConfig.apiKey}";\n  const projectId = "${fallbackFirebaseConfig.projectId}";\n  const appId = "${getAppId()}";\n  const uid = "${user?.uid || 'VOTRE_UID'}";\n  \n  try {\n    // 1. Authentification pour sécuriser l'écriture Firebase\n    const authUrl = "https://identitytoolkit.googleapis.com/v1/accounts:signInAnonymously?key=" + apiKey;\n    const authRes = UrlFetchApp.fetch(authUrl, { method: "post", payload: "{}" });\n    const idToken = JSON.parse(authRes.getContentText()).idToken;\n    \n    // 2. Envoi des données vers Firestore\n    const firebaseUrl = "https://firestore.googleapis.com/v1/projects/" + projectId + "/databases/(default)/documents/artifacts/" + appId + "/users/" + uid + "/lead_deliveries";\n    \n    const payload = {\n      fields: {\n        date: { stringValue: dateStr },\n        campagne: { stringValue: String(campagne) },\n        agentName: { stringValue: String(agentId) },\n        createdAt: { stringValue: new Date().toISOString() }\n      }\n    };\n    \n    const options = {\n      method: "post",\n      contentType: "application/json",\n      headers: { "Authorization": "Bearer " + idToken },\n      payload: JSON.stringify(payload),\n      muteHttpExceptions: true\n    };\n    \n    const response = UrlFetchApp.fetch(firebaseUrl, options);\n    Logger.log("Succès CRM: " + response.getContentText());\n  } catch (error) {\n    Logger.log("Erreur CRM: " + error.toString());\n  }\n}`}
+                                value={`/**\n * SCRIPT DIRECT : MASTER LEADS -> FIREBASE CRM LEADPARTNER\n * À lier à un déclencheur temporel (Toutes les minutes).\n */\nfunction synchroniserLeadsVersCRM() {\n  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();\n  const dataRange = sheet.getDataRange();\n  const data = dataRange.getValues();\n  \n  const apiKey = "${fallbackFirebaseConfig.apiKey}";\n  const projectId = "${fallbackFirebaseConfig.projectId}";\n  const appId = "${getAppId()}";\n  const uid = "${user?.uid || 'VOTRE_UID'}";\n  \n  let idToken = null;\n\n  // Boucle sur toutes les lignes (en commençant à 1 pour ignorer l'en-tête)\n  for (let i = 1; i < data.length; i++) {\n    const rowData = data[i];\n    \n    // Colonne K (index 10) = Statut Synchro\n    const statutSynchro = rowData[10]; \n    \n    if (statutSynchro === "" || statutSynchro === undefined) {\n      \n      // G(6)=Date, H(7)=Campagne, I(8)=Id Agent, J(9)=Agent\n      let dateStr = new Date().toISOString();\n      if (rowData[6]) {\n        const parsedDate = new Date(rowData[6]);\n        if (!isNaN(parsedDate.getTime())) {\n          dateStr = parsedDate.toISOString();\n        }\n      }\n      \n      const campagne = rowData[7] || "Campagne Globale";\n      const idAgent = rowData[8] || "ID_Non_Defini"; \n      const agentName = rowData[9] || idAgent;\n      \n      if (!idToken) {\n        try {\n          const authUrl = "https://identitytoolkit.googleapis.com/v1/accounts:signInAnonymously?key=" + apiKey;\n          const authRes = UrlFetchApp.fetch(authUrl, { method: "post", payload: "{}" });\n          idToken = JSON.parse(authRes.getContentText()).idToken;\n        } catch (error) {\n          Logger.log("Erreur auth Firebase"); return;\n        }\n      }\n      \n      const firebaseUrl = "https://firestore.googleapis.com/v1/projects/" + projectId + "/databases/(default)/documents/artifacts/" + appId + "/users/" + uid + "/lead_deliveries";\n      \n      const payload = {\n        fields: {\n          date: { stringValue: dateStr },\n          campagne: { stringValue: String(campagne) },\n          agentName: { stringValue: String(agentName) },\n          agentId: { stringValue: String(idAgent) },\n          createdAt: { stringValue: new Date().toISOString() }\n        }\n      };\n      \n      const options = {\n        method: "post",\n        contentType: "application/json",\n        headers: { "Authorization": "Bearer " + idToken },\n        payload: JSON.stringify(payload),\n        muteHttpExceptions: true\n      };\n      \n      try {\n        const response = UrlFetchApp.fetch(firebaseUrl, options);\n        if (response.getResponseCode() >= 200 && response.getResponseCode() < 300) {\n          sheet.getRange(i + 1, 11).setValue("OK"); // Marque OK en col K\n        }\n      } catch (e) {}\n    }\n  }\n}`}
                                 className="w-full h-80 bg-[#1e293b] text-blue-300 font-mono text-[11px] leading-relaxed p-4 rounded-xl outline-none resize-none custom-scrollbar border-4 border-slate-800 relative"
                             />
                         </div>
