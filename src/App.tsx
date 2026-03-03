@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '55.3';
+const APP_VERSION = '55.4';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -447,6 +447,7 @@ export default function App() {
   const [confirmState, setConfirmState] = useState({ isOpen: false, title: '', message: '', onConfirm: () => {} });
 
   const [scenarios, setScenarios] = useState<any[]>([]);
+  const [deliveries, setDeliveries] = useState<any[]>([]);
 
   const [settings, setSettings] = useState<any>({
     companyName: 'LeadPartner',
@@ -613,6 +614,7 @@ export default function App() {
         onSnapshot(collection(db, `${basePath}/interactions`), (s) => setInteractions(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
         onSnapshot(collection(db, `${basePath}/simulations`), (s) => setSimulations(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
         onSnapshot(collection(db, `${basePath}/target_scenarios`), (s) => setScenarios(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
+        onSnapshot(collection(db, `${basePath}/lead_deliveries`), (s) => setDeliveries(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
         onSnapshot(collection(db, `${basePath}/email_logs`), (s) => setEmailHistory(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
         onSnapshot(doc(db, `${basePath}/config`, 'general'), (s) => { 
             if (s.exists()) {
@@ -1158,6 +1160,103 @@ export default function App() {
       URL.revokeObjectURL(url);
 
       addNotification('success', 'Export de vos données réussi !');
+  };
+
+  const renderDeliveries = () => {
+      // Groupement des données
+      const byCampaign = deliveries.reduce((acc: any, d: any) => {
+          const camp = d.campagne || 'Inconnue';
+          acc[camp] = (acc[camp] || 0) + 1;
+          return acc;
+      }, {});
+      
+      const byAgent = deliveries.reduce((acc: any, d: any) => {
+          const agent = d.agentName || 'Inconnu';
+          acc[agent] = (acc[agent] || 0) + 1;
+          return acc;
+      }, {});
+
+      const sortedCampaigns = Object.entries(byCampaign).sort((a: any, b: any) => b[1] - a[1]);
+      const sortedAgents = Object.entries(byAgent).sort((a: any, b: any) => b[1] - a[1]);
+      const maxCampaign = sortedCampaigns.length > 0 ? (sortedCampaigns[0][1] as number) : 1;
+      const maxAgent = sortedAgents.length > 0 ? (sortedAgents[0][1] as number) : 1;
+
+      return (
+        <div className="max-w-6xl mx-auto animate-fade-in space-y-8 pb-12">
+            <div className="flex items-center justify-between mb-2">
+                <div>
+                    <h2 className="text-3xl font-extrabold text-slate-800 font-poppins flex items-center gap-3">
+                        <Activity style={{ color: BRAND_COLOR }} size={32} /> Suivi des Livraisons (Leads)
+                    </h2>
+                    <p className="text-slate-500 text-lg mt-1">Surveillez les volumes de leads distribués par campagne et par agent.</p>
+                </div>
+                <div className="bg-white px-5 py-3 rounded-2xl border border-slate-100 shadow-sm text-center">
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1">Total Leads Distribués</p>
+                    <p className="text-3xl font-black text-[#01189B] font-poppins">{deliveries.length}</p>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-8">
+                {/* Graphique par Campagne */}
+                <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8">
+                    <h3 className="font-extrabold text-slate-800 mb-6 flex items-center gap-2 text-lg"><Package className="text-orange-500" size={20}/> Volume par Campagne</h3>
+                    {sortedCampaigns.length === 0 ? (
+                        <p className="text-slate-400 italic text-sm">Aucune donnée de livraison.</p>
+                    ) : (
+                        <div className="space-y-5">
+                            {sortedCampaigns.map(([campagne, count]: any) => {
+                                const percent = (count / maxCampaign) * 100;
+                                return (
+                                    <div key={campagne}>
+                                        <div className="flex justify-between text-sm font-bold text-slate-700 mb-1.5">
+                                            <span className="truncate pr-4">{campagne}</span>
+                                            <span className="text-orange-600 font-black">{count}</span>
+                                        </div>
+                                        <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                                            <div className="bg-orange-500 h-full rounded-full transition-all duration-1000" style={{ width: `${percent}%` }}></div>
+                                        </div>
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    )}
+                </div>
+
+                {/* Graphique par Agent */}
+                <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8">
+                    <h3 className="font-extrabold text-slate-800 mb-6 flex items-center gap-2 text-lg"><Users className="text-emerald-500" size={20}/> Répartition par Agent</h3>
+                    {sortedAgents.length === 0 ? (
+                        <p className="text-slate-400 italic text-sm">Aucune donnée de livraison.</p>
+                    ) : (
+                        <div className="space-y-5">
+                            {sortedAgents.map(([agent, count]: any) => {
+                                const percent = (count / maxAgent) * 100;
+                                return (
+                                    <div key={agent}>
+                                        <div className="flex justify-between text-sm font-bold text-slate-700 mb-1.5">
+                                            <span className="truncate pr-4">{agent}</span>
+                                            <span className="text-emerald-600 font-black">{count}</span>
+                                        </div>
+                                        <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                                            <div className="bg-emerald-500 h-full rounded-full transition-all duration-1000" style={{ width: `${percent}%` }}></div>
+                                        </div>
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    )}
+                </div>
+            </div>
+            
+            <div className="bg-blue-50/50 p-6 rounded-2xl border border-blue-100 mt-8 flex items-start gap-4">
+                <Info className="text-blue-500 shrink-0 mt-0.5" size={24}/>
+                <div>
+                    <h4 className="font-bold text-[#01189B] mb-1">Comment alimenter ces graphiques ?</h4>
+                    <p className="text-sm text-blue-800">Modifiez l'URL <code className="bg-white px-1 py-0.5 rounded font-mono text-xs shadow-sm">UrlFetchApp</code> dans votre Google Apps Script pour envoyer les données vers la collection <code className="bg-white px-1 py-0.5 rounded font-mono text-xs shadow-sm font-bold">lead_deliveries</code> au lieu de <code className="bg-white px-1 py-0.5 rounded font-mono text-xs shadow-sm">contacts</code>.</p>
+                </div>
+            </div>
+        </div>
+      );
   };
 
   const handleExportContactsCSV = () => {
@@ -2842,6 +2941,7 @@ export default function App() {
               { id: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard },
               { id: 'contacts', label: 'CRM', icon: Users },
               { id: 'prospection', label: 'Prospection', icon: Mail },
+              { id: 'deliveries', label: 'Suivi Livraisons', icon: Activity },
               { id: 'calendar', label: 'Cycles Actifs', icon: CalendarIcon },
               { id: 'invoices', label: 'Facturation', icon: FileText },
               { id: 'products', label: 'Catalogue Offres', icon: Package },
@@ -2909,6 +3009,7 @@ export default function App() {
             <>
               {activeView === 'dashboard' && renderDashboard()}
               {activeView === 'prospection' && renderProspection()}
+              {activeView === 'deliveries' && renderDeliveries()}
               {activeView === 'calendar' && (
                   <div className="max-w-6xl mx-auto animate-fade-in space-y-8 pb-12">
                       <div className="flex justify-between items-center mb-2">
