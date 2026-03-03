@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '55.4';
+const APP_VERSION = '55.6';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -48,12 +48,13 @@ const UI_CLASSES = {
 
 // --- CONFIGURATION FIREBASE ---
 const fallbackFirebaseConfig = {
-  apiKey: 'AIzaSyDY6zXLeebKhMxL_2_mfQOYV44JuoCArK0',
-  authDomain: 'crm-leadpartner.firebaseapp.com',
-  projectId: 'crm-leadpartner',
-  storageBucket: 'crm-leadpartner.firebasestorage.app',
-  messagingSenderId: '588502456936',
-  appId: '1:588502456936:web:5c509a0c418f34f77239dd',
+  apiKey: "AIzaSyDY6zXLeebKhMxL_2_mfQOYV44JuoCArK0",
+  authDomain: "crm-leadpartner.firebaseapp.com",
+  projectId: "crm-leadpartner",
+  storageBucket: "crm-leadpartner.firebasestorage.app",
+  messagingSenderId: "588502456936",
+  appId: "1:588502456936:web:5c509a0c418f34f77239dd",
+  measurementId: "G-6QM0LM69Z1"
 };
 
 const DEFAULT_APP_ID = 'leadpartner-crm-v43-prod';
@@ -1224,7 +1225,7 @@ export default function App() {
 
                 {/* Graphique par Agent */}
                 <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8">
-                    <h3 className="font-extrabold text-slate-800 mb-6 flex items-center gap-2 text-lg"><Users className="text-emerald-500" size={20}/> Répartition par Agent</h3>
+                    <h3 className="font-extrabold text-slate-800 mb-6 flex items-center gap-2 text-lg"><Users className="text-emerald-500" size={20}/> Répartition par Client (Agent ID)</h3>
                     {sortedAgents.length === 0 ? (
                         <p className="text-slate-400 italic text-sm">Aucune donnée de livraison.</p>
                     ) : (
@@ -1248,11 +1249,83 @@ export default function App() {
                 </div>
             </div>
             
-            <div className="bg-blue-50/50 p-6 rounded-2xl border border-blue-100 mt-8 flex items-start gap-4">
-                <Info className="text-blue-500 shrink-0 mt-0.5" size={24}/>
-                <div>
-                    <h4 className="font-bold text-[#01189B] mb-1">Comment alimenter ces graphiques ?</h4>
-                    <p className="text-sm text-blue-800">Modifiez l'URL <code className="bg-white px-1 py-0.5 rounded font-mono text-xs shadow-sm">UrlFetchApp</code> dans votre Google Apps Script pour envoyer les données vers la collection <code className="bg-white px-1 py-0.5 rounded font-mono text-xs shadow-sm font-bold">lead_deliveries</code> au lieu de <code className="bg-white px-1 py-0.5 rounded font-mono text-xs shadow-sm">contacts</code>.</p>
+            <div className="bg-blue-50/50 p-6 rounded-2xl border border-blue-100 mt-8 flex flex-col gap-4">
+                <div className="flex items-start gap-4">
+                    <Info className="text-blue-500 shrink-0 mt-0.5" size={24}/>
+                    <div className="flex-1">
+                        <h4 className="font-bold text-[#01189B] mb-1">Connexion Directe Google Sheet ➔ Firebase CRM</h4>
+                        <p className="text-sm text-blue-800 mb-4">Plus besoin de Make.com ou Zapier ! Copiez-collez ce script directement dans <b>Extensions {'>'} Apps Script</b> sur votre Google Sheet Master Leads. À chaque nouvelle ligne, il s'authentifiera de façon transparente et enverra le Lead au CRM.</p>
+                        
+                        <div className="relative">
+                            <button 
+                                onClick={() => {
+                                    const script = `/**
+ * SCRIPT DIRECT : MASTER LEADS -> FIREBASE CRM LEADPARTNER
+ * Ne nécessite ni Make ni Zapier. Authentification anonyme incluse.
+ */
+function envoyerLeadAuCRM(e) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  let rowNum = sheet.getLastRow();
+  if (e && e.range) rowNum = e.range.getRow();
+  
+  const rowData = sheet.getRange(rowNum, 1, 1, 10).getValues()[0];
+  
+  // A ADAPTER SELON VOS COLONNES DU MASTER LEADS (A=0, B=1, C=2...) :
+  const dateStr = rowData[0] ? new Date(rowData[0]).toISOString() : new Date().toISOString();
+  const campagne = rowData[1] || "Campagne Globale";
+  const agentId = rowData[2] || "Agent_Non_Defini"; 
+  
+  const apiKey = "${fallbackFirebaseConfig.apiKey}";
+  const projectId = "${fallbackFirebaseConfig.projectId}";
+  const appId = "${getAppId()}";
+  const uid = "${user?.uid || 'VOTRE_UID'}";
+  
+  try {
+    // 1. Authentification pour sécuriser l'écriture Firebase
+    const authUrl = "https://identitytoolkit.googleapis.com/v1/accounts:signInAnonymously?key=" + apiKey;
+    const authRes = UrlFetchApp.fetch(authUrl, { method: "post", payload: "{}" });
+    const idToken = JSON.parse(authRes.getContentText()).idToken;
+    
+    // 2. Envoi des données vers Firestore
+    const firebaseUrl = "https://firestore.googleapis.com/v1/projects/" + projectId + "/databases/(default)/documents/artifacts/" + appId + "/users/" + uid + "/lead_deliveries";
+    
+    const payload = {
+      fields: {
+        date: { stringValue: dateStr },
+        campagne: { stringValue: String(campagne) },
+        agentName: { stringValue: String(agentId) },
+        createdAt: { stringValue: new Date().toISOString() }
+      }
+    };
+    
+    const options = {
+      method: "post",
+      contentType: "application/json",
+      headers: { "Authorization": "Bearer " + idToken },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    };
+    
+    const response = UrlFetchApp.fetch(firebaseUrl, options);
+    Logger.log("Succès CRM: " + response.getContentText());
+  } catch (error) {
+    Logger.log("Erreur CRM: " + error.toString());
+  }
+}`;
+                                    navigator.clipboard.writeText(script);
+                                    addNotification('success', 'Script Firebase copié !');
+                                }} 
+                                className="absolute top-3 right-3 bg-white text-[#01189B] px-3 py-1.5 rounded-lg text-xs font-bold border border-blue-200 shadow-sm hover:bg-blue-50 transition-colors flex items-center gap-1.5 z-10"
+                            >
+                                <Copy size={14}/> Copier le script
+                            </button>
+                            <textarea 
+                                readOnly 
+                                value={`/**\n * SCRIPT DIRECT : MASTER LEADS -> FIREBASE CRM LEADPARTNER\n * Ne nécessite ni Make ni Zapier. Authentification anonyme incluse.\n */\nfunction envoyerLeadAuCRM(e) {\n  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();\n  let rowNum = sheet.getLastRow();\n  if (e && e.range) rowNum = e.range.getRow();\n  \n  const rowData = sheet.getRange(rowNum, 1, 1, 10).getValues()[0];\n  \n  // A ADAPTER SELON VOS COLONNES DU MASTER LEADS (A=0, B=1, C=2...) :\n  const dateStr = rowData[0] ? new Date(rowData[0]).toISOString() : new Date().toISOString();\n  const campagne = rowData[1] || "Campagne Globale";\n  const agentId = rowData[2] || "Agent_Non_Defini"; \n  \n  const apiKey = "${fallbackFirebaseConfig.apiKey}";\n  const projectId = "${fallbackFirebaseConfig.projectId}";\n  const appId = "${getAppId()}";\n  const uid = "${user?.uid || 'VOTRE_UID'}";\n  \n  try {\n    // 1. Authentification pour sécuriser l'écriture Firebase\n    const authUrl = "https://identitytoolkit.googleapis.com/v1/accounts:signInAnonymously?key=" + apiKey;\n    const authRes = UrlFetchApp.fetch(authUrl, { method: "post", payload: "{}" });\n    const idToken = JSON.parse(authRes.getContentText()).idToken;\n    \n    // 2. Envoi des données vers Firestore\n    const firebaseUrl = "https://firestore.googleapis.com/v1/projects/" + projectId + "/databases/(default)/documents/artifacts/" + appId + "/users/" + uid + "/lead_deliveries";\n    \n    const payload = {\n      fields: {\n        date: { stringValue: dateStr },\n        campagne: { stringValue: String(campagne) },\n        agentName: { stringValue: String(agentId) },\n        createdAt: { stringValue: new Date().toISOString() }\n      }\n    };\n    \n    const options = {\n      method: "post",\n      contentType: "application/json",\n      headers: { "Authorization": "Bearer " + idToken },\n      payload: JSON.stringify(payload),\n      muteHttpExceptions: true\n    };\n    \n    const response = UrlFetchApp.fetch(firebaseUrl, options);\n    Logger.log("Succès CRM: " + response.getContentText());\n  } catch (error) {\n    Logger.log("Erreur CRM: " + error.toString());\n  }\n}`}
+                                className="w-full h-80 bg-[#1e293b] text-blue-300 font-mono text-[11px] leading-relaxed p-4 rounded-xl outline-none resize-none custom-scrollbar border-4 border-slate-800 relative"
+                            />
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
