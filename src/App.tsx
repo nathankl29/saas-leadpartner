@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '54.6';
+const APP_VERSION = '54.8';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -3512,67 +3512,106 @@ function envoyerLead(agent, ligne) {
         </div>
       )}
 
-      {showModal === 'contact' && (
+      {showModal === 'contact' && (() => {
+        // Extraction des sociétés uniques déjà existantes dans le CRM pour l'auto-complétion
+        const uniqueCompanies = Array.from(new Set(contacts.map((c: any) => c.company).filter(Boolean)));
+        
+        return (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
-          <div className="bg-white p-10 rounded-3xl w-full max-w-md shadow-2xl border border-slate-100 animate-fade-in overflow-y-auto max-h-[90vh]">
-            <h3 className={UI_CLASSES.title}><Users style={{ color: BRAND_COLOR }} size={24}/> Créer une fiche CRM</h3>
-            <form onSubmit={(e: any) => { e.preventDefault(); const fd = new FormData(e.target); handleCreate('contacts', { name: fd.get('name'), company: fd.get('company'), email: fd.get('email'), phone: fd.get('phone'), address: fd.get('address'), status: fd.get('type') === 'client' ? 'gagne' : 'nouveau', type: fd.get('type'), source: fd.get('source'), sourceDetails: fd.get('sourceDetails'), googleSheetId: fd.get('googleSheetId'), manualCA: Number(fd.get('manualCA') || 0), manualBenefice: Number(fd.get('manualBenefice') || 0) }); }} className="space-y-5">
-              <div>
-                  <label className={UI_CLASSES.label}>Type</label>
-                  <select name="type" className={UI_CLASSES.input}>
-                    <option value="prospect">Prospect</option>
-                    <option value="client">Client</option>
-                  </select>
-              </div>
-              <div><label className={UI_CLASSES.label}>Raison Sociale / Société</label><input name="company" required className={UI_CLASSES.input} placeholder="Société ABC" /></div>
-              <div><label className={UI_CLASSES.label}>Interlocuteur</label><input name="name" required className={UI_CLASSES.input} placeholder="Nom Prénom" /></div>
+          <div className="bg-white p-8 md:p-10 rounded-3xl w-full max-w-4xl shadow-2xl border border-slate-100 animate-fade-in overflow-y-auto max-h-[90vh] custom-scrollbar">
+            
+            <div className="mb-8 border-b border-slate-100 pb-5">
+                <h3 className="text-2xl font-extrabold text-slate-800 font-poppins flex items-center gap-3"><Users style={{ color: BRAND_COLOR }} size={28}/> Nouvelle Fiche CRM</h3>
+                <p className="text-slate-500 text-sm mt-2 leading-relaxed">Créez un nouveau prospect ou client. <br/><span className="bg-blue-50 text-[#01189B] px-2 py-0.5 rounded font-bold mr-1">💡 Astuce :</span> Si ce contact appartient à une entreprise déjà existante (ex: un conseiller de chez <i>WallSwiss</i> apportant son propre budget), sélectionnez le même nom de société. Leurs données (CA, notes) seront regroupées dans la vue pipeline sous cette même entité.</p>
+            </div>
+
+            <form onSubmit={(e: any) => { e.preventDefault(); const fd = new FormData(e.target); handleCreate('contacts', { name: fd.get('name'), company: fd.get('company'), email: fd.get('email'), phone: fd.get('phone'), address: fd.get('address'), status: fd.get('type') === 'client' ? 'gagne' : 'nouveau', type: fd.get('type'), source: fd.get('source'), sourceDetails: fd.get('sourceDetails'), googleSheetId: fd.get('googleSheetId'), manualCA: Number(fd.get('manualCA') || 0), manualBenefice: Number(fd.get('manualBenefice') || 0) }); }} className="space-y-6">
               
-              <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className={UI_CLASSES.label}>Source / Provenance</label>
-                    <select name="source" value={newContactSource} onChange={(e) => setNewContactSource(e.target.value)} className={UI_CLASSES.input}>
-                      <option value="">-- Non définie --</option>
-                      <option value="Recommandation">Recommandation</option>
-                      <option value="Call froid">Call froid</option>
-                      <option value="Lead site internet">Lead site internet</option>
-                      <option value="LinkedIn">LinkedIn</option>
-                      <option value="Autre">Autre</option>
-                    </select>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-stretch">
+                  {/* Colonne 1 : Infos de base */}
+                  <div className="bg-blue-50/40 p-5 rounded-2xl border border-blue-100 h-full flex flex-col">
+                      <h4 className="font-bold text-[#01189B] text-sm mb-4 flex items-center gap-2"><Briefcase size={18}/> 1. Informations Profil</h4>
+                      
+                      <div className="space-y-4 flex-1">
+                          <div>
+                              <label className={UI_CLASSES.label}>Type de Profil</label>
+                              <div className="flex gap-3">
+                                  <label className="flex-1 cursor-pointer">
+                                      <input type="radio" name="type" value="prospect" defaultChecked className="peer sr-only" />
+                                      <div className="text-center px-4 py-2.5 rounded-xl text-sm font-bold border-2 transition-all peer-checked:border-[#01189B] peer-checked:bg-[#01189B] peer-checked:text-white border-blue-200 text-[#01189B] bg-white hover:bg-blue-50 shadow-sm hover:-translate-y-0.5">
+                                          Prospect
+                                      </div>
+                                  </label>
+                                  <label className="flex-1 cursor-pointer">
+                                      <input type="radio" name="type" value="client" className="peer sr-only" />
+                                      <div className="text-center px-4 py-2.5 rounded-xl text-sm font-bold border-2 transition-all peer-checked:border-emerald-500 peer-checked:bg-emerald-500 peer-checked:text-white border-emerald-200 text-emerald-600 bg-white hover:bg-emerald-50 shadow-sm hover:-translate-y-0.5">
+                                          Client Actif
+                                      </div>
+                                  </label>
+                              </div>
+                          </div>
+                          <div>
+                              <label className={UI_CLASSES.label}>Société / Agence mère</label>
+                              <input name="company" required className={UI_CLASSES.input} placeholder="Ex: WallSwiss, LeadPartner..." list="companies-list" autoComplete="off" />
+                              <datalist id="companies-list">
+                                  {uniqueCompanies.map((comp: any) => <option key={comp} value={comp} />)}
+                              </datalist>
+                              <p className="text-[10px] text-slate-400 mt-1.5 font-medium leading-tight"><Info size={12} className="inline mr-0.5" /> Tapez pour créer une nouvelle société ou sélectionnez-en une existante.</p>
+                          </div>
+                          <div>
+                              <label className={UI_CLASSES.label}>Nom de l'interlocuteur / Conseiller</label>
+                              <input name="name" required className={UI_CLASSES.input} placeholder="Ex: Jean Dupont" />
+                          </div>
+                      </div>
                   </div>
-                  {newContactSource === 'Recommandation' && (
-                    <div>
-                      <label className={UI_CLASSES.label}>Nom de la reco</label>
-                      <input name="sourceDetails" className={UI_CLASSES.input} placeholder="Par qui ?" />
-                    </div>
-                  )}
+
+                  {/* Colonne 2 : Coordonnées & Source */}
+                  <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 shadow-sm h-full flex flex-col">
+                      <h4 className="font-bold text-slate-700 text-sm mb-4 flex items-center gap-2"><Mail size={18}/> 2. Coordonnées & Origine</h4>
+                      
+                      <div className="space-y-4 flex-1">
+                          <div className="grid grid-cols-2 gap-4">
+                            <div><label className={UI_CLASSES.label}>Email</label><input name="email" type="email" className={UI_CLASSES.input} placeholder="contact@" /></div>
+                            <div><label className={UI_CLASSES.label}>Téléphone</label><input name="phone" className={UI_CLASSES.input} placeholder="+41..." /></div>
+                          </div>
+                          
+                          <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className={UI_CLASSES.label}>Source</label>
+                                <select name="source" value={newContactSource} onChange={(e) => setNewContactSource(e.target.value)} className={UI_CLASSES.input}>
+                                  <option value="">-- Inconnue --</option>
+                                  <option value="Recommandation">Recommandation</option>
+                                  <option value="Call froid">Call froid</option>
+                                  <option value="Lead site internet">Lead site internet</option>
+                                  <option value="LinkedIn">LinkedIn</option>
+                                  <option value="Autre">Autre</option>
+                                </select>
+                              </div>
+                              {newContactSource === 'Recommandation' && (
+                                <div>
+                                  <label className={UI_CLASSES.label}>Recommandé par</label>
+                                  <input name="sourceDetails" className={UI_CLASSES.input} placeholder="Nom..." />
+                                </div>
+                              )}
+                          </div>
+
+                          <div>
+                            <label className={UI_CLASSES.label}>Adresse Facturation / Locaux</label>
+                            <textarea name="address" className={`${UI_CLASSES.input} h-12 resize-none`} placeholder="Rue, NPA, Ville..."></textarea>
+                          </div>
+                      </div>
+                  </div>
               </div>
 
-              <div>
-                <label className={UI_CLASSES.label}>Adresse</label>
-                <textarea name="address" className={`${UI_CLASSES.input} h-20 resize-none`} placeholder="Rue, N°, Code Postal, Ville..."></textarea>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div><label className={UI_CLASSES.label}>Email</label><input name="email" type="email" className={UI_CLASSES.input} placeholder="@" /></div>
-                <div><label className={UI_CLASSES.label}>Téléphone</label><input name="phone" className={UI_CLASSES.input} placeholder="+41..." /></div>
-              </div>
-              <div>
-                <label className={UI_CLASSES.label}>Google Sheet ID (Optionnel - Distribution Leads)</label>
-                <input name="googleSheetId" className={UI_CLASSES.input} placeholder="Ex: 1A2b3c4d5e6f7g..." />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-xl border border-slate-100 mt-2">
-                 <div><label className={UI_CLASSES.label}>CA Manuel Initial</label><input name="manualCA" type="number" className={UI_CLASSES.input} placeholder="0" /></div>
-                 <div><label className={UI_CLASSES.label}>Bénéfice Initial</label><input name="manualBenefice" type="number" className={UI_CLASSES.input} placeholder="0" /></div>
-              </div>
-
-              <div className="pt-6 flex gap-4">
-                <button type="button" onClick={() => setShowModal(null)} className={UI_CLASSES.btnSecondary}>Annuler</button>
-                <button type="submit" className={UI_CLASSES.btnPrimary} style={{ backgroundColor: BRAND_COLOR }}>Créer Fiche</button>
+              <div className="pt-6 mt-4 border-t border-slate-100 flex justify-end gap-4">
+                <button type="button" onClick={() => setShowModal(null)} className="px-8 py-3.5 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-xl font-bold transition-colors">Annuler</button>
+                <button type="submit" className="px-8 py-3.5 text-white rounded-xl font-bold flex items-center gap-2 hover:shadow-lg hover:-translate-y-0.5 transition-all text-lg" style={{ backgroundColor: BRAND_COLOR }}><CheckCircle size={20}/> Enregistrer le Profil</button>
               </div>
             </form>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {showModal === 'product' && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
