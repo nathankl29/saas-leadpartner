@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '54.9';
+const APP_VERSION = '55.3';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -1292,8 +1292,7 @@ export default function App() {
           <div className="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
             <h3 className="font-bold text-slate-800 flex items-center gap-2"><Users size={18} className="text-[#01189B]"/> Liste des prospects ({prospects.length})</h3>
             <div className="flex gap-2">
-                <button onClick={handleExportContactsCSV} className="bg-white border border-slate-200 text-slate-600 px-3 py-2 rounded-xl text-xs font-bold hover:bg-slate-50 transition-all flex items-center gap-2"><Download size={14}/> Exporter</button>
-                <button onClick={() => setShowImportModal('contacts')} className="bg-white border border-slate-200 text-slate-600 px-3 py-2 rounded-xl text-xs font-bold hover:bg-slate-50 transition-all flex items-center gap-2"><Upload size={14}/> Importer</button>
+                <button onClick={() => setShowModal('bulkIds')} className="bg-white border border-slate-200 text-slate-600 px-3 py-2 rounded-xl text-xs font-bold hover:bg-slate-50 transition-all flex items-center gap-2"><Search size={14}/> Liste des IDs</button>
                 <button onClick={() => { setShowModal('contact'); setNewContactSource(''); }} className="bg-white border border-slate-200 text-[#01189B] px-3 py-2 rounded-xl text-xs font-bold hover:bg-slate-50 transition-all flex items-center gap-2"><Plus size={14}/> Ajouter</button>
             </div>
           </div>
@@ -1424,30 +1423,30 @@ export default function App() {
             </div>
           </div>
           
-          <div className="flex flex-col gap-3 relative z-10">
+          <div className="flex flex-col gap-2 relative z-10 w-48 shrink-0">
             <button 
               onClick={() => {
                 navigator.clipboard.writeText(selectedContact.id);
-                addNotification('success', 'ID Agent copié dans le presse-papier !');
+                addNotification('success', 'ID Client copié !');
               }}
-              className="px-6 py-3 bg-indigo-50 border border-indigo-200 shadow-sm rounded-xl font-bold text-indigo-700 hover:bg-indigo-100 transition-colors flex items-center justify-center gap-2"
-              title="Copier l'ID unique de ce client pour le script Master Leads"
+              className="px-4 py-2 text-xs bg-indigo-50 border border-indigo-200 shadow-sm rounded-lg font-bold text-indigo-700 hover:bg-indigo-100 transition-colors flex items-center justify-start gap-2"
+              title="Copier l'ID unique"
             >
-              <Copy size={16}/> Copier ID Agent
+              <Copy size={14}/> Copier ID
             </button>
-            <button onClick={() => { setEditContactData(selectedContact); setIsEditingContact(true); }} className="px-6 py-3 bg-white border border-slate-200 shadow-sm rounded-xl font-bold text-slate-600 hover:bg-slate-50 transition-colors flex items-center justify-center gap-2">
-              <Edit2 size={16}/> Modifier Profil
+            <button onClick={() => { setEditContactData(selectedContact); setIsEditingContact(true); }} className="px-4 py-2 text-xs bg-white border border-slate-200 shadow-sm rounded-lg font-bold text-slate-600 hover:bg-slate-50 transition-colors flex items-center justify-start gap-2">
+              <Edit2 size={14}/> Modifier Profil
             </button>
-            <button onClick={() => handleDelete('contacts', selectedContact.id)} className="px-6 py-3 bg-white border border-slate-200 shadow-sm rounded-xl font-bold text-red-500 hover:bg-red-50 transition-colors flex items-center justify-center gap-2">
-              <Trash2 size={16}/> Supprimer Client
+            <button onClick={() => handleDelete('contacts', selectedContact.id)} className="px-4 py-2 text-xs bg-white border border-slate-200 shadow-sm rounded-lg font-bold text-red-500 hover:bg-red-50 transition-colors flex items-center justify-start gap-2">
+              <Trash2 size={14}/> Supprimer
             </button>
             {selectedContact.email && (
                <button 
                  onClick={() => handleEmailProspect(selectedContact)}
-                 className="px-6 py-3 text-white rounded-xl font-bold hover:shadow-lg hover:-translate-y-0.5 flex items-center justify-center gap-2 transition-all" 
+                 className="px-4 py-2 text-xs text-white rounded-lg font-bold hover:shadow-md hover:-translate-y-0.5 flex items-center justify-start gap-2 transition-all" 
                  style={{ backgroundColor: BRAND_COLOR }}
                >
-                 <Send size={16}/> Écrire Email
+                 <Send size={14}/> Écrire Email
                </button>
             )}
           </div>
@@ -2761,13 +2760,24 @@ export default function App() {
               )}
 
               {settingsActiveTab === 'data' && (
-                  <div className="space-y-6 animate-fade-in">
-                      <h3 className="font-extrabold text-xl mb-6 font-poppins border-b border-slate-100 pb-4 text-slate-800 flex items-center gap-2"><Download size={22} className="text-emerald-500"/> Sauvegarde Data</h3>
-                      <p className="text-sm text-slate-500 mb-6">Téléchargez l'intégralité des données de votre CRM (Contacts, Factures, Scénarios, Notes...) au format JSON. Idéal pour garder une copie locale sécurisée.</p>
-                      
-                      <button type="button" onClick={handleExportData} className="px-6 py-4 bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 rounded-xl font-bold transition-colors flex items-center gap-2 shadow-sm w-full justify-center text-lg">
-                          <Download size={22}/> Générer & Télécharger (.json)
-                      </button>
+                  <div className="space-y-8 animate-fade-in">
+                      <div>
+                          <h3 className="font-extrabold text-xl mb-6 font-poppins border-b border-slate-100 pb-4 text-slate-800 flex items-center gap-2"><Download size={22} className="text-emerald-500"/> Sauvegarde Complète (JSON)</h3>
+                          <p className="text-sm text-slate-500 mb-6">Téléchargez l'intégralité des données de votre CRM (Contacts, Factures, Scénarios, Notes...) au format JSON. Idéal pour garder une copie locale sécurisée.</p>
+                          
+                          <button type="button" onClick={handleExportData} className="px-6 py-4 bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 rounded-xl font-bold transition-colors flex items-center gap-2 shadow-sm w-full justify-center text-lg">
+                              <Download size={22}/> Générer & Télécharger (.json)
+                          </button>
+                      </div>
+
+                      <div className="pt-8 border-t border-slate-100">
+                          <h3 className="font-extrabold text-xl mb-6 font-poppins border-b border-slate-100 pb-4 text-slate-800 flex items-center gap-2"><Users size={22} className="text-[#01189B]"/> Import / Export Contacts (CSV)</h3>
+                          <p className="text-sm text-slate-500 mb-6">Gérez votre base de contacts (clients et prospects) en masse via des fichiers CSV.</p>
+                          <div className="flex gap-4">
+                              <button onClick={handleExportContactsCSV} className="flex-1 bg-white text-slate-600 px-4 py-4 rounded-xl text-sm font-bold flex items-center justify-center gap-2 hover:bg-slate-50 border border-slate-200 shadow-sm transition-all"><Download size={18} /> Exporter le modèle CSV</button>
+                              <button onClick={() => setShowImportModal('contacts')} className="flex-1 bg-slate-100 text-[#01189B] px-4 py-4 rounded-xl text-sm font-bold flex items-center justify-center gap-2 hover:bg-blue-50 border border-blue-100 shadow-sm transition-all"><Upload size={18} /> Importer des Contacts (CSV)</button>
+                          </div>
+                      </div>
                   </div>
               )}
 
@@ -3399,8 +3409,8 @@ function envoyerLead(agent, ligne) {
                   <div className="flex justify-between items-center mb-8">
                      <h2 className={UI_CLASSES.title}><Users style={{ color: BRAND_COLOR }} size={32}/> CRM</h2>
                      <div className="flex gap-3">
-                         <button onClick={handleExportContactsCSV} className="bg-white text-slate-600 px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 border border-slate-200 shadow-sm transition-all"><Download size={18} /> Exporter (Template)</button>
-                         <button onClick={() => setShowImportModal('contacts')} className="bg-slate-100 text-slate-600 px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-200 transition-all"><Upload size={18} /> Importer (CSV)</button>
+                         <button onClick={() => setShowModal('bulkIds')} className="bg-white text-slate-600 px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 border border-slate-200 shadow-sm transition-all"><Search size={18} /> Liste des IDs</button>
+                         <button onClick={() => setShowModal('bulkContact')} className="bg-white text-[#01189B] px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-blue-50 border border-blue-200 shadow-sm transition-all"><Users size={18} /> Ajout Rapide (Bulk)</button>
                          <button onClick={() => { setShowModal('contact'); setNewContactSource(''); }} className={UI_CLASSES.btnPrimary} style={{ backgroundColor: BRAND_COLOR }}><Plus size={18} /> Nouveau Contact</button>
                      </div>
                   </div>
@@ -3449,23 +3459,35 @@ function envoyerLead(agent, ligne) {
                                     <tr key={c.id} onClick={() => setSelectedContactId(c.id)} className="bg-white hover:bg-blue-50/40 cursor-pointer group transition-colors">
                                       <td className="px-8 py-4 pl-16">
                                         <div className="flex items-center gap-2 mb-1">
-                                          <p className="font-extrabold text-slate-700 font-poppins text-base flex items-center gap-2"><Users size={16} className="text-slate-400"/> {c.name}</p>
+                                          <p className="font-extrabold text-slate-700 font-poppins text-base flex items-center gap-2">
+                                            <Users size={16} className="text-slate-400"/> {c.name}
+                                            <button onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(c.id); addNotification('success', 'ID Client copié !'); }} className="text-slate-300 hover:text-[#01189B] p-1 rounded transition-colors ml-1" title="Copier l'ID unique">
+                                                <Copy size={14}/>
+                                            </button>
+                                          </p>
                                           <span className={`px-2 py-0.5 rounded-md text-[9px] uppercase font-bold tracking-widest ${typeBadge === 'Client' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>{typeBadge}</span>
                                         </div>
                                         <p className="text-slate-500 text-xs font-medium">{c.email || 'Pas d\'email'} • {c.phone || 'Pas de tel'}</p>
                                       </td>
-                                      <td className="px-8 py-4"><span className={`px-3 py-1.5 rounded-lg text-[10px] uppercase font-bold tracking-wide border ${PIPELINE_STAGES.find((s) => s.id === c.status)?.color}`}>{PIPELINE_STAGES.find((s) => s.id === c.status)?.label || c.status}</span></td>
+                                      <td className="px-8 py-4">
+                                        <div className="flex items-center gap-2">
+                                            <span className={`w-2 h-2 rounded-full ${PIPELINE_STAGES.find(s => s.id === c.status)?.color?.split(' ')[0] || 'bg-slate-300'}`}></span>
+                                            <span className="font-bold text-slate-600 text-sm">{PIPELINE_STAGES.find(s => s.id === c.status)?.label}</span>
+                                        </div>
+                                      </td>
                                       <td className="px-8 py-4">
                                         {hasReminder ? (
-                                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold ${isReminderDue ? 'bg-red-100 text-red-700' : 'bg-orange-50 text-orange-600'}`}>
-                                                <Bell size={14} className={isReminderDue ? 'animate-bounce' : ''}/>
-                                                {isReminderDue ? 'Échu !' : formatDate(c.nextContactDate)}
-                                            </span>
+                                            <div className="flex flex-col">
+                                                <span className={`text-[10px] font-bold uppercase tracking-widest ${isReminderDue ? 'text-red-500' : 'text-orange-500'}`}>{isReminderDue ? 'Échu !' : 'Planifié'}</span>
+                                                <span className="text-xs text-slate-600 font-medium">{formatDate(c.nextContactDate)}</span>
+                                            </div>
                                         ) : (
-                                            <span className="text-slate-300 italic text-xs">Aucun</span>
+                                            <span className="text-slate-300 text-xs font-medium">-</span>
                                         )}
                                       </td>
-                                      <td className="px-8 py-4 text-right"><button onClick={(e) => { e.stopPropagation(); handleDelete('contacts', c.id); }} className="text-slate-300 hover:text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"><Trash2 size={18} /></button></td>
+                                      <td className="px-8 py-4 text-right">
+                                        <button className="text-[#01189B] font-bold text-xs uppercase tracking-wide opacity-0 group-hover:opacity-100 transition-opacity flex justify-end items-center gap-1 ml-auto">Ouvrir <ArrowRight size={14}/></button>
+                                      </td>
                                     </tr>
                                   );
                                 })
@@ -3518,6 +3540,93 @@ function envoyerLead(agent, ligne) {
 
             <input type="file" accept=".csv,.txt" onChange={handleImportCSV} className="mb-6 block w-full text-sm text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-bold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 cursor-pointer outline-none border-2 border-slate-100 rounded-xl p-2 bg-slate-50" />
             <button onClick={() => setShowImportModal(null)} className={UI_CLASSES.btnSecondary + " w-full"}>Annuler et fermer</button>
+          </div>
+        </div>
+      )}
+
+      {showModal === 'bulkIds' && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-8 rounded-3xl w-full max-w-3xl shadow-2xl border border-slate-100 animate-fade-in flex flex-col max-h-[90vh]">
+            <div className="mb-6 border-b border-slate-100 pb-4 flex justify-between items-center shrink-0">
+                <div>
+                    <h3 className="text-2xl font-extrabold text-slate-800 font-poppins flex items-center gap-3"><Search style={{ color: BRAND_COLOR }} size={28}/> Liste des IDs Clients</h3>
+                    <p className="text-slate-500 text-sm mt-2">Récupérez rapidement les IDs de vos clients pour vos configurations ou scripts.</p>
+                </div>
+                <button onClick={() => setShowModal(null)} className="p-2 text-slate-400 hover:text-[#01189B] bg-slate-50 hover:bg-blue-50 rounded-xl transition-colors"><X size={24}/></button>
+            </div>
+            
+            <div className="flex-1 overflow-auto custom-scrollbar pr-2 mb-4 space-y-2">
+                <div className="flex items-center gap-4 px-4 py-3 bg-slate-50 rounded-xl border border-slate-200 sticky top-0 z-10 shadow-sm">
+                    <Search size={16} className="text-slate-400"/>
+                    <input type="text" placeholder="Filtrer par nom ou société..." className="bg-transparent outline-none w-full text-sm font-bold text-slate-700" onChange={(e) => setSearchTerm(e.target.value)} value={searchTerm} />
+                </div>
+                {displayedContacts.map(c => (
+                    <div key={c.id} className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-xl hover:border-[#01189B] transition-colors group">
+                        <div className="flex items-center gap-3 overflow-hidden">
+                            <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center text-[#01189B] font-bold text-xs shrink-0"><Users size={14}/></div>
+                            <div className="truncate">
+                                <p className="font-bold text-slate-800 text-sm truncate">{c.company || c.name}</p>
+                                <p className="text-[10px] text-slate-500 font-mono truncate">{c.email || c.type}</p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0 ml-4">
+                            <code className="text-[10px] bg-slate-50 px-2 py-1 rounded text-slate-500 font-mono border border-slate-200 select-all">{c.id}</code>
+                            <button onClick={() => { navigator.clipboard.writeText(c.id); addNotification('success', 'ID copié !'); }} className="p-1.5 text-slate-400 hover:text-[#01189B] hover:bg-blue-50 rounded-md transition-colors" title="Copier l'ID"><Copy size={16}/></button>
+                        </div>
+                    </div>
+                ))}
+                {displayedContacts.length === 0 && (
+                    <div className="text-center py-10 text-slate-400 font-medium">Aucun client trouvé.</div>
+                )}
+            </div>
+            
+            <div className="pt-4 border-t border-slate-100 flex justify-end shrink-0">
+                <button type="button" onClick={() => setShowModal(null)} className="px-6 py-2.5 text-white rounded-xl font-bold flex items-center gap-2 hover:shadow-lg transition-all" style={{ backgroundColor: BRAND_COLOR }}>Fermer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showModal === 'bulkContact' && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-8 rounded-3xl w-full max-w-2xl shadow-2xl border border-slate-100 animate-fade-in">
+            <div className="mb-6 border-b border-slate-100 pb-4">
+                <h3 className="text-2xl font-extrabold text-slate-800 font-poppins flex items-center gap-3"><Users style={{ color: BRAND_COLOR }} size={28}/> Ajout Rapide (Copier-Coller)</h3>
+                <p className="text-slate-500 text-sm mt-2">Copiez-collez vos données depuis Excel ou un tableau. Format attendu : <b>Société [TAB] Nom du Contact [TAB] Email [TAB] Téléphone</b>.</p>
+            </div>
+            <form onSubmit={async (e: any) => {
+                e.preventDefault();
+                if (!user || isOfflineMode) return addNotification('error', 'Mode hors-ligne.');
+                const text = e.target.bulkData.value;
+                if (!text.trim()) return;
+                const lines = text.split('\n').filter((l: string) => l.trim());
+                const batch = writeBatch(db);
+                let count = 0;
+                lines.forEach((line: string) => {
+                    const parts = line.split('\t');
+                    if (parts.length < 1) return;
+                    const company = parts[0]?.trim() || 'Inconnu';
+                    const name = parts[1]?.trim() || '';
+                    const email = parts[2]?.trim() || '';
+                    const phone = parts[3]?.trim() || '';
+                    const docRef = doc(collection(db, `artifacts/${getAppId()}/users/${user.uid}/contacts`));
+                    batch.set(docRef, { company, name, email, phone, type: 'prospect', status: 'nouveau', createdAt: new Date().toISOString() });
+                    count++;
+                });
+                try {
+                    await batch.commit();
+                    addNotification('success', `${count} contacts ajoutés !`);
+                    setShowModal(null);
+                } catch (err) {
+                    addNotification('error', 'Erreur lors de l\'ajout.');
+                }
+            }} className="space-y-4">
+                <textarea name="bulkData" className="w-full border-2 border-slate-200 bg-slate-50 p-4 rounded-xl outline-none focus:border-[#01189B] focus:bg-white transition-colors text-sm font-mono h-64 resize-none custom-scrollbar whitespace-pre" placeholder="Société ABC&#9;Jean Dupont&#9;jean@abc.com&#9;079 000 00 00&#10;Société XYZ&#9;Marie Curie&#9;marie@xyz.com&#9;078 000 00 00" required></textarea>
+                <div className="flex justify-end gap-4 pt-4 border-t border-slate-100">
+                    <button type="button" onClick={() => setShowModal(null)} className="px-6 py-2.5 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-xl font-bold transition-colors">Annuler</button>
+                    <button type="submit" className="px-6 py-2.5 text-white rounded-xl font-bold flex items-center gap-2 hover:shadow-lg hover:-translate-y-0.5 transition-all" style={{ backgroundColor: BRAND_COLOR }}><CheckCircle size={18}/> Importer</button>
+                </div>
+            </form>
           </div>
         </div>
       )}
