@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '54.8';
+const APP_VERSION = '54.9';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -1425,6 +1425,16 @@ export default function App() {
           </div>
           
           <div className="flex flex-col gap-3 relative z-10">
+            <button 
+              onClick={() => {
+                navigator.clipboard.writeText(selectedContact.id);
+                addNotification('success', 'ID Agent copié dans le presse-papier !');
+              }}
+              className="px-6 py-3 bg-indigo-50 border border-indigo-200 shadow-sm rounded-xl font-bold text-indigo-700 hover:bg-indigo-100 transition-colors flex items-center justify-center gap-2"
+              title="Copier l'ID unique de ce client pour le script Master Leads"
+            >
+              <Copy size={16}/> Copier ID Agent
+            </button>
             <button onClick={() => { setEditContactData(selectedContact); setIsEditingContact(true); }} className="px-6 py-3 bg-white border border-slate-200 shadow-sm rounded-xl font-bold text-slate-600 hover:bg-slate-50 transition-colors flex items-center justify-center gap-2">
               <Edit2 size={16}/> Modifier Profil
             </button>
