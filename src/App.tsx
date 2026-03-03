@@ -6,7 +6,7 @@ import {
   Wallet, PieChart, Globe, Share2, Loader, LogIn, LogOut, Edit2, Save,
   Wand2, Send, X, AlertTriangle, Info, Calendar as CalendarIcon,
   Mail, Download, MapPin, Eye, EyeOff, Activity,
-  Paperclip, Bell, CalendarClock, GripHorizontal, Link, Archive, Upload, Moon, Sun, Zap, RefreshCcw
+  Paperclip, Bell, CalendarClock, GripHorizontal, Link, Archive, Upload, Moon, Sun, Zap, RefreshCcw, Copy
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '53.7';
+const APP_VERSION = '54.6';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -136,13 +136,8 @@ const getPdfOptions = (filename: string) => ({
   image: { type: 'jpeg', quality: 1 },
   pagebreak: { mode: ['css', 'legacy'], avoid: ['.keep-together', 'tr'] },
   html2canvas: { 
-      scale: 2, useCORS: true, scrollY: 0, scrollX: 0,
+      scale: 2, useCORS: true, scrollY: 0,
       onclone: (doc: any) => {
-          const printEl = doc.getElementById('invoice-printable');
-          if (printEl) {
-              printEl.style.margin = '0';
-              printEl.style.transform = 'none';
-          }
           doc.querySelectorAll('.no-print').forEach((el: any) => el.style.display = 'none');
           doc.querySelectorAll('textarea.print-input').forEach((el: any) => {
               const div = doc.createElement('div');
@@ -431,6 +426,22 @@ export default function App() {
   const [isSecretMode, setIsSecretMode] = useState(false);
   const [isEditingContractInInvoice, setIsEditingContractInInvoice] = useState(false);
   const [isEditingLayout, setIsEditingLayout] = useState(false);
+  const [showScriptGenerator, setShowScriptGenerator] = useState(false);
+
+  // Nouveaux états pour la pondération manuelle
+  const [manualWeights, setManualWeights] = useState<any[]>([]);
+  const [manualWeightClient, setManualWeightClient] = useState('');
+  const [manualWeightBudget, setManualWeightBudget] = useState(1000);
+  const [manualWeightCpl, setManualWeightCpl] = useState(80);
+
+  // Etats de configuration du Script
+  const [scriptGlobalSheetId, setScriptGlobalSheetId] = useState('');
+  const [scriptGlobalTabName, setScriptGlobalTabName] = useState('Distribution');
+  const [scriptPhoneColIndex, setScriptPhoneColIndex] = useState(6);
+  const [weightOverrides, setWeightOverrides] = useState<any>({});
+  const [currentScriptId, setCurrentScriptId] = useState<string | null>(null);
+  const [scriptName, setScriptName] = useState('');
+  const [scriptProductId, setScriptProductId] = useState('');
 
   const [notifications, setNotifications] = useState<any[]>([]);
   const [confirmState, setConfirmState] = useState({ isOpen: false, title: '', message: '', onConfirm: () => {} });
@@ -488,6 +499,13 @@ export default function App() {
   const [planDuration, setPlanDuration] = useState(30);
   const [planProductId, setPlanProductId] = useState('');
   const [planClientId, setPlanClientId] = useState('');
+
+  // --- NOUVEAU : ETAT LMC ---
+  const [lmcGoal, setLmcGoal] = useState<number>(10000);
+  const [lmcSimulationsList, setLmcSimulationsList] = useState<any[]>([]);
+  const [lmcPeriod, setLmcPeriod] = useState<'month'|'year'>('month');
+  const [lmcCustomBudget, setLmcCustomBudget] = useState<number>(3000);
+  const [lmcCustomProduct, setLmcCustomProduct] = useState<string>('');
 
   // Modale d'envoi d'email
   const [showEmailModal, setShowEmailModal] = useState(false);
@@ -683,6 +701,25 @@ export default function App() {
               beneficeMensuel += (s.stats?.arbitrage || 0); // Ajout de l'arbitrage au bénéfice du mois
           }
       }
+    });
+
+    // --- AJOUT DU CA ET BENEFICE MANUELS DES FICHES CLIENTS ---
+    contacts.forEach(c => {
+        const mCA = Number(c.manualCA || 0);
+        const mBen = Number(c.manualBenefice || 0);
+        if (mCA > 0) {
+            totalPaidInvoices += mCA;
+            caAnnuel += mCA;
+            monthlyCA[currentMonth] += mCA; // On l'attribue au mois en cours pour l'affichage
+            monthlyInvoicesAmount += mCA;
+            const clientId = c.company || c.name || 'Inconnu';
+            if (!caPerClient[clientId]) caPerClient[clientId] = { name: clientId, total: 0 };
+            caPerClient[clientId].total += mCA;
+        }
+        if (mBen > 0) {
+            beneficePapierTotal += mBen;
+            beneficeMensuel += mBen;
+        }
     });
 
     const caDetails = Object.values(caPerClient).sort((a: any, b: any) => b.total - a.total);
@@ -1124,11 +1161,11 @@ export default function App() {
   };
 
   const handleExportContactsCSV = () => {
-      let csvContent = "Société,Contact,Email,Téléphone,Adresse,Type,Statut,Source,Budget,Audience,Produits\n";
+      let csvContent = "Société,Contact,Email,Téléphone,Adresse,Type,Statut,Source,Budget,Audience,Produits,CA Manuel,Bénéfice Manuel\n";
       
       // S'il n'y a pas de contacts, on crée une ligne d'exemple pour le template
       if (contacts.length === 0) {
-          csvContent += '"Entreprise Exemple","Jean Dupont","jean@exemple.com","+41 79 000 00 00","Genève","prospect","nouveau","Call froid","5000","Les deux","LAMal"\n';
+          csvContent += '"Entreprise Exemple","Jean Dupont","jean@exemple.com","+41 79 000 00 00","Genève","prospect","nouveau","Call froid","5000","Les deux","LAMal","0","0"\n';
       } else {
           contacts.forEach(c => {
               const row = [ 
@@ -1142,7 +1179,9 @@ export default function App() {
                   `"${c.source || ''}"`, 
                   `"${c.projectedBudget || 0}"`,
                   `"${c.targetAudience || ''}"`,
-                  `"${(c.offeredProducts || []).join(' / ')}"`
+                  `"${(c.offeredProducts || []).join(' / ')}"`,
+                  `"${c.manualCA || 0}"`,
+                  `"${c.manualBenefice || 0}"`
               ];
               csvContent += row.join(",") + "\n";
           });
@@ -1197,9 +1236,11 @@ export default function App() {
                   const projectedBudget = Number(row[8]) || 0;
                   const targetAudience = row[9] || '';
                   const offeredProducts = row[10] ? row[10].split('/').map((p: string) => p.trim()) : [];
+                  const manualCA = Number(row[11]) || 0;
+                  const manualBenefice = Number(row[12]) || 0;
 
                   const docRef = doc(collection(db, `artifacts/${getAppId()}/users/${user.uid}/contacts`));
-                  batch.set(docRef, { company, name, email, phone, address, type: typeContact, status, source, projectedBudget, targetAudience, offeredProducts, createdAt: new Date().toISOString() });
+                  batch.set(docRef, { company, name, email, phone, address, type: typeContact, status, source, projectedBudget, targetAudience, offeredProducts, manualCA, manualBenefice, createdAt: new Date().toISOString() });
                   count++;
               } else if (type === 'invoices') {
                   const id = row[0] || `FAC-IMPORT-${Date.now()}-${i}`;
@@ -1298,7 +1339,7 @@ export default function App() {
 
     // Calculs pour la fiche client
     const clientInvoices = invoices.filter(inv => inv.clientId === selectedContact.id).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    let caEncaisse = clientInvoices.filter(i => i.status === 'payee').reduce((acc, i) => acc + i.amount, 0);
+    let caEncaisse = clientInvoices.filter(i => i.status === 'payee').reduce((acc, i) => acc + i.amount, 0) + Number(selectedContact.manualCA || 0);
     
     let clientMgtFees = 0;
     clientInvoices.filter(i => i.status === 'payee').forEach(inv => {
@@ -1309,7 +1350,7 @@ export default function App() {
     const clientSimulations = simulations.filter(s => s.clientId === selectedContact.id);
     const clientArbitrage = clientSimulations.reduce((acc, s) => acc + (s.stats?.arbitrage || 0), 0);
 
-    const beneficeTotalClient = clientMgtFees + clientArbitrage;
+    const beneficeTotalClient = clientMgtFees + clientArbitrage + Number(selectedContact.manualBenefice || 0);
 
     // Analyse du rappel (Reminder)
     const hasReminder = !!selectedContact.nextContactDate;
@@ -1349,7 +1390,7 @@ export default function App() {
                 </span>
               </div>
               <div className="flex gap-3 mb-4">
-                  <span className="text-sm font-bold text-slate-700 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm flex items-center gap-2"><Wallet size={16}/> CA : {renderCurrency(caEncaisse)}</span>
+                  <span className="text-sm font-bold text-[#01189B] bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200 shadow-sm flex items-center gap-2"><Wallet size={16}/> CA : {renderCurrency(caEncaisse)}</span>
                   <span className="text-sm font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 shadow-sm flex items-center gap-2"><TrendingUp size={16}/> Bénéfice : {renderCurrency(beneficeTotalClient)}</span>
               </div>
               <p className="text-slate-500 flex items-center gap-2 font-medium text-lg"><Users size={20}/> {selectedContact.name}</p>
@@ -1414,7 +1455,13 @@ export default function App() {
                 <div><label className={UI_CLASSES.label}>Contact</label><input className={UI_CLASSES.input} value={editContactData.name || ''} onChange={e => setEditContactData({...editContactData, name: e.target.value})} /></div>
                 <div><label className={UI_CLASSES.label}>Email</label><input className={UI_CLASSES.input} value={editContactData.email || ''} onChange={e => setEditContactData({...editContactData, email: e.target.value})} /></div>
                 <div><label className={UI_CLASSES.label}>Téléphone</label><input className={UI_CLASSES.input} value={editContactData.phone || ''} onChange={e => setEditContactData({...editContactData, phone: e.target.value})} /></div>
-                <div className="md:col-span-2"><label className={UI_CLASSES.label}>Adresse complète (Facturation)</label><textarea className={`${UI_CLASSES.input} resize-none h-14`} value={editContactData.address || ''} onChange={e => setEditContactData({...editContactData, address: e.target.value})} /></div>
+                <div><label className={UI_CLASSES.label}>Google Sheet ID (Leads)</label><input className={UI_CLASSES.input} value={editContactData.googleSheetId || ''} onChange={e => setEditContactData({...editContactData, googleSheetId: e.target.value})} placeholder="ID GSheet du client" /></div>
+                <div className="col-span-1 md:col-span-2 lg:col-span-3"><label className={UI_CLASSES.label}>Adresse complète (Facturation)</label><textarea className={`${UI_CLASSES.input} resize-none h-14`} value={editContactData.address || ''} onChange={e => setEditContactData({...editContactData, address: e.target.value})} /></div>
+
+                <div className="col-span-1 md:col-span-2 lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-6 p-4 bg-white rounded-xl border border-slate-200 shadow-sm my-2">
+                    <div><label className={UI_CLASSES.label}>CA Historique (Manuel)</label><input type="number" className={UI_CLASSES.input} value={editContactData.manualCA || ''} onChange={e => setEditContactData({...editContactData, manualCA: e.target.value})} placeholder="Ajouter au CA global..." /></div>
+                    <div><label className={UI_CLASSES.label}>Bénéfice Historique (Manuel)</label><input type="number" className={UI_CLASSES.input} value={editContactData.manualBenefice || ''} onChange={e => setEditContactData({...editContactData, manualBenefice: e.target.value})} placeholder="Ajouter au bénéfice..." /></div>
+                </div>
 
                 <div><label className={UI_CLASSES.label}>Type de Contact</label>
                   <select className={UI_CLASSES.input} value={editContactData.type || 'prospect'} onChange={e => setEditContactData({...editContactData, type: e.target.value})}>
@@ -1643,6 +1690,32 @@ export default function App() {
     const globalStats = simulations.reduce((acc, sim) => ({ totalBudget: acc.totalBudget + sim.budget, totalMediaSpend: acc.totalMediaSpend + sim.stats.costTotal, totalProfit: acc.totalProfit + sim.stats.profit, totalLeads: acc.totalLeads + sim.stats.volumeTotal }), { totalBudget: 0, totalMediaSpend: 0, totalProfit: 0, totalLeads: 0 });
     const globalMarginPercent = globalStats.totalBudget > 0 ? (globalStats.totalProfit / globalStats.totalBudget) * 100 : 0;
 
+    // --- CALCUL DES BUDGETS JOURNALIERS ACTIFS PAR PLATEFORME ---
+    const activeDailyByPlatform: any = {};
+    let totalDailyMediaSpend = 0;
+
+    simulations.forEach(sim => {
+        const duration = sim.duration || 30;
+        const start = new Date(sim.createdAt);
+        const diffDays = Math.max(0, Math.floor((new Date().getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+        const isFinished = diffDays >= duration;
+
+        if (!isFinished && sim.stats?.costTotal) {
+            const daily = sim.stats.costTotal / duration;
+            totalDailyMediaSpend += daily;
+
+            let platform = sim.productPlatform || 'autre';
+            if (platform === 'autre' || !sim.productPlatform) {
+                 const p = products.find(prod => prod.name === sim.productName);
+                 if (p && p.platform) platform = p.platform;
+            }
+            const platformKey = platform.toLowerCase();
+
+            if (!activeDailyByPlatform[platformKey]) activeDailyByPlatform[platformKey] = 0;
+            activeDailyByPlatform[platformKey] += daily;
+        }
+    });
+
     return (
       <div className="space-y-8 animate-fade-in pb-12">
         <div className="space-y-6 max-w-7xl mx-auto">
@@ -1658,6 +1731,39 @@ export default function App() {
               <p className="text-4xl font-extrabold font-poppins text-white relative z-10">{renderNumber(globalStats.totalLeads)}</p>
               <p className="text-xs text-blue-200 mt-2 font-medium relative z-10">À produire ce mois-ci</p>
             </div>
+          </div>
+
+          {/* NOUVEAU WIDGET : BUDGETS JOURNALIERS INTELLIGENTS */}
+          <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700 shadow-lg mt-6 text-white relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500 opacity-10 rounded-full blur-3xl -mr-20 -mt-20"></div>
+              <h3 className="text-lg font-extrabold flex items-center gap-2 font-poppins mb-6 relative z-10"><Zap className="text-yellow-400" size={20}/> Répartition Quotidienne des Campagnes (Ads)</h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 relative z-10">
+                  <div className="bg-slate-900/50 p-5 rounded-2xl border border-slate-700/50">
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1">Dépense Quotidienne Totale</p>
+                      <p className="text-3xl font-black font-mono text-white">{renderCurrency(totalDailyMediaSpend)}<span className="text-sm text-slate-500 font-sans font-medium">/j</span></p>
+                  </div>
+
+                  {Object.entries(activeDailyByPlatform).map(([plat, amount]: any) => {
+                      let label = plat; let icon = <Share2 size={16}/>; let colorClass = 'text-blue-400';
+                      if (plat.includes('meta')) { label = 'Meta Ads'; icon = <Share2 size={16}/>; colorClass = 'text-blue-400'; }
+                      if (plat.includes('google')) { label = 'Google Ads'; icon = <Globe size={16}/>; colorClass = 'text-orange-400'; }
+                      if (plat.includes('tiktok')) { label = 'TikTok Ads'; icon = <PlayCircle size={16}/>; colorClass = 'text-pink-400'; }
+
+                      return (
+                          <div key={plat} className="bg-slate-900/50 p-5 rounded-2xl border border-slate-700/50">
+                              <p className={`text-[10px] font-bold uppercase tracking-widest mb-1 flex items-center gap-1.5 ${colorClass}`}>{icon} {label}</p>
+                              <p className="text-2xl font-black font-mono text-white">{renderCurrency(amount)}<span className="text-xs text-slate-500 font-sans font-medium">/j</span></p>
+                          </div>
+                      )
+                  })}
+
+                  {Object.keys(activeDailyByPlatform).length === 0 && (
+                      <div className="md:col-span-3 flex items-center text-sm text-slate-400 italic">
+                          Aucune campagne active. Lancez une production ci-dessous pour voir la répartition.
+                      </div>
+                  )}
+              </div>
           </div>
           
           <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden mt-8">
@@ -1681,7 +1787,7 @@ export default function App() {
             <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
                 <table className="w-full text-sm text-left">
                   <thead className="bg-slate-50 text-slate-500 uppercase font-extrabold text-[10px] tracking-wider border-b border-slate-100">
-                    <tr><th className="px-6 py-5">Client / Thématique</th><th className="px-6 py-5">Progression Temps</th><th className="px-6 py-5">Budget Facturé</th><th className="px-6 py-5">Objectif Leads</th><th className="px-6 py-5">Bénéfice Prévu</th><th className="px-6 py-5 text-right">Action</th></tr>
+                    <tr><th className="px-6 py-5">Client / Thématique</th><th className="px-6 py-5">Progression Temps</th><th className="px-6 py-5">Finances & Budget/Jour</th><th className="px-6 py-5">Objectif Leads</th><th className="px-6 py-5">Bénéfice Prévu</th><th className="px-6 py-5 text-right">Action</th></tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {simulations.map((sim) => {
@@ -1691,12 +1797,21 @@ export default function App() {
                       const day = Math.min(diffDays, duration);
                       const daysPercent = (day / duration) * 100;
                       const isFinished = day >= duration;
+                      
+                      let platform = sim.productPlatform || 'autre';
+                      if (platform === 'autre' || !sim.productPlatform) {
+                           const p = products.find(prod => prod.name === sim.productName);
+                           if (p && p.platform) platform = p.platform;
+                      }
 
                       return (
                       <tr key={sim.id} className="hover:bg-blue-50/30 transition-colors">
                         <td className="px-6 py-5">
                           <p className="font-extrabold text-slate-800 font-poppins">{sim.clientName || 'N/A'}</p>
-                          <p className="font-bold text-xs mt-1 text-[#01189B] flex items-center gap-1"><Package size={12}/> {sim.productName}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                              <p className="font-bold text-xs text-[#01189B] flex items-center gap-1"><Package size={12}/> {sim.productName}</p>
+                              <span className={`text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded ${platform.toLowerCase().includes('google') ? 'bg-orange-100 text-orange-700' : platform.toLowerCase().includes('meta') ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-700'}`}>{platform}</span>
+                          </div>
                         </td>
                         <td className="px-6 py-5 w-48">
                           <div className="flex justify-between text-[10px] font-bold text-slate-400 mb-1">
@@ -1707,7 +1822,10 @@ export default function App() {
                           </div>
                           {isFinished && <span className="text-[10px] text-emerald-600 font-bold mt-1 inline-block">Terminé</span>}
                         </td>
-                        <td className="px-6 py-5 font-mono font-bold text-slate-600">{renderCurrency(sim.budget)}</td>
+                        <td className="px-6 py-5">
+                            <p className="font-mono font-bold text-slate-800">{renderCurrency(sim.budget)} <span className="text-[9px] text-slate-400 font-sans uppercase tracking-widest">Facturé</span></p>
+                            <p className="font-mono font-bold text-orange-600 text-xs mt-1 bg-orange-50 px-2 py-0.5 rounded inline-block">{renderCurrency((sim.stats?.costTotal || 0) / duration)}/j <span className="text-[9px] text-orange-400 font-sans uppercase tracking-widest">Ads</span></p>
+                        </td>
                         <td className="px-6 py-5">
                           <div className="bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg font-extrabold inline-flex items-center gap-2">
                             <Target size={14}/> {renderNumber(sim.stats?.volumeTotal)}
@@ -1727,6 +1845,249 @@ export default function App() {
           )}
         </div>
       </div>
+    );
+  };
+
+  const renderLMC = () => {
+    const totalSimulatedProfit = lmcSimulationsList.reduce((acc, sim) => acc + sim.profit, 0);
+    const totalSimulatedCA = lmcSimulationsList.reduce((acc, sim) => acc + sim.budget, 0);
+    const totalSimulatedLeads = lmcSimulationsList.reduce((acc, sim) => acc + sim.leads, 0);
+    const progressPercent = Math.min((totalSimulatedProfit / lmcGoal) * 100, 100);
+    const remainingProfit = Math.max(lmcGoal - totalSimulatedProfit, 0);
+
+    const avgProfit = lmcSimulationsList.length > 0 ? totalSimulatedProfit / lmcSimulationsList.length : 1500;
+    const clientsNeeded = Math.ceil(remainingProfit / avgProfit);
+    const callsNeeded = clientsNeeded * 5; // Hypothèse de 20% de closing
+
+    const addSimulatedClient = (budget = 3000, productId: string | null = null) => {
+      const prod = productId ? products.find(p => p.id === productId) : products[0];
+      if (!prod) return addNotification('error', 'Aucun produit disponible.');
+      
+      const fees = budget * 0.35; 
+      const netMedia = budget * 0.65; 
+      const volumeTotal = Math.floor(netMedia / prod.price); 
+      const costTotal = volumeTotal * Number(prod.cost ?? 0);
+      const profit = fees + (netMedia - costTotal);
+
+      const newSim = {
+          id: Math.random().toString(36).substr(2, 9),
+          name: `Simulation ${lmcSimulationsList.length + 1}`,
+          productName: prod.name,
+          budget,
+          leads: volumeTotal,
+          profit,
+          margin: (profit / budget) * 100
+      };
+      setLmcSimulationsList([...lmcSimulationsList, newSim]);
+    };
+
+    const handleCustomAdd = () => {
+       addSimulatedClient(lmcCustomBudget, lmcCustomProduct || (products[0]?.id));
+    };
+
+    const generateAutoScenario = () => {
+       let currentProfit = totalSimulatedProfit;
+       let localList = [...lmcSimulationsList];
+       let safeGuard = 0;
+       
+       const defaultBudget = 3000;
+       const prod = products[0];
+       if(!prod) return addNotification('error', 'Aucun produit disponible pour simuler.');
+
+       const fees = defaultBudget * 0.35;
+       const netMedia = defaultBudget * 0.65;
+       const volumeTotal = Math.floor(netMedia / prod.price);
+       const costTotal = volumeTotal * Number(prod.cost ?? 0);
+       const profitPerClient = fees + (netMedia - costTotal);
+
+       if (currentProfit >= lmcGoal) return addNotification('info', 'Objectif déjà atteint !');
+
+       while(currentProfit < lmcGoal && safeGuard < 50) {
+           const newSim = {
+              id: Math.random().toString(36).substr(2, 9),
+              name: `Client Auto ${localList.length + 1}`,
+              productName: prod.name,
+              budget: defaultBudget,
+              leads: volumeTotal,
+              profit: profitPerClient,
+              margin: (profitPerClient / defaultBudget) * 100
+           };
+           localList.push(newSim);
+           currentProfit += profitPerClient;
+           safeGuard++;
+       }
+       setLmcSimulationsList(localList);
+       addNotification('success', 'Scénario magique généré !');
+    };
+
+    return (
+       <div className="space-y-8 animate-fade-in max-w-7xl mx-auto pb-12">
+          <div className="flex justify-between items-center bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+            <div>
+              <h2 className="text-2xl font-extrabold flex items-center gap-3 text-slate-800 font-poppins">
+                <Target style={{ color: BRAND_COLOR }} size={28} /> Prévisionnel de Croissance
+              </h2>
+              <p className="text-slate-500 mt-1 text-sm">Définissez vos objectifs financiers et simulez les ventes nécessaires pour les atteindre.</p>
+            </div>
+            <div className="flex gap-4">
+                <div className="bg-slate-50 p-1 rounded-xl flex border border-slate-200">
+                    <button onClick={() => setLmcPeriod('month')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${lmcPeriod === 'month' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-400 hover:text-slate-600'}`}>Au Mois</button>
+                    <button onClick={() => setLmcPeriod('year')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${lmcPeriod === 'year' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-400 hover:text-slate-600'}`}>A l'Année</button>
+                </div>
+                <button onClick={() => setLmcSimulationsList([])} className="bg-red-50 text-red-600 px-4 py-2 rounded-xl text-sm font-bold hover:bg-red-100 transition-all flex items-center gap-2 border border-red-100">
+                   <Trash2 size={16}/> Vider
+                </button>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              
+              {/* PANNEAU GAUCHE : OBJECTIFS & CONSEILS */}
+              <div className="lg:col-span-1 space-y-6">
+                  {/* Objectif Box */}
+                  <div className="bg-gradient-to-br from-[#01189B] to-blue-800 p-8 rounded-3xl text-white shadow-lg relative overflow-hidden">
+                      <div className="absolute top-0 right-0 w-32 h-32 bg-white opacity-10 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none"></div>
+                      <p className="text-blue-200 font-bold uppercase tracking-widest text-xs mb-2">Objectif Bénéfice ({lmcPeriod === 'month' ? 'Mensuel' : 'Annuel'})</p>
+                      <div className="flex items-center gap-2 mb-6">
+                          <input 
+                              type="number" 
+                              value={lmcGoal} 
+                              onChange={e => setLmcGoal(Number(e.target.value))} 
+                              className="bg-transparent border-b-2 border-blue-400/50 text-4xl font-extrabold text-white w-full outline-none focus:border-white font-poppins transition-colors"
+                          />
+                          <span className="text-xl font-bold text-blue-300">CHF</span>
+                      </div>
+                      
+                      <div className="bg-black/20 p-4 rounded-2xl backdrop-blur-sm border border-white/10">
+                          <p className="text-[10px] text-blue-200 font-bold uppercase tracking-widest mb-1">Bénéfice Simulé</p>
+                          <p className="text-2xl font-black font-mono">{renderCurrency(totalSimulatedProfit)}</p>
+                          
+                          <div className="w-full bg-black/30 rounded-full h-2 mt-4 overflow-hidden">
+                              <div className="h-full rounded-full transition-all duration-1000 bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.5)]" style={{ width: `${progressPercent}%` }}></div>
+                          </div>
+                          <p className="text-right text-xs font-bold mt-2 text-emerald-300">{progressPercent.toFixed(1)}% de l'objectif</p>
+                      </div>
+                  </div>
+
+                  {/* Conseils Box */}
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden">
+                      <h3 className="font-extrabold text-slate-800 mb-4 flex items-center gap-2 text-lg"><Activity className="text-orange-500" size={20}/> Stratégie & Conseils</h3>
+                      {remainingProfit <= 0 ? (
+                          <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100 text-emerald-700">
+                              <p className="font-bold flex items-center gap-2 mb-1"><CheckCircle size={18}/> Objectif Atteint !</p>
+                              <p className="text-sm">Votre prévisionnel couvre parfaitement votre objectif financier. Validez ces signatures pour sécuriser votre CA.</p>
+                          </div>
+                      ) : (
+                          <div className="space-y-4">
+                              <p className="text-sm text-slate-600">Pour atteindre les <b className="text-[#01189B]">{renderCurrency(remainingProfit)}</b> restants, voici le plan d'action estimé selon votre panier moyen actuel ({renderCurrency(avgProfit)}) :</p>
+                              
+                              <div className="grid grid-cols-2 gap-3">
+                                  <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl text-center">
+                                      <p className="text-3xl font-black text-slate-800 font-poppins">{clientsNeeded}</p>
+                                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Nouveaux Clients</p>
+                                  </div>
+                                  <div className="p-3 bg-orange-50 border border-orange-100 rounded-xl text-center">
+                                      <p className="text-3xl font-black text-orange-600 font-poppins">{callsNeeded}</p>
+                                      <p className="text-[10px] font-bold text-orange-400 uppercase tracking-widest mt-1">Appels Découverte</p>
+                                  </div>
+                              </div>
+                              <p className="text-xs text-slate-400 italic text-center">*Basé sur un taux de closing estimé à 20%.</p>
+                          </div>
+                      )}
+                  </div>
+              </div>
+
+              {/* PANNEAU CENTRAL & DROIT : SIMULATION */}
+              <div className="lg:col-span-2 space-y-6">
+                  
+                  {/* Outils d'ajout */}
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                      <h3 className="font-extrabold text-slate-800 mb-4 flex items-center gap-2"><Plus size={18} className="text-[#01189B]"/> Ajouter des signatures au prévisionnel</h3>
+                      
+                      <div className="flex flex-wrap gap-3 mb-6">
+                          <button onClick={() => addSimulatedClient(2000)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors text-sm border border-slate-200 shadow-sm">
+                              + Petit Client (2k)
+                          </button>
+                          <button onClick={() => addSimulatedClient(5000)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors text-sm border border-slate-200 shadow-sm">
+                              + Client Moyen (5k)
+                          </button>
+                          <button onClick={() => addSimulatedClient(10000)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors text-sm border border-slate-200 shadow-sm">
+                              + Gros Client (10k)
+                          </button>
+                          <button onClick={generateAutoScenario} className="px-4 py-2 bg-purple-100 hover:bg-purple-200 text-purple-700 font-bold rounded-xl transition-colors text-sm border border-purple-200 shadow-sm flex items-center gap-1.5 ml-auto">
+                              <Wand2 size={16}/> Compléter Auto
+                          </button>
+                      </div>
+
+                      <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl">
+                          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Ajout sur-mesure</p>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                              <div>
+                                  <label className={UI_CLASSES.label}>Budget Facturé</label>
+                                  <input type="number" value={lmcCustomBudget} onChange={e => setLmcCustomBudget(Number(e.target.value))} className={`${UI_CLASSES.input} py-2.5`} />
+                              </div>
+                              <div>
+                                  <label className={UI_CLASSES.label}>Thématique</label>
+                                  <select value={lmcCustomProduct} onChange={e => setLmcCustomProduct(e.target.value)} className={`${UI_CLASSES.input} py-2.5`}>
+                                      <option value="">Sélectionner</option>
+                                      {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                  </select>
+                              </div>
+                              <button onClick={handleCustomAdd} className="w-full bg-[#01189B] hover:bg-blue-800 text-white font-bold py-3 rounded-xl transition-colors shadow-sm">Ajouter Fiche</button>
+                          </div>
+                      </div>
+                  </div>
+
+                  {/* Liste des simulations */}
+                  <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden h-[400px] flex flex-col">
+                      <div className="p-5 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center shrink-0">
+                          <h3 className="font-extrabold text-slate-800 font-poppins text-lg flex items-center gap-2">
+                             <Briefcase size={20} className="text-[#01189B]"/> Portefeuille Simulé ({lmcSimulationsList.length})
+                          </h3>
+                          <div className="flex gap-4 text-sm font-bold text-slate-500">
+                             <span className="flex items-center gap-1"><Wallet size={16} className="text-blue-500"/> CA: {renderCurrency(totalSimulatedCA)}</span>
+                             <span className="flex items-center gap-1"><Users size={16} className="text-emerald-500"/> Leads: {renderNumber(totalSimulatedLeads)}</span>
+                          </div>
+                      </div>
+                      
+                      <div className="flex-1 overflow-auto p-4 space-y-3 bg-slate-50/20 custom-scrollbar">
+                          {lmcSimulationsList.length === 0 ? (
+                              <div className="h-full flex flex-col items-center justify-center text-slate-400">
+                                  <Target size={48} className="mb-4 opacity-20 text-[#01189B]"/>
+                                  <p className="font-bold text-lg text-slate-600 mb-1">Aucun contrat simulé</p>
+                                  <p className="text-sm">Ajoutez des clients fictifs pour construire votre prévisionnel.</p>
+                              </div>
+                          ) : (
+                              lmcSimulationsList.map((sim, index) => (
+                                  <div key={sim.id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 hover:border-[#01189B] transition-colors group">
+                                      <div className="flex items-center gap-4">
+                                          <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 font-bold flex items-center justify-center text-xs shrink-0">{index + 1}</div>
+                                          <div>
+                                              <h4 className="font-bold text-slate-800 text-sm">{sim.name}</h4>
+                                              <p className="text-[10px] text-slate-500 font-bold mt-0.5">{sim.productName}</p>
+                                          </div>
+                                      </div>
+                                      <div className="flex items-center gap-8 pr-4 w-full sm:w-auto justify-end">
+                                          <div className="text-right">
+                                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Budget</p>
+                                              <p className="font-mono font-bold text-slate-700 text-sm">{renderCurrency(sim.budget)}</p>
+                                          </div>
+                                          <div className="text-right">
+                                              <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mb-0.5">Bénéfice</p>
+                                              <p className="font-mono font-extrabold text-emerald-600 text-sm bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">{renderCurrency(sim.profit)}</p>
+                                          </div>
+                                          <button onClick={() => setLmcSimulationsList(lmcSimulationsList.filter(s => s.id !== sim.id))} className="text-slate-300 hover:text-red-500 transition-colors bg-red-50 p-2 rounded-xl sm:opacity-0 group-hover:opacity-100">
+                                              <Trash2 size={16}/>
+                                          </button>
+                                      </div>
+                                  </div>
+                              ))
+                          )}
+                      </div>
+                  </div>
+              </div>
+          </div>
+       </div>
     );
   };
 
@@ -2465,6 +2826,7 @@ export default function App() {
               { id: 'invoices', label: 'Facturation', icon: FileText },
               { id: 'products', label: 'Catalogue Offres', icon: Package },
               { id: 'projections', label: 'Production Média', icon: Calculator },
+              { id: 'lmc', label: 'Simulateur LMC', icon: Wand2 },
               { id: 'settings', label: 'Paramètres Agence', icon: Settings },
             ].map((item) => (
               <button
@@ -2600,10 +2962,347 @@ export default function App() {
                           })}
                         </div>
                       )}
+
+                      {/* --- NOUVEAU : OUTIL DE PONDERATION ET SCRIPT --- */}
+                      <div className="mt-12 bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
+                          <div className="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => setShowScriptGenerator(!showScriptGenerator)}>
+                              <div>
+                                  <h3 className="text-xl font-extrabold text-slate-800 font-poppins flex items-center gap-3"><Settings style={{ color: BRAND_COLOR }} size={24}/> Outil de Pondération & Script de Distribution</h3>
+                                  <p className="text-slate-500 text-sm mt-1">Générez un script Google Apps Script automatisé pour distribuer les leads selon le poids (volume cible) des cycles actifs.</p>
+                              </div>
+                              <button className="p-2 text-slate-400 hover:text-[#01189B] bg-white rounded-xl shadow-sm border border-slate-200">
+                                  <ChevronLeft size={20} className={showScriptGenerator ? "rotate-90 transition-transform" : "-rotate-90 transition-transform"} />
+                              </button>
+                          </div>
+                          
+                          {showScriptGenerator && (() => {
+                              const activeSimsForScript = simulations.filter(sim => {
+                                  const duration = sim.duration || 30;
+                                  const start = new Date(sim.createdAt);
+                                  const diffDays = Math.max(0, Math.floor((new Date().getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+                                  if (diffDays >= duration) return false;
+                                  if (scriptProductId && sim.productId !== scriptProductId) return false;
+                                  return true;
+                              });
+
+                              const loadScriptConfig = (id: string) => {
+                                  if (!id) {
+                                      setCurrentScriptId(null); setScriptName(''); setScriptProductId(''); setScriptGlobalSheetId(''); setScriptGlobalTabName('Distribution'); setScriptPhoneColIndex(6); setWeightOverrides({}); setManualWeights([]);
+                                      return;
+                                  }
+                                  const conf = (settings.distributionScripts || []).find((s:any) => s.id === id);
+                                  if (conf) {
+                                      setCurrentScriptId(conf.id); setScriptName(conf.name); setScriptProductId(conf.productId || ''); setScriptGlobalSheetId(conf.sheetId || ''); setScriptGlobalTabName(conf.tabName || 'Distribution'); setScriptPhoneColIndex(conf.phoneCol || 6); setWeightOverrides(conf.overrides || {}); setManualWeights(conf.manuals || []);
+                                  }
+                              };
+
+                              const saveScriptConfig = () => {
+                                  if (!scriptName) return addNotification('error', 'Veuillez donner un nom à ce script.');
+                                  const newConf = { id: currentScriptId || Math.random().toString(36).substr(2, 9), name: scriptName, productId: scriptProductId, sheetId: scriptGlobalSheetId, tabName: scriptGlobalTabName, phoneCol: scriptPhoneColIndex, overrides: weightOverrides, manuals: manualWeights };
+                                  let list = [...(settings.distributionScripts || [])];
+                                  if (currentScriptId) list = list.map(s => s.id === currentScriptId ? newConf : s);
+                                  else list.push(newConf);
+                                  handleSaveSettingsDirect({ distributionScripts: list });
+                                  setCurrentScriptId(newConf.id);
+                                  addNotification('success', 'Configuration du script sauvegardée !');
+                              };
+                              
+                              const deleteScriptConfig = () => {
+                                  if (!currentScriptId) return;
+                                  openConfirm('Supprimer ce script ?', 'Cette configuration sera perdue.', () => {
+                                      const list = (settings.distributionScripts || []).filter((s:any) => s.id !== currentScriptId);
+                                      handleSaveSettingsDirect({ distributionScripts: list });
+                                      loadScriptConfig('');
+                                  });
+                              };
+
+                              const handleAddManualWeight = () => {
+                                  const c = contacts.find((x: any) => x.id === manualWeightClient);
+                                  if(!c) return addNotification('error', 'Sélectionnez un client dans la liste.');
+                                  if(!c.googleSheetId) return addNotification('error', "Ce client n'a pas d'ID Google Sheet sur sa fiche CRM.");
+                                  if(manualWeightCpl <= 0) return addNotification('error', 'Le CPL prévu doit être supérieur à 0.');
+                                  
+                                  const weight = Math.floor(manualWeightBudget / manualWeightCpl);
+                                  setManualWeights([...manualWeights, {
+                                      id: Math.random().toString(36).substr(2,9),
+                                      clientId: c.id,
+                                      name: c.company || c.name,
+                                      sheetId: c.googleSheetId,
+                                      budget: manualWeightBudget,
+                                      cpl: manualWeightCpl,
+                                      weight
+                                  }]);
+                                  addNotification('success', 'Client ajouté manuellement au cycle !');
+                              };
+
+                              const combinedAgents: any[] = [];
+                              activeSimsForScript.forEach(sim => {
+                                  const client = contacts.find(c => c.id === sim.clientId);
+                                  if (client?.googleSheetId) {
+                                      const autoWeight = sim.stats?.volumeTotal || 0;
+                                      const finalWeight = weightOverrides[sim.id] !== undefined ? weightOverrides[sim.id] : autoWeight;
+                                      combinedAgents.push({ name: sim.clientName, fileId: client.googleSheetId, sheetName: "Feuille 1", weight: finalWeight, isAuto: true, id: sim.id, autoWeight });
+                                  }
+                              });
+
+                              manualWeights.forEach(mw => {
+                                  const finalWeight = weightOverrides[mw.id] !== undefined ? weightOverrides[mw.id] : mw.weight;
+                                  combinedAgents.push({ name: mw.name, fileId: mw.sheetId, sheetName: "Feuille 1", weight: finalWeight, isAuto: false, id: mw.id, autoWeight: mw.weight });
+                              });
+
+                              const totalWeight = combinedAgents.reduce((acc, a) => acc + a.weight, 0);
+
+                              const scriptContent = `// Script de distribution généré par LeadPartner CRM
+// Modèle avec redistribution automatique et gestion de dette (OKK ou équivalent)
+
+function redistributeLeads() {
+  const FILE_ID = "${scriptGlobalSheetId || "VOTRE_FICHIER_SOURCE_ID_ICI"}"; // Remplacer par l'ID du GSheet global de réception
+  const SOURCE_SHEET_NAME = "${scriptGlobalTabName || "Distribution"}";
+  const START_ROW = 2;
+  const PHONE_INDEX_IN_LEAD = ${Math.max(0, scriptPhoneColIndex - 1)}; // Index ${Math.max(0, scriptPhoneColIndex - 1)} = Colonne ${String.fromCharCode(64 + scriptPhoneColIndex)} (0-based)
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+
+  try {
+    const ss = SpreadsheetApp.openById(FILE_ID);
+    const feuille = ss.getSheetByName(SOURCE_SHEET_NAME);
+    if (!feuille) throw new Error('Onglet "Distribution" introuvable.');
+
+    // === CONFIG AGENTS + PONDÉRATIONS ===
+    const agents = [
+${combinedAgents.map(a => `      { name: "${a.name}", fileId: "${a.fileId}", sheetName: "${a.sheetName}", weight: ${a.weight} }`).join(',\n')}
+    ];
+
+    const cycle = [];
+    agents.forEach(a => {
+      for (let i = 0; i < a.weight; i++) cycle.push(a);
+    });
+    if (cycle.length === 0) throw new Error("Cycle vide.");
+
+    const props = PropertiesService.getScriptProperties();
+    let currentIndex = parseInt(props.getProperty("currentAgentIndex") || "0", 10);
+    if (isNaN(currentIndex) || currentIndex >= cycle.length) currentIndex = 0;
+
+    let pendingOKK = parseInt(props.getProperty("pendingOKK") || "0", 10);
+    if (isNaN(pendingOKK) || pendingOKK < 0) pendingOKK = 0;
+
+    const lastRow = feuille.getLastRow();
+    if (lastRow < START_ROW) return;
+
+    const nbRows = lastRow - START_ROW + 1;
+    const data = feuille.getRange(START_ROW, 1, nbRows, 7).getValues();
+    const status = feuille.getRange(START_ROW, 8, nbRows, 1).getValues();
+
+    // Note : On se base sur le nom qui contient 'OKK' (ou adaptez selon votre besoin réel)
+    const okkAgent = agents.find(a => a.name.includes("OKK"));
+
+    let leadsEnvoyes = 0;
+
+    for (let i = 0; i < nbRows; i++) {
+      if ((status[i][0] || "").toString().trim() !== "") continue;
+
+      const rowIndex = START_ROW + i;
+      const lead = data[i];
+
+      const phoneRaw = (lead[PHONE_INDEX_IN_LEAD] || "").toString();
+      const phoneNorm = normalizePhone(phoneRaw);
+      const isPlus41 = phoneNorm.startsWith("+41");
+
+      if (pendingOKK > 0 && isPlus41 && okkAgent) {
+        if (envoyerLead(okkAgent, lead)) {
+          feuille.getRange(rowIndex, 8).setValue(okkAgent.name);
+          feuille.getRange(rowIndex, 10).setValue(\`CYCLE | RATTRAPAGE (reste \${pendingOKK - 1}) | \${okkAgent.name}\`);
+          pendingOKK--;
+          leadsEnvoyes++;
+          continue;
+        }
+      }
+
+      let tries = 0;
+      let assigned = false;
+      let okkDeferredThisLead = 0;
+
+      while (tries < cycle.length && !assigned) {
+        const agent = cycle[currentIndex];
+        const usedIndexForThisLead = currentIndex;
+
+        if (agent.name.includes("OKK") && !isPlus41) {
+          pendingOKK++;
+          okkDeferredThisLead++;
+          currentIndex = (currentIndex + 1) % cycle.length;
+          tries++;
+          continue;
+        }
+
+        if (envoyerLead(agent, lead)) {
+          feuille.getRange(rowIndex, 8).setValue(agent.name);
+          let log = \`CYCLE | \${usedIndexForThisLead + 1}/\${cycle.length} | \${agent.name}\`;
+          if (okkDeferredThisLead > 0) {
+            log += \` | ATTENTE OKK (+\${okkDeferredThisLead}, dette=\${pendingOKK})\`;
+          }
+          feuille.getRange(rowIndex, 10).setValue(log);
+
+          leadsEnvoyes++;
+          currentIndex = (currentIndex + 1) % cycle.length;
+          assigned = true;
+        } else {
+          currentIndex = (currentIndex + 1) % cycle.length;
+          tries++;
+        }
+      }
+    }
+
+    props.setProperty("currentAgentIndex", String(currentIndex));
+    props.setProperty("pendingOKK", String(pendingOKK));
+
+  } catch (e) {
+    Logger.log("Erreur : " + e.message);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function normalizePhone(phoneStr) {
+  return (phoneStr || "").toString().trim().toLowerCase().replace(/\\s+/g, "").replace(/^p:/, "").replace(/^phone:/, "");
+}
+
+function envoyerLead(agent, ligne) {
+  try {
+    const fichier = SpreadsheetApp.openById(agent.fileId);
+    const feuilleAgent = fichier.getSheetByName(agent.sheetName) || fichier.getSheets()[0];
+    if (!feuilleAgent) throw new Error("Feuille introuvable");
+    feuilleAgent.appendRow(ligne);
+    return true;
+  } catch (e) {
+    Logger.log("Erreur envoi " + agent.name + " : " + e.message);
+    return false;
+  }
+}`;
+
+                              return (
+                                  <div className="p-6 animate-fade-in border-t border-slate-100">
+                                      <div className="mb-6 bg-slate-50 p-5 rounded-2xl border border-slate-200">
+                                          <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-4 pb-4 border-b border-slate-200">
+                                              <div className="flex items-center gap-3 w-full md:w-auto">
+                                                  <select value={currentScriptId || ''} onChange={e => loadScriptConfig(e.target.value)} className="w-full md:w-64 border-2 border-slate-200 p-2 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-[#01189B]">
+                                                      <option value="">-- Créer un nouveau script --</option>
+                                                      {(settings.distributionScripts || []).map((s:any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                                  </select>
+                                                  {currentScriptId && <button onClick={deleteScriptConfig} className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors shrink-0" title="Supprimer ce script"><Trash2 size={16}/></button>}
+                                              </div>
+                                              <div className="flex items-center gap-3 w-full md:w-auto">
+                                                  <input type="text" placeholder="Nom du script (ex: 3P Meta)..." value={scriptName} onChange={e => setScriptName(e.target.value)} className="w-full md:w-auto border-2 border-slate-200 p-2 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-[#01189B]" />
+                                                  <button onClick={saveScriptConfig} className="bg-[#01189B] text-white px-4 py-2 rounded-xl text-sm font-bold shadow-sm flex items-center gap-2 hover:bg-blue-800 transition-colors shrink-0"><Save size={16}/> {currentScriptId ? 'Mettre à jour' : 'Sauvegarder'}</button>
+                                              </div>
+                                          </div>
+
+                                          <h4 className="font-bold text-slate-800 mb-3 text-sm flex items-center gap-2"><Settings size={16} className="text-[#01189B]"/> Configuration Globale du Script</h4>
+                                          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                              <div>
+                                                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">1. Filtrer par Thématique</label>
+                                                  <select value={scriptProductId} onChange={e => setScriptProductId(e.target.value)} className="w-full border border-slate-200 p-2 rounded-lg text-xs outline-none focus:border-[#01189B] font-bold text-[#01189B]">
+                                                      <option value="">-- Toutes les offres --</option>
+                                                      {products.map((p:any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                                  </select>
+                                              </div>
+                                              <div>
+                                                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">2. ID GSheet Réception</label>
+                                                  <input type="text" value={scriptGlobalSheetId} onChange={e => setScriptGlobalSheetId(e.target.value)} className="w-full border border-slate-200 p-2 rounded-lg text-xs outline-none focus:border-[#01189B]" placeholder="Ex: 1J00eOFuCVqiykfK5TeR3qBNZG..." />
+                                              </div>
+                                              <div>
+                                                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">3. Nom de l'onglet</label>
+                                                  <input type="text" value={scriptGlobalTabName} onChange={e => setScriptGlobalTabName(e.target.value)} className="w-full border border-slate-200 p-2 rounded-lg text-xs outline-none focus:border-[#01189B]" placeholder="Ex: Distribution" />
+                                              </div>
+                                              <div>
+                                                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">4. Col. Téléphone</label>
+                                                  <div className="flex items-center gap-2">
+                                                      <input type="number" min="1" value={scriptPhoneColIndex} onChange={e => setScriptPhoneColIndex(Number(e.target.value))} className="w-full border border-slate-200 p-2 rounded-lg text-xs outline-none focus:border-[#01189B]" />
+                                                      <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap">1=A, 6=F...</span>
+                                                  </div>
+                                              </div>
+                                          </div>
+                                      </div>
+
+                                      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                                          <div className="md:col-span-1 space-y-4">
+                                              
+                                              <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100">
+                                                  <h4 className="font-bold text-[#01189B] text-sm mb-3">Ajout Manuel au Pool</h4>
+                                                  <div className="space-y-3">
+                                                      <select value={manualWeightClient} onChange={e => setManualWeightClient(e.target.value)} className="w-full border border-slate-200 p-2 rounded-lg text-xs font-medium outline-none">
+                                                          <option value="">-- Choisir Client (ID Requis) --</option>
+                                                          {contacts.filter(c => c.googleSheetId).map(c => <option key={c.id} value={c.id}>{c.company || c.name}</option>)}
+                                                      </select>
+                                                      <div className="flex gap-2">
+                                                          <div className="flex-1"><label className="text-[10px] font-bold text-slate-500 uppercase">Budget</label><input type="number" value={manualWeightBudget} onChange={e => setManualWeightBudget(Number(e.target.value))} className="w-full border border-slate-200 p-2 rounded-lg text-xs font-mono outline-none" /></div>
+                                                          <div className="flex-1"><label className="text-[10px] font-bold text-slate-500 uppercase">CPL Prévu</label><input type="number" value={manualWeightCpl} onChange={e => setManualWeightCpl(Number(e.target.value))} className="w-full border border-slate-200 p-2 rounded-lg text-xs font-mono outline-none" /></div>
+                                                      </div>
+                                                      <button onClick={handleAddManualWeight} className="w-full bg-[#01189B] text-white text-xs font-bold py-2 rounded-lg hover:bg-blue-800 transition-colors shadow-sm flex justify-center items-center gap-1.5"><Plus size={14}/> Ajouter au pool ({Math.floor(manualWeightBudget/manualWeightCpl)} leads)</button>
+                                                  </div>
+                                              </div>
+
+                                              <h4 className="font-bold text-slate-800 flex items-center gap-2 mt-6"><PieChart size={18} className="text-orange-500"/> Pondération Calculée</h4>
+                                              
+                                              <div className="space-y-2 max-h-64 overflow-y-auto custom-scrollbar pr-2">
+                                                  {combinedAgents.map((a, idx) => {
+                                                      const percent = totalWeight > 0 ? ((a.weight / totalWeight) * 100).toFixed(1) : '0.0';
+                                                      
+                                                      return (
+                                                          <div key={idx} className="bg-slate-50 p-3 rounded-xl border border-slate-100 relative group hover:border-[#01189B] transition-colors">
+                                                              {!a.isAuto && (
+                                                                  <button onClick={() => setManualWeights(manualWeights.filter(mw => mw.id !== a.id))} className="absolute top-2 right-2 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity bg-white shadow-sm rounded-md p-1"><X size={12}/></button>
+                                                              )}
+                                                              <div className="flex items-center gap-2 mb-1">
+                                                                  <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded uppercase ${a.isAuto ? 'bg-emerald-100 text-emerald-700' : 'bg-purple-100 text-purple-700'}`}>{a.isAuto ? 'Auto' : 'Manuel'}</span>
+                                                                  <span className="font-bold text-slate-700 text-sm truncate pr-6">{a.name}</span>
+                                                              </div>
+                                                              <div className="flex justify-between text-xs items-center mt-2">
+                                                                  <div className="flex items-center gap-1">
+                                                                      <Target size={12} className="text-[#01189B]"/>
+                                                                      <input 
+                                                                          type="number" 
+                                                                          value={a.weight} 
+                                                                          onChange={e => setWeightOverrides({ ...weightOverrides, [a.id]: Number(e.target.value) })}
+                                                                          className="w-14 border-b border-slate-300 bg-transparent text-[#01189B] font-bold outline-none focus:border-[#01189B] text-center"
+                                                                      />
+                                                                      <span className="text-[10px] text-slate-400">leads</span>
+                                                                      {weightOverrides[a.id] !== undefined && weightOverrides[a.id] !== a.autoWeight && (
+                                                                          <button onClick={() => { const nw = {...weightOverrides}; delete nw[a.id]; setWeightOverrides(nw); }} className="text-[9px] text-orange-500 hover:text-orange-700 ml-1 font-bold" title="Rétablir auto"><RefreshCcw size={10}/></button>
+                                                                      )}
+                                                                  </div>
+                                                                  <span className="text-emerald-600 font-extrabold">{percent}%</span>
+                                                              </div>
+                                                          </div>
+                                                      )
+                                                  })}
+                                                  {combinedAgents.length === 0 && (
+                                                      <div className="text-center p-4 bg-slate-50 rounded-xl border border-slate-100 text-slate-400 text-sm font-medium">Aucun agent dans le cycle.</div>
+                                                  )}
+                                              </div>
+                                          </div>
+
+                                          <div className="md:col-span-2 flex flex-col h-full">
+                                               <div className="flex justify-between items-center mb-4">
+                                                  <h4 className="font-bold text-slate-800 flex items-center gap-2"><FileText size={18} className="text-[#01189B]"/> Script (Apps Script)</h4>
+                                                  <button onClick={() => { navigator.clipboard.writeText(scriptContent); addNotification('success', 'Script copié dans le presse-papier !'); }} className="text-xs font-bold text-[#01189B] bg-blue-50 hover:bg-blue-100 px-4 py-2 rounded-xl transition-colors border border-blue-200 shadow-sm flex items-center gap-2"><Copy size={14}/> Copier le script</button>
+                                               </div>
+                                               <textarea 
+                                                  readOnly 
+                                                  value={scriptContent} 
+                                                  className="w-full flex-1 min-h-[500px] bg-[#1e293b] text-blue-300 font-mono text-[11px] leading-relaxed p-5 rounded-2xl outline-none resize-none custom-scrollbar border-4 border-slate-800"
+                                               />
+                                          </div>
+                                      </div>
+                                  </div>
+                              );
+                          })()}
+                      </div>
                     </div>
               )}
               {activeView === 'settings' && renderSettings()}
               {activeView === 'projections' && renderProjections()}
+              {activeView === 'lmc' && renderLMC()}
               {activeView === 'products' && (
                 <div className="max-w-6xl mx-auto space-y-8 animate-fade-in pb-12">
                   <div className="flex justify-between items-center mb-6">
@@ -2707,38 +3406,60 @@ export default function App() {
                       ) : (
                         <table className="w-full text-sm text-left">
                           <thead className="bg-white text-slate-400 uppercase font-extrabold text-[10px] tracking-wider border-b border-slate-100 sticky top-0 z-10 shadow-sm">
-                            <tr><th className="px-8 py-5">Société & Interlocuteur</th><th className="px-8 py-5">Étape Pipeline</th><th className="px-8 py-5">Rappel Actif</th><th className="px-8 py-5 text-right">Actions</th></tr>
+                            <tr><th className="px-8 py-5">Contact & Coordonnées</th><th className="px-8 py-5">Étape Pipeline</th><th className="px-8 py-5">Rappel Actif</th><th className="px-8 py-5 text-right">Actions</th></tr>
                           </thead>
                           <tbody className="divide-y divide-slate-50">
-                            {displayedContacts.map((c) => {
-                              const hasReminder = !!c.nextContactDate;
-                              const isReminderDue = hasReminder && new Date(c.nextContactDate) <= new Date();
-                              const typeBadge = c.type === 'client' || c.status === 'gagne' ? 'Client' : 'Prospect';
+                            {Object.entries(
+                                displayedContacts.reduce((acc: any, c: any) => {
+                                    const comp = c.company || 'Sans Entreprise';
+                                    if (!acc[comp]) acc[comp] = [];
+                                    acc[comp].push(c);
+                                    return acc;
+                                }, {})
+                            ).flatMap(([companyName, companyContacts]: any) => [
+                                <tr key={`header-${companyName}`} className="bg-slate-50/80 border-y border-slate-200">
+                                    <td colSpan={4} className="px-8 py-3">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold">
+                                                <Briefcase size={16} />
+                                            </div>
+                                            <h3 className="font-extrabold text-slate-800 font-poppins text-lg">{companyName}</h3>
+                                            <span className="bg-white border border-slate-200 text-slate-500 text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm">
+                                                {companyContacts.length} contact(s)
+                                            </span>
+                                        </div>
+                                    </td>
+                                </tr>,
+                                ...companyContacts.map((c: any) => {
+                                  const hasReminder = !!c.nextContactDate;
+                                  const isReminderDue = hasReminder && new Date(c.nextContactDate) <= new Date();
+                                  const typeBadge = c.type === 'client' || c.status === 'gagne' ? 'Client' : 'Prospect';
 
-                              return (
-                                <tr key={c.id} onClick={() => setSelectedContactId(c.id)} className="bg-white hover:bg-blue-50/40 cursor-pointer group transition-colors">
-                                  <td className="px-8 py-5">
-                                    <div className="flex items-center gap-2 mb-1">
-                                      <p className="font-extrabold text-slate-800 font-poppins text-lg">{c.company}</p>
-                                      <span className={`px-2 py-0.5 rounded-md text-[9px] uppercase font-bold tracking-widest ${typeBadge === 'Client' ? 'emerald-50 text-emerald-700 border border-emerald-200' : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>{typeBadge}</span>
-                                    </div>
-                                    <p className="text-slate-500 text-sm font-medium flex items-center gap-1"><Users size={14}/> {c.name}</p>
-                                  </td>
-                                  <td className="px-8 py-5"><span className={`px-3 py-1.5 rounded-lg text-[10px] uppercase font-bold tracking-wide border ${PIPELINE_STAGES.find((s) => s.id === c.status)?.color}`}>{PIPELINE_STAGES.find((s) => s.id === c.status)?.label || c.status}</span></td>
-                                  <td className="px-8 py-5">
-                                    {hasReminder ? (
-                                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold ${isReminderDue ? 'bg-red-100 text-red-700' : 'bg-orange-50 text-orange-600'}`}>
-                                            <Bell size={14} className={isReminderDue ? 'animate-bounce' : ''}/>
-                                            {isReminderDue ? 'Échu !' : formatDate(c.nextContactDate)}
-                                        </span>
-                                    ) : (
-                                        <span className="text-slate-300 italic text-xs">Aucun</span>
-                                    )}
-                                  </td>
-                                  <td className="px-8 py-5 text-right"><button onClick={(e) => { e.stopPropagation(); handleDelete('contacts', c.id); }} className="text-slate-300 hover:text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"><Trash2 size={18} /></button></td>
-                                </tr>
-                              );
-                            })}
+                                  return (
+                                    <tr key={c.id} onClick={() => setSelectedContactId(c.id)} className="bg-white hover:bg-blue-50/40 cursor-pointer group transition-colors">
+                                      <td className="px-8 py-4 pl-16">
+                                        <div className="flex items-center gap-2 mb-1">
+                                          <p className="font-extrabold text-slate-700 font-poppins text-base flex items-center gap-2"><Users size={16} className="text-slate-400"/> {c.name}</p>
+                                          <span className={`px-2 py-0.5 rounded-md text-[9px] uppercase font-bold tracking-widest ${typeBadge === 'Client' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>{typeBadge}</span>
+                                        </div>
+                                        <p className="text-slate-500 text-xs font-medium">{c.email || 'Pas d\'email'} • {c.phone || 'Pas de tel'}</p>
+                                      </td>
+                                      <td className="px-8 py-4"><span className={`px-3 py-1.5 rounded-lg text-[10px] uppercase font-bold tracking-wide border ${PIPELINE_STAGES.find((s) => s.id === c.status)?.color}`}>{PIPELINE_STAGES.find((s) => s.id === c.status)?.label || c.status}</span></td>
+                                      <td className="px-8 py-4">
+                                        {hasReminder ? (
+                                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold ${isReminderDue ? 'bg-red-100 text-red-700' : 'bg-orange-50 text-orange-600'}`}>
+                                                <Bell size={14} className={isReminderDue ? 'animate-bounce' : ''}/>
+                                                {isReminderDue ? 'Échu !' : formatDate(c.nextContactDate)}
+                                            </span>
+                                        ) : (
+                                            <span className="text-slate-300 italic text-xs">Aucun</span>
+                                        )}
+                                      </td>
+                                      <td className="px-8 py-4 text-right"><button onClick={(e) => { e.stopPropagation(); handleDelete('contacts', c.id); }} className="text-slate-300 hover:text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"><Trash2 size={18} /></button></td>
+                                    </tr>
+                                  );
+                                })
+                            ])}
                           </tbody>
                         </table>
                       )}
@@ -2780,7 +3501,12 @@ export default function App() {
           <div className="bg-white p-10 rounded-3xl w-full max-w-md shadow-2xl border border-slate-100 animate-fade-in text-center">
             <h3 className="text-2xl font-extrabold mb-4 font-poppins text-slate-800 flex items-center justify-center gap-3"><Upload style={{ color: BRAND_COLOR }} size={24}/> Importer {showImportModal === 'contacts' ? 'des Contacts' : 'des Factures'}</h3>
             <p className="text-slate-500 mb-6 text-sm font-medium">Sélectionnez un fichier CSV structuré selon le modèle d'export.</p>
-            <input type="file" accept=".csv,.txt" onChange={handleImportCSV} className="mb-6 block w-full text-sm text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-bold file:bg-blue-50 file:text-[#01189B] hover:file:bg-blue-100 cursor-pointer outline-none border-2 border-slate-100 rounded-xl p-2 bg-slate-50" />
+            
+            {showImportModal === 'contacts' && (
+                <button onClick={handleExportContactsCSV} className="mb-6 w-full bg-blue-50 text-[#01189B] border border-blue-200 px-4 py-3 rounded-xl text-sm font-bold hover:bg-blue-100 transition-colors flex items-center justify-center gap-2 shadow-sm"><Download size={18}/> Télécharger le modèle (Template) à remplir</button>
+            )}
+
+            <input type="file" accept=".csv,.txt" onChange={handleImportCSV} className="mb-6 block w-full text-sm text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-bold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 cursor-pointer outline-none border-2 border-slate-100 rounded-xl p-2 bg-slate-50" />
             <button onClick={() => setShowImportModal(null)} className={UI_CLASSES.btnSecondary + " w-full"}>Annuler et fermer</button>
           </div>
         </div>
@@ -2790,7 +3516,7 @@ export default function App() {
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
           <div className="bg-white p-10 rounded-3xl w-full max-w-md shadow-2xl border border-slate-100 animate-fade-in overflow-y-auto max-h-[90vh]">
             <h3 className={UI_CLASSES.title}><Users style={{ color: BRAND_COLOR }} size={24}/> Créer une fiche CRM</h3>
-            <form onSubmit={(e: any) => { e.preventDefault(); const fd = new FormData(e.target); handleCreate('contacts', { name: fd.get('name'), company: fd.get('company'), email: fd.get('email'), phone: fd.get('phone'), address: fd.get('address'), status: fd.get('type') === 'client' ? 'gagne' : 'nouveau', type: fd.get('type'), source: fd.get('source'), sourceDetails: fd.get('sourceDetails') }); }} className="space-y-5">
+            <form onSubmit={(e: any) => { e.preventDefault(); const fd = new FormData(e.target); handleCreate('contacts', { name: fd.get('name'), company: fd.get('company'), email: fd.get('email'), phone: fd.get('phone'), address: fd.get('address'), status: fd.get('type') === 'client' ? 'gagne' : 'nouveau', type: fd.get('type'), source: fd.get('source'), sourceDetails: fd.get('sourceDetails'), googleSheetId: fd.get('googleSheetId'), manualCA: Number(fd.get('manualCA') || 0), manualBenefice: Number(fd.get('manualBenefice') || 0) }); }} className="space-y-5">
               <div>
                   <label className={UI_CLASSES.label}>Type</label>
                   <select name="type" className={UI_CLASSES.input}>
@@ -2829,6 +3555,16 @@ export default function App() {
                 <div><label className={UI_CLASSES.label}>Email</label><input name="email" type="email" className={UI_CLASSES.input} placeholder="@" /></div>
                 <div><label className={UI_CLASSES.label}>Téléphone</label><input name="phone" className={UI_CLASSES.input} placeholder="+41..." /></div>
               </div>
+              <div>
+                <label className={UI_CLASSES.label}>Google Sheet ID (Optionnel - Distribution Leads)</label>
+                <input name="googleSheetId" className={UI_CLASSES.input} placeholder="Ex: 1A2b3c4d5e6f7g..." />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-xl border border-slate-100 mt-2">
+                 <div><label className={UI_CLASSES.label}>CA Manuel Initial</label><input name="manualCA" type="number" className={UI_CLASSES.input} placeholder="0" /></div>
+                 <div><label className={UI_CLASSES.label}>Bénéfice Initial</label><input name="manualBenefice" type="number" className={UI_CLASSES.input} placeholder="0" /></div>
+              </div>
+
               <div className="pt-6 flex gap-4">
                 <button type="button" onClick={() => setShowModal(null)} className={UI_CLASSES.btnSecondary}>Annuler</button>
                 <button type="submit" className={UI_CLASSES.btnPrimary} style={{ backgroundColor: BRAND_COLOR }}>Créer Fiche</button>
@@ -2986,10 +3722,10 @@ export default function App() {
                 </div>
 
                 {/* FACTURE A4 */}
-                <div className="flex-1 overflow-auto bg-slate-200 p-4 md:p-8 flex justify-center custom-scrollbar relative">
-                    <div id="invoice-printable" className="bg-transparent w-[210mm] max-w-[210mm] text-slate-800 relative shrink-0 box-border mx-auto block">
+                <div className="flex-1 overflow-auto bg-slate-200 p-8 flex justify-center custom-scrollbar relative">
+                    <div id="invoice-printable" className="bg-transparent w-[210mm] h-max text-slate-800 relative shrink-0 box-border block">
                         
-                        <div className="invoice-page-1 bg-white w-[210mm] h-[296.5mm] overflow-hidden shadow-2xl px-[15mm] pt-[15mm] pb-[25mm] flex flex-col relative box-border mb-8 print:mb-0 print:shadow-none">
+                        <div className="invoice-page-1 bg-white w-full h-[297mm] max-h-[297mm] overflow-hidden shadow-2xl px-[10mm] pt-[10mm] pb-[20mm] flex flex-col justify-between relative box-border mb-8 print:mb-0">
                             {/* Marqueur visuel de fin de page 1 (no-print) */}
                             <div className="absolute bottom-0 left-0 w-full border-b-2 border-red-300 border-dashed no-print z-[100] flex justify-center">
                                  <span className="bg-red-50 px-2 text-[8px] text-red-500 font-bold uppercase tracking-widest -mt-3">Limite Page 1 (A4)</span>
@@ -3079,8 +3815,8 @@ export default function App() {
                             </div>
 
                             {/* Bloc inséparable pour les totaux ET le footer (break-inside-avoid) collé en bas de la page 1 */}
-                            <div className="keep-together break-inside-avoid w-full pt-4 mt-auto">
-                                <div className="flex justify-end mb-4 relative z-10">
+                            <div className="keep-together break-inside-avoid w-full pt-2 mt-auto">
+                                <div className="flex justify-end mb-2 relative z-10">
                                     <div className="w-80 space-y-1.5">
                                         <div className="flex justify-between text-slate-500 font-bold text-sm"><span>Sous-total HT</span> <span className="font-mono text-slate-800">{formatCurrency((currentInvoice.items || []).reduce((acc: number, i: any) => acc + i.price * (i.qty || 1), 0))}</span></div>
                                         <div className="flex justify-between text-slate-400 font-medium text-xs"><span>TVA (0.0%)</span> <span className="font-mono">0.00 CHF</span></div>
@@ -3117,7 +3853,7 @@ export default function App() {
 
                         {/* --- PAGE CONTRAT (OPTIONNELLE) --- */}
                         {currentInvoice.includeContract && currentInvoice.contractText && (
-                            <div className="html2pdf__page-break bg-white w-[210mm] h-max shadow-2xl p-[15mm] pb-[25mm] box-border block mt-8 print:mt-0 print:p-[15mm] print:pb-[25mm] print:shadow-none" style={{ pageBreakBefore: 'always' }}>
+                            <div className="html2pdf__page-break bg-white w-full h-max shadow-2xl p-[10mm] pb-[20mm] box-border block mt-8 print:mt-0 print:p-[10mm] print:pb-[20mm]" style={{ pageBreakBefore: 'always' }}>
                                 <div className="text-[10px] text-slate-700 leading-[1.5] font-medium text-justify mb-6 block">
                                     {currentInvoice.contractText
                                         .replace(/\{\{client_company\}\}/g, currentInvoice.clientName || '_______________')
