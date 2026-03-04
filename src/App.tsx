@@ -32,7 +32,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '59.1';
+const APP_VERSION = '59.5';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -151,7 +151,13 @@ const getPdfOptions = (filename: string) => ({
           doc.querySelectorAll('input.print-input').forEach((el: any) => {
               const div = doc.createElement('div');
               div.className = el.className;
-              div.innerText = el.value;
+              // Conversion du format US (AAAA-MM-JJ) de l'input au format FR (JJ/MM/AAAA) pour le PDF
+              if (el.type === 'date' && el.value) {
+                  const [y, m, d] = el.value.split('-');
+                  div.innerText = `${d}/${m}/${y}`;
+              } else {
+                  div.innerText = el.value;
+              }
               el.parentNode.replaceChild(div, el);
           });
       }
@@ -512,6 +518,7 @@ export default function App() {
   const [currentProduct, setCurrentProduct] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentInvoice, setCurrentInvoice] = useState<any>(null);
+  const [currentSimulation, setCurrentSimulation] = useState<any>(null);
   const [contactFilterType, setContactFilterType] = useState('all');
 
   const [invoiceBudget, setInvoiceBudget] = useState<any>('');
@@ -2294,25 +2301,47 @@ export default function App() {
                              const isFinished = day >= duration;
                              const endDate = new Date(start.getTime() + duration * 24 * 60 * 60 * 1000);
                              
-                             // Retrouver le contact lié
-                             const linkedContact = companyContacts.find(c => c.id === sim.clientId);
+                             const targetLeads = sim.stats?.volumeTotal || 0;
+                             let expectedLeads = 0;
+                             if (sim.dataSource === 'deliveries') {
+                                 const matchName = sim.deliveryMatchName !== undefined ? sim.deliveryMatchName : sim.clientName;
+                                 expectedLeads = deliveries.filter((d:any) => d.agentName === matchName).length + Number(sim.manualLeadsOffset || 0);
+                             } else if (sim.dataSource === 'manual') {
+                                 expectedLeads = Number(sim.manualLeads || 0);
+                             } else {
+                                 expectedLeads = Math.min(Math.floor((targetLeads / duration) * day), targetLeads);
+                             }
+                             const leadsPercent = targetLeads > 0 ? (expectedLeads / targetLeads) * 100 : 0;
 
                              return (
                                  <div key={sim.id} className="p-4 rounded-xl border border-slate-100 bg-slate-50 relative overflow-hidden">
-                                     <div className="flex justify-between items-start mb-2 relative z-10">
+                                     <div className="flex justify-between items-start mb-4 relative z-10">
                                          <div>
                                             <span className="font-bold text-sm text-slate-700 flex items-center gap-1.5"><Package size={14}/> {sim.productName}</span>
-                                            {linkedContact && <span className="text-[10px] text-slate-500 font-medium block mt-1 bg-white px-2 py-0.5 rounded border border-slate-200 inline-flex items-center gap-1"><Users size={10} className="text-indigo-400"/> Gérée par {linkedContact.name}</span>}
                                          </div>
-                                         <span className={`text-[10px] px-2 py-1 rounded font-bold uppercase tracking-widest shrink-0 ${isFinished ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>{isFinished ? 'Terminé' : 'En cours'}</span>
+                                         <span className={`text-[9px] px-2 py-1 rounded font-bold uppercase tracking-widest shrink-0 ${isFinished ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>{isFinished ? 'Terminé' : 'En cours'}</span>
                                      </div>
-                                     <div className="w-full bg-slate-200 rounded-full h-1.5 mb-2 overflow-hidden relative z-10 mt-3">
-                                         <div className={`h-full rounded-full transition-all ${isFinished ? 'bg-emerald-500' : 'bg-[#01189B]'}`} style={{ width: `${(day/duration)*100}%` }}></div>
-                                     </div>
-                                     <div className="flex justify-between text-[10px] text-slate-500 font-bold uppercase tracking-wider relative z-10">
-                                         <span>J-{day} / {duration}</span>
-                                         <span>Fin : {formatDate(endDate.toISOString())}</span>
-                                     </div>
+                                     
+                                     <div className="space-y-3 relative z-10">
+                                        <div>
+                                            <div className="flex justify-between text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">
+                                                <span className="flex items-center gap-1"><Clock size={10}/> {day} / {duration} J</span>
+                                                <span>Fin : {formatDate(endDate.toISOString())}</span>
+                                            </div>
+                                            <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                                                <div className={`h-full rounded-full transition-all ${isFinished ? 'bg-emerald-500' : 'bg-[#01189B]'}`} style={{ width: `${(day/duration)*100}%` }}></div>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <div className="flex justify-between text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">
+                                                <span className="flex items-center gap-1"><Target size={10}/> Leads (Estim.)</span>
+                                                <span className="text-emerald-600">{renderNumber(expectedLeads)} / {renderNumber(targetLeads)}</span>
+                                            </div>
+                                            <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                                                <div className="h-full rounded-full transition-all bg-emerald-500" style={{ width: `${leadsPercent}%` }}></div>
+                                            </div>
+                                        </div>
+                                    </div>
                                  </div>
                              )
                          })}
@@ -2577,7 +2606,10 @@ export default function App() {
                             {renderCurrency(sim.stats?.profit)} <span className="text-[10px] ml-1">({renderNumber((sim.stats?.margin || 0).toFixed(0))}%)</span>
                           </span>
                         </td>
-                        <td className="px-6 py-5 text-right"><button onClick={() => handleDelete('simulations', sim.id)} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={18} /></button></td>
+                        <td className="px-6 py-5 text-right flex justify-end gap-2">
+                          <button onClick={() => { setCurrentSimulation(sim); setShowModal('simulation'); }} className="p-2 text-slate-300 hover:text-[#01189B] hover:bg-blue-50 rounded-lg transition-colors"><Edit2 size={18} /></button>
+                          <button onClick={() => handleDelete('simulations', sim.id)} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={18} /></button>
+                        </td>
                       </tr>
                     )})}
                   </tbody>
@@ -3717,7 +3749,15 @@ export default function App() {
                             const daysPercent = (day / duration) * 100;
                             
                             const targetLeads = sim.stats?.volumeTotal || 0;
-                            const expectedLeads = Math.min(Math.floor((targetLeads / duration) * day), targetLeads); 
+                            let expectedLeads = 0;
+                            if (sim.dataSource === 'deliveries') {
+                                const matchName = sim.deliveryMatchName !== undefined ? sim.deliveryMatchName : sim.clientName;
+                                expectedLeads = deliveries.filter((d:any) => d.agentName === matchName).length + Number(sim.manualLeadsOffset || 0);
+                            } else if (sim.dataSource === 'manual') {
+                                expectedLeads = Number(sim.manualLeads || 0);
+                            } else {
+                                expectedLeads = Math.min(Math.floor((targetLeads / duration) * day), targetLeads); 
+                            }
                             const leadsPercent = targetLeads > 0 ? (expectedLeads / targetLeads) * 100 : 0;
                             const isFinished = day >= duration;
                             
@@ -3728,7 +3768,10 @@ export default function App() {
                                     <h4 className="font-extrabold text-slate-800 font-poppins text-lg">{sim.clientName || 'Client Inconnu'}</h4>
                                     <p className="text-sm font-bold mt-1" style={{ color: BRAND_COLOR }}>{sim.productName}</p>
                                   </div>
-                                  {isFinished && <span className="bg-red-100 text-red-700 text-[10px] font-extrabold px-3 py-1.5 rounded-full animate-pulse uppercase tracking-widest shrink-0">Renouveler</span>}
+                                  <div className="flex gap-2">
+                                     <button onClick={() => { setCurrentSimulation(sim); setShowModal('simulation'); }} className="p-1.5 text-slate-400 hover:text-[#01189B] bg-slate-50 hover:bg-blue-50 rounded-lg transition-colors"><Edit2 size={16} /></button>
+                                     {isFinished && <span className="bg-red-100 text-red-700 text-[10px] font-extrabold px-3 py-1.5 rounded-full animate-pulse uppercase tracking-widest shrink-0">Renouveler</span>}
+                                  </div>
                                 </div>
 
                                 <div className="mb-6">
@@ -4827,7 +4870,13 @@ function envoyerLead(agent, ligne) {
                                     <h1 className="text-3xl font-extrabold uppercase mb-1 font-poppins tracking-tight" style={{ color: BRAND_COLOR }}>Facture</h1>
                                     <div className="text-slate-500 font-medium text-[11px] space-y-0.5 mt-1">
                                         <p className="flex items-center gap-1"><span className="font-bold w-20 inline-block">N° Facture</span> <input value={currentInvoice.id} onChange={e => setCurrentInvoice({...currentInvoice, id: e.target.value})} className="text-slate-800 font-mono font-bold bg-slate-100 px-1.5 py-0.5 rounded outline-none border-none print-input w-28 text-[11px]" /></p>
-                                        <p className="flex items-center gap-1"><span className="font-bold w-20 inline-block">Date</span> <input type="date" value={currentInvoice.date ? currentInvoice.date.split('T')[0] : ''} onChange={e => e.target.value && setCurrentInvoice({...currentInvoice, date: new Date(e.target.value).toISOString()})} className="bg-slate-100 px-1.5 py-0.5 rounded outline-none border-none print-input text-[11px] font-medium font-sans w-28 cursor-pointer hover:bg-slate-200 transition-colors" title="Modifie le mois d'attribution du CA" /></p>
+                                        <p className="flex items-center gap-1"><span className="font-bold w-20 inline-block">Date</span> <input type="date" value={currentInvoice.date ? currentInvoice.date.split('T')[0] : ''} onChange={e => {
+                                            if(e.target.value) {
+                                                const [y,m,d] = e.target.value.split('-');
+                                                const dObj = new Date(Number(y), Number(m)-1, Number(d), 12, 0, 0);
+                                                if(!isNaN(dObj.getTime())) setCurrentInvoice({...currentInvoice, date: dObj.toISOString()});
+                                            }
+                                        }} className="bg-slate-100 px-1.5 py-0.5 rounded outline-none border-none print-input text-[11px] font-medium font-sans w-28 cursor-pointer hover:bg-slate-200 transition-colors" title="Modifie le mois d'attribution du CA" /></p>
                                         <p className="flex items-center gap-1"><span className="font-bold w-20 inline-block">Échéance</span> <span className="px-1.5 py-0.5">{formatDate(new Date(new Date(currentInvoice.date).getTime() + 30*24*60*60*1000).toISOString())}</span></p>
                                     </div>
                                 </div>
@@ -4977,6 +5026,67 @@ function envoyerLead(agent, ligne) {
                     </div>
                 </div>
             </div>
+        </div>
+      </div>
+    )}
+
+    {/* MODAL EDITION CAMPAGNE / SIMULATION */}
+    {showModal === 'simulation' && currentSimulation && (
+      <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-[2000] p-4">
+        <div className="bg-white p-8 rounded-3xl w-full max-w-xl shadow-2xl border border-slate-100 animate-fade-in overflow-y-auto max-h-[90vh]">
+          <div className="flex justify-between items-center mb-6">
+              <h3 className="text-2xl font-extrabold text-slate-800 font-poppins flex items-center gap-3"><Settings style={{ color: BRAND_COLOR }} size={24}/> Modifier la Campagne</h3>
+              <button onClick={() => setShowModal(null)} className="text-slate-400 hover:text-slate-600"><X size={24}/></button>
+          </div>
+          <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                  <div><label className={UI_CLASSES.label}>Date de début</label><input type="date" value={currentSimulation.createdAt ? currentSimulation.createdAt.split('T')[0] : ''} onChange={e => {
+                      if(e.target.value) {
+                          const [y,m,d] = e.target.value.split('-');
+                          const dObj = new Date(Number(y), Number(m)-1, Number(d), 12, 0, 0);
+                          if(!isNaN(dObj.getTime())) setCurrentSimulation({...currentSimulation, createdAt: dObj.toISOString()});
+                      }
+                  }} className={UI_CLASSES.input} /></div>
+                  <div><label className={UI_CLASSES.label}>Durée (Jours)</label><input type="number" value={currentSimulation.duration || 30} onChange={e => setCurrentSimulation({...currentSimulation, duration: Number(e.target.value)})} className={UI_CLASSES.input} /></div>
+              </div>
+              <div><label className={UI_CLASSES.label}>Objectif de Leads</label><input type="number" value={currentSimulation.stats?.volumeTotal || 0} onChange={e => setCurrentSimulation({...currentSimulation, stats: {...currentSimulation.stats, volumeTotal: Number(e.target.value)}})} className={UI_CLASSES.input} /></div>
+              
+              <div className="pt-4 border-t border-slate-100">
+                  <label className={UI_CLASSES.label}>Suivi des Leads Générés</label>
+                  <select value={currentSimulation.dataSource || 'auto'} onChange={e => setCurrentSimulation({...currentSimulation, dataSource: e.target.value})} className={UI_CLASSES.input}>
+                      <option value="auto">Estimation Automatique (Temps écoulé)</option>
+                      <option value="manual">Saisie Manuelle</option>
+                      <option value="deliveries">Connecter au Suivi Livraisons réelles</option>
+                  </select>
+              </div>
+
+              {currentSimulation.dataSource === 'manual' && (
+                  <div className="animate-fade-in"><label className={UI_CLASSES.label}>Nombre de leads actuel</label><input type="number" value={currentSimulation.manualLeads || 0} onChange={e => setCurrentSimulation({...currentSimulation, manualLeads: Number(e.target.value)})} className={UI_CLASSES.input} /></div>
+              )}
+              {currentSimulation.dataSource === 'deliveries' && (
+                  <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl animate-fade-in space-y-4">
+                      <div>
+                          <label className={UI_CLASSES.label}>Nom du client dans les livraisons (Agent Name)</label>
+                          <input type="text" value={currentSimulation.deliveryMatchName !== undefined ? currentSimulation.deliveryMatchName : (currentSimulation.clientName || '')} onChange={e => setCurrentSimulation({...currentSimulation, deliveryMatchName: e.target.value})} className={UI_CLASSES.input} placeholder="Nom exact dans les livraisons..." />
+                      </div>
+                      <div className="pt-2 border-t border-blue-100">
+                          <label className={UI_CLASSES.label}>Ajustement manuel (Correctif de Leads)</label>
+                          <input type="number" value={currentSimulation.manualLeadsOffset || 0} onChange={e => setCurrentSimulation({...currentSimulation, manualLeadsOffset: Number(e.target.value)})} className={UI_CLASSES.input} placeholder="Ex: +5 ou -2" />
+                          <p className="text-[10px] text-blue-600 mt-2 font-medium">Permet d'ajouter ou retirer des leads manuellement au compte automatique. <br/>(Le compte final sera : <b>Leads reçus par webhook + cet ajustement</b>).</p>
+                      </div>
+                  </div>
+              )}
+          </div>
+          <div className="flex justify-end gap-3 mt-8">
+              <button onClick={() => setShowModal(null)} className={UI_CLASSES.btnSecondary}>Annuler</button>
+              <button onClick={async () => {
+                  if (user && !isOfflineMode) {
+                      await handleUpdate('simulations', currentSimulation.id, currentSimulation);
+                      addNotification('success', 'Campagne mise à jour avec succès');
+                  }
+                  setShowModal(null);
+              }} className={UI_CLASSES.btnPrimary} style={{ backgroundColor: BRAND_COLOR }}><Save size={18}/> Enregistrer</button>
+          </div>
         </div>
       </div>
     )}
