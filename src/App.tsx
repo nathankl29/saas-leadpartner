@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '58.9';
+const APP_VERSION = '59.0';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -746,6 +746,25 @@ export default function App() {
         }
     });
 
+    // --- AJOUT DU CA ET BENEFICE MANUELS DES SOCIÉTÉS ---
+    companiesData.forEach(comp => {
+        const mCA = Number(comp.manualCA || 0);
+        const mBen = Number(comp.manualBenefice || 0);
+        if (mCA > 0) {
+            totalPaidInvoices += mCA;
+            caAnnuel += mCA;
+            monthlyCA[currentMonth] += mCA;
+            monthlyInvoicesAmount += mCA;
+            const clientId = comp.name || 'Inconnu';
+            if (!caPerClient[clientId]) caPerClient[clientId] = { name: clientId, total: 0 };
+            caPerClient[clientId].total += mCA;
+        }
+        if (mBen > 0) {
+            beneficePapierTotal += mBen;
+            beneficeMensuel += mBen;
+        }
+    });
+
     const caDetails = Object.values(caPerClient).sort((a: any, b: any) => b.total - a.total);
 
     const pipelineValue = contacts.reduce((acc, c) => (c.status !== 'gagne' && c.status !== 'perdu') ? acc + Number(c.projectedBudget ?? 0) : acc, 0);
@@ -764,7 +783,7 @@ export default function App() {
       beneficeMensuel,
       caDetails
     };
-  }, [invoices, contacts, simulations, dashboardYear]); // <-- DEPENDANCE dashboardYear AJOUTEE
+  }, [invoices, contacts, simulations, dashboardYear, companiesData]); // <-- DEPENDANCE dashboardYear ET companiesData AJOUTEES
 
   // --- ACTIONS ---
   const handleCreate = async (col: string, data: any) => {
@@ -2036,10 +2055,11 @@ export default function App() {
   const renderCompanyDetail = () => {
     if (!selectedCompanyName) return null;
     const companyContacts = contacts.filter(c => c.company === selectedCompanyName);
+    const companyInfo = companiesData.find(c => c.name === selectedCompanyName) || {};
 
     // Agrégations au niveau de l'entreprise
     const companyInvoices = invoices.filter(inv => inv.clientName === selectedCompanyName || companyContacts.some((c:any) => c.id === inv.clientId));
-    const caEncaisse = companyInvoices.filter(i => i.status === 'payee').reduce((a, b) => a + b.amount, 0) + companyContacts.reduce((a:any, b:any) => a + Number(b.manualCA || 0), 0);
+    const caEncaisse = companyInvoices.filter(i => i.status === 'payee').reduce((a, b) => a + b.amount, 0) + companyContacts.reduce((a:any, b:any) => a + Number(b.manualCA || 0), 0) + Number(companyInfo.manualCA || 0);
     
     let companyMgtFees = 0;
     companyInvoices.filter(i => i.status === 'payee').forEach(inv => {
@@ -2049,9 +2069,8 @@ export default function App() {
     
     const companySimulations = simulations.filter(s => companyContacts.some(c => c.id === s.clientId) || s.clientName === selectedCompanyName);
     const companyArbitrage = companySimulations.reduce((acc, s) => acc + (s.stats?.arbitrage || 0), 0);
-    const beneficeTotal = companyMgtFees + companyArbitrage + companyContacts.reduce((a:any, b:any) => a + Number(b.manualBenefice || 0), 0);
+    const beneficeTotal = companyMgtFees + companyArbitrage + companyContacts.reduce((a:any, b:any) => a + Number(b.manualBenefice || 0), 0) + Number(companyInfo.manualBenefice || 0);
 
-    const companyInfo = companiesData.find(c => c.name === selectedCompanyName) || {};
     const companyType = companyInfo.type || (companyContacts.some(c => c.type === 'client' || c.status === 'gagne') ? 'client' : 'prospect');
     const isClient = companyType === 'client';
 
@@ -2173,6 +2192,11 @@ export default function App() {
                 <div><label className={UI_CLASSES.label}>Numéro IDE / CHE</label><input className={UI_CLASSES.input} value={editCompanyDataState.cheNumber || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, cheNumber: e.target.value})} placeholder="Ex: CHE-123.456.789" /></div>
                 <div><label className={UI_CLASSES.label}>Numéro TVA</label><input className={UI_CLASSES.input} value={editCompanyDataState.tvaNumber || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, tvaNumber: e.target.value})} placeholder="Si applicable..." /></div>
                 
+                <div className="col-span-1 md:col-span-2 lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-6 p-4 bg-white rounded-xl border border-slate-200 shadow-sm my-2">
+                    <div><label className={UI_CLASSES.label}>CA Historique (Manuel)</label><input type="number" className={UI_CLASSES.input} value={editCompanyDataState.manualCA || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, manualCA: e.target.value})} placeholder="Ajouter au CA global..." /></div>
+                    <div><label className={UI_CLASSES.label}>Bénéfice Historique (Manuel)</label><input type="number" className={UI_CLASSES.input} value={editCompanyDataState.manualBenefice || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, manualBenefice: e.target.value})} placeholder="Ajouter au bénéfice..." /></div>
+                </div>
+
                 <div className="col-span-1 md:col-span-2 lg:col-span-3 pt-4 border-t border-slate-200">
                     <h5 className="font-bold text-slate-700 text-sm mb-4">Adresse Officielle</h5>
                 </div>
@@ -4316,7 +4340,8 @@ function envoyerLead(agent, ligne) {
                             ).map(([companyName, companyContacts]: any) => {
                                 // Find highest status or aggregate CA
                                 const clientInvoices = invoices.filter(inv => inv.clientName === companyName || companyContacts.some((c:any) => c.id === inv.clientId));
-                                const caTotal = clientInvoices.filter(i => i.status === 'payee').reduce((a, b) => a + b.amount, 0) + companyContacts.reduce((a:any, b:any) => a + Number(b.manualCA || 0), 0);
+                                const companyNode = companiesData.find((c:any) => c.name === companyName) || {};
+                                const caTotal = clientInvoices.filter(i => i.status === 'payee').reduce((a, b) => a + b.amount, 0) + companyContacts.reduce((a:any, b:any) => a + Number(b.manualCA || 0), 0) + Number(companyNode.manualCA || 0);
                                 const isClient = companyContacts.some((c:any) => c.type === 'client' || c.status === 'gagne');
 
                                 return (
