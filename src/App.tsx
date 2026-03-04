@@ -32,7 +32,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '59.7';
+const APP_VERSION = '59.8';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -465,6 +465,7 @@ export default function App() {
 
   const [scenarios, setScenarios] = useState<any[]>([]);
   const [deliveries, setDeliveries] = useState<any[]>([]);
+  const [selectedDeliveries, setSelectedDeliveries] = useState<string[]>([]);
   const [companiesData, setCompaniesData] = useState<any[]>([]);
 
   const [settings, setSettings] = useState<any>({
@@ -822,6 +823,52 @@ export default function App() {
         addNotification('success', 'Suppression réussie');
       } catch (e) { addNotification('error', 'Erreur de suppression'); }
     });
+  };
+
+  const handleBulkDeleteDeliveries = async () => {
+      if (isOfflineMode || !user || selectedDeliveries.length === 0) return;
+      openConfirm('Supprimer la sélection ?', `Vous allez supprimer ${selectedDeliveries.length} livraison(s).`, async () => {
+          try {
+              const chunks = [];
+              for (let i = 0; i < selectedDeliveries.length; i += 400) {
+                  chunks.push(selectedDeliveries.slice(i, i + 400));
+              }
+              for (const chunk of chunks) {
+                  const b = writeBatch(db);
+                  chunk.forEach(id => {
+                      b.delete(doc(db, `artifacts/${getAppId()}/users/${user.uid}/lead_deliveries`, id));
+                  });
+                  await b.commit();
+              }
+              setSelectedDeliveries([]);
+              addNotification('success', 'Sélection supprimée.');
+          } catch(e) {
+              addNotification('error', 'Erreur lors de la suppression.');
+          }
+      });
+  };
+
+  const handlePurgeDeliveries = async () => {
+      if (isOfflineMode || !user || deliveries.length === 0) return;
+      openConfirm('Purger tout l\'historique ?', 'Action irréversible : tous les leads enregistrés seront supprimés.', async () => {
+          try {
+              const chunks = [];
+              for (let i = 0; i < deliveries.length; i += 400) {
+                  chunks.push(deliveries.slice(i, i + 400));
+              }
+              for (const chunk of chunks) {
+                  const b = writeBatch(db);
+                  chunk.forEach(d => {
+                      b.delete(doc(db, `artifacts/${getAppId()}/users/${user.uid}/lead_deliveries`, d.id));
+                  });
+                  await b.commit();
+              }
+              setSelectedDeliveries([]);
+              addNotification('success', 'Historique entièrement purgé.');
+          } catch(e) {
+              addNotification('error', 'Erreur lors de la purge.');
+          }
+      });
   };
 
   const handleDeleteInvoice = async () => {
@@ -1488,14 +1535,32 @@ export default function App() {
             <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 mt-8">
                 <div className="flex justify-between items-center mb-6">
                     <h3 className="font-extrabold text-slate-800 flex items-center gap-2 text-lg"><Activity className="text-[#01189B]" size={20}/> Historique brut des livraisons</h3>
-                    <button onClick={() => setShowModal('add_delivery')} className="px-4 py-2 bg-blue-50 text-[#01189B] font-bold rounded-xl text-sm hover:bg-blue-100 transition-colors flex items-center gap-2">
-                        <Plus size={16}/> Ajouter manuellement
-                    </button>
+                    <div className="flex items-center gap-3">
+                        {selectedDeliveries.length > 0 && (
+                            <button onClick={handleBulkDeleteDeliveries} className="px-4 py-2 bg-orange-50 text-orange-600 font-bold rounded-xl text-sm hover:bg-orange-100 transition-colors flex items-center gap-2 shadow-sm">
+                                <Trash2 size={16}/> Supprimer la sélection ({selectedDeliveries.length})
+                            </button>
+                        )}
+                        <button onClick={handlePurgeDeliveries} className="px-4 py-2 bg-red-50 text-red-600 font-bold rounded-xl text-sm hover:bg-red-100 transition-colors flex items-center gap-2">
+                            <Trash2 size={16}/> Tout Purger
+                        </button>
+                        <button onClick={() => setShowModal('add_delivery')} className="px-4 py-2 bg-blue-50 text-[#01189B] font-bold rounded-xl text-sm hover:bg-blue-100 transition-colors flex items-center gap-2">
+                            <Plus size={16}/> Ajouter manuellement
+                        </button>
+                    </div>
                 </div>
                 <div className="max-h-96 overflow-y-auto custom-scrollbar border border-slate-100 rounded-xl">
                     <table className="w-full text-left text-sm">
                         <thead className="bg-slate-50 text-slate-500 uppercase font-extrabold text-[10px] tracking-wider sticky top-0 z-10 shadow-sm">
                             <tr>
+                                <th className="px-4 py-3 border-b border-slate-100 w-12 text-center">
+                                    <input 
+                                        type="checkbox" 
+                                        className="w-4 h-4 cursor-pointer rounded text-[#01189B] focus:ring-[#01189B]"
+                                        checked={deliveries.length > 0 && selectedDeliveries.length === deliveries.length}
+                                        onChange={(e) => setSelectedDeliveries(e.target.checked ? deliveries.map(d => d.id) : [])}
+                                    />
+                                </th>
                                 <th className="px-4 py-3 border-b border-slate-100">Date d'enregistrement</th>
                                 <th className="px-4 py-3 border-b border-slate-100">Client ciblé (Agent Name)</th>
                                 <th className="px-4 py-3 border-b border-slate-100">Campagne</th>
@@ -1504,7 +1569,18 @@ export default function App() {
                         </thead>
                         <tbody className="divide-y divide-slate-50">
                             {[...deliveries].sort((a,b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime()).map(d => (
-                                <tr key={d.id} className="hover:bg-slate-50 transition-colors">
+                                <tr key={d.id} className={`hover:bg-slate-50 transition-colors ${selectedDeliveries.includes(d.id) ? 'bg-blue-50/30' : ''}`}>
+                                    <td className="px-4 py-3 text-center">
+                                        <input 
+                                            type="checkbox" 
+                                            className="w-4 h-4 cursor-pointer rounded text-[#01189B] focus:ring-[#01189B]"
+                                            checked={selectedDeliveries.includes(d.id)}
+                                            onChange={(e) => {
+                                                if (e.target.checked) setSelectedDeliveries([...selectedDeliveries, d.id]);
+                                                else setSelectedDeliveries(selectedDeliveries.filter(id => id !== d.id));
+                                            }}
+                                        />
+                                    </td>
                                     <td className="px-4 py-3 font-medium text-slate-500">{formatDateTime(d.date || d.createdAt)}</td>
                                     <td className="px-4 py-3 font-bold text-slate-800">{d.agentName || 'Inconnu'}</td>
                                     <td className="px-4 py-3 text-slate-600">{d.campagne || 'Non définie'}</td>
@@ -1515,7 +1591,7 @@ export default function App() {
                                     </td>
                                 </tr>
                             ))}
-                            {deliveries.length === 0 && <tr><td colSpan={4} className="text-center py-8 text-slate-400 italic">Aucune donnée brute enregistrée.</td></tr>}
+                            {deliveries.length === 0 && <tr><td colSpan={5} className="text-center py-8 text-slate-400 italic">Aucune donnée brute enregistrée.</td></tr>}
                         </tbody>
                     </table>
                 </div>
