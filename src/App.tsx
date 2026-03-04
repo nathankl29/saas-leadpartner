@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '57.5';
+const APP_VERSION = '58.4';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -432,7 +432,7 @@ export default function App() {
   // Nouveaux états pour la pondération manuelle
   const [manualWeights, setManualWeights] = useState<any[]>([]);
   const [manualWeightClient, setManualWeightClient] = useState('');
-  const [manualWeightBudget, setManualWeightBudget] = useState(1000);
+  const [manualWeightParts, setManualWeightParts] = useState<number>(1);
   const [manualWeightMaxDaily, setManualWeightMaxDaily] = useState<number | ''>('');
   
   // Nouveaux états pour le Script & Arbitrage
@@ -442,7 +442,6 @@ export default function App() {
   
   // Nouveaux états pour le Pacing (Lissage)
   const [enablePacing, setEnablePacing] = useState(true);
-  const [pacingTargetSize, setPacingTargetSize] = useState(20);
   
   const [bulkContacts, setBulkContacts] = useState([{ company: '', name: '', email: '', phone: '' }, { company: '', name: '', email: '', phone: '' }, { company: '', name: '', email: '', phone: '' }]);
 
@@ -459,6 +458,7 @@ export default function App() {
 
   const [scenarios, setScenarios] = useState<any[]>([]);
   const [deliveries, setDeliveries] = useState<any[]>([]);
+  const [companiesData, setCompaniesData] = useState<any[]>([]);
 
   const [settings, setSettings] = useState<any>({
     companyName: 'LeadPartner',
@@ -488,6 +488,11 @@ export default function App() {
 
   const [selectedContactId, setSelectedContactId] = useState<any>(null);
   const selectedContact = useMemo(() => contacts.find((c) => c.id === selectedContactId) || null, [contacts, selectedContactId]);
+
+  // NOUVEAU: Etat pour gérer l'ouverture d'une fiche Entreprise
+  const [selectedCompanyName, setSelectedCompanyName] = useState<string | null>(null);
+  const [isEditingCompany, setIsEditingCompany] = useState(false);
+  const [editCompanyDataState, setEditCompanyDataState] = useState<any>({});
 
   const [isEditingContact, setIsEditingContact] = useState(false);
   const [editContactData, setEditContactData] = useState<any>({});
@@ -627,6 +632,7 @@ export default function App() {
         onSnapshot(collection(db, `${basePath}/target_scenarios`), (s) => setScenarios(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
         onSnapshot(collection(db, `${basePath}/lead_deliveries`), (s) => setDeliveries(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
         onSnapshot(collection(db, `${basePath}/email_logs`), (s) => setEmailHistory(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
+        onSnapshot(collection(db, `${basePath}/companies`), (s) => setCompaniesData(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
         onSnapshot(doc(db, `${basePath}/config`, 'general'), (s) => { 
             if (s.exists()) {
                 const data = s.data();
@@ -843,6 +849,19 @@ export default function App() {
     if (!selectedContactId || !user) return;
     await handleUpdate('contacts', selectedContactId, editContactData);
     setIsEditingContact(false);
+  };
+
+  const handleSaveCompanyEdit = async () => {
+    if (!selectedCompanyName || !user) return;
+    const existingCompany = companiesData.find(c => c.name === selectedCompanyName);
+    
+    if (existingCompany) {
+        await handleUpdate('companies', existingCompany.id, editCompanyDataState);
+    } else {
+        await handleCreate('companies', { ...editCompanyDataState, name: selectedCompanyName });
+    }
+    setIsEditingCompany(false);
+    addNotification('success', 'Informations de la société mises à jour');
   };
 
   const handleAddQuickNote = async () => {
@@ -1899,6 +1918,332 @@ export default function App() {
                 </div>
              </div>
           </div>
+
+        </div>
+      </div>
+    );
+  };
+
+  const renderCompanyDetail = () => {
+    if (!selectedCompanyName) return null;
+    const companyContacts = contacts.filter(c => c.company === selectedCompanyName);
+
+    // Agrégations au niveau de l'entreprise
+    const companyInvoices = invoices.filter(inv => inv.clientName === selectedCompanyName || companyContacts.some((c:any) => c.id === inv.clientId));
+    const caEncaisse = companyInvoices.filter(i => i.status === 'payee').reduce((a, b) => a + b.amount, 0) + companyContacts.reduce((a:any, b:any) => a + Number(b.manualCA || 0), 0);
+    
+    let companyMgtFees = 0;
+    companyInvoices.filter(i => i.status === 'payee').forEach(inv => {
+        const marginPercent = inv.marginPercent !== undefined ? inv.marginPercent : 35;
+        companyMgtFees += inv.amount * (marginPercent / 100);
+    });
+    
+    const companySimulations = simulations.filter(s => companyContacts.some(c => c.id === s.clientId) || s.clientName === selectedCompanyName);
+    const companyArbitrage = companySimulations.reduce((acc, s) => acc + (s.stats?.arbitrage || 0), 0);
+    const beneficeTotal = companyMgtFees + companyArbitrage + companyContacts.reduce((a:any, b:any) => a + Number(b.manualBenefice || 0), 0);
+
+    const companyInfo = companiesData.find(c => c.name === selectedCompanyName) || {};
+    const companyType = companyInfo.type || (companyContacts.some(c => c.type === 'client' || c.status === 'gagne') ? 'client' : 'prospect');
+    const isClient = companyType === 'client';
+
+    const handleCompanyTypeChange = async (newType: string) => {
+        if (!user) return;
+        if (companyInfo.id) {
+            await handleUpdate('companies', companyInfo.id, { type: newType });
+        } else {
+            await handleCreate('companies', { name: selectedCompanyName, type: newType });
+        }
+        
+        // Mise à jour en cascade des contacts de la société
+        companyContacts.forEach(async (c) => {
+            await handleUpdate('contacts', c.id, { type: newType, status: newType === 'client' ? 'gagne' : 'nouveau' });
+        });
+        
+        addNotification('success', 'Statut de la société mis à jour');
+    };
+
+    // Nouvelles extractions pour le profil de la société
+    const mainContact = companyContacts.find(c => c.type === 'client') || companyContacts.find(c => c.address) || companyContacts[0] || {} as any;
+    const allProducts = Array.from(new Set([...(companyInfo.offeredProducts || []), ...companyContacts.flatMap(c => c.offeredProducts || [])]));
+    const allAudiences = Array.from(new Set([...(companyInfo.targetAudience ? [companyInfo.targetAudience] : []), ...companyContacts.map(c => c.targetAudience).filter(Boolean)]));
+    
+    const companyInteractions = interactions.filter(i => companyContacts.some(c => c.id === i.contactId)).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 5);
+
+    return (
+      <div className="flex flex-col h-full bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden animate-fade-in border border-slate-100">
+        {/* Header Société */}
+        <div className="p-8 border-b border-slate-100 bg-white/50 backdrop-blur-sm flex justify-between items-start relative shrink-0">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-slate-50 rounded-full blur-3xl opacity-50 pointer-events-none -mr-20 -mt-20"></div>
+          <div className="flex gap-6 relative z-10 flex-1">
+            <button onClick={() => setSelectedCompanyName(null)} className="mt-1 p-3 bg-white border border-slate-200 shadow-sm rounded-xl hover:bg-slate-50 transition-colors text-slate-500 h-fit shrink-0">
+              <ChevronLeft size={20} />
+            </button>
+            <div className="flex-1">
+              <div className="flex items-center gap-4 mb-2">
+                <h2 className="text-4xl font-extrabold font-poppins text-slate-800 tracking-tight">{selectedCompanyName}</h2>
+                <select 
+                    value={companyType} 
+                    onChange={(e) => handleCompanyTypeChange(e.target.value)}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-xl border shadow-sm outline-none cursor-pointer ${isClient ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-blue-50 border-blue-200 text-blue-700'}`}
+                >
+                    <option value="prospect">Prospect</option>
+                    <option value="client">Client Actif</option>
+                </select>
+              </div>
+              <div className="flex gap-3 mb-4">
+                  <span className="text-sm font-bold text-[#01189B] bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200 shadow-sm flex items-center gap-2"><Wallet size={16}/> CA Global : {renderCurrency(caEncaisse)}</span>
+                  <span className="text-sm font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 shadow-sm flex items-center gap-2"><TrendingUp size={16}/> Bénéfice Global : {renderCurrency(beneficeTotal)}</span>
+              </div>
+              
+              <div className="flex flex-col gap-2 mt-4 pt-4 border-t border-slate-200/50">
+                  <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-slate-600 font-medium">
+                      {(companyInfo.legalStatus || companyInfo.cheNumber) && (
+                          <p className="flex items-center gap-1.5"><Briefcase size={14} className="text-slate-400"/> {companyInfo.legalStatus} {companyInfo.cheNumber ? `(IDE: ${companyInfo.cheNumber})` : ''}</p>
+                      )}
+                      {(mainContact.name || mainContact.email || mainContact.phone) && (
+                          <p className="flex items-center gap-1.5"><Users size={14} className="text-slate-400"/> {mainContact.name || 'Contact Principal'} {mainContact.email ? `• ${mainContact.email}` : ''} {mainContact.phone ? `• ${mainContact.phone}` : ''}</p>
+                      )}
+                      {(companyInfo.addressLine || mainContact.address) && (
+                          <p className="flex items-center gap-1.5"><MapPin size={14} className="text-slate-400"/> {companyInfo.addressLine ? `${companyInfo.addressLine}, ${companyInfo.zipCode || ''} ${companyInfo.city || ''} ${companyInfo.country || ''}` : mainContact.address}</p>
+                      )}
+                  </div>
+                  {companyInfo.notes && (
+                      <p className="flex items-start gap-1.5 text-slate-500 italic text-sm mt-1 bg-white/60 p-2 rounded-lg border border-slate-100"><MessageSquare size={14} className="text-slate-400 mt-0.5 shrink-0"/> {companyInfo.notes}</p>
+                  )}
+                  {(allAudiences.length > 0 || allProducts.length > 0) && (
+                      <div className="flex flex-wrap gap-2 mt-1">
+                          {allAudiences.map((aud: any) => <span key={aud} className="px-2 py-0.5 bg-purple-50 text-purple-700 border border-purple-200 rounded text-[10px] font-bold uppercase tracking-wide">{aud}</span>)}
+                          {allProducts.map((prod: any) => <span key={prod} className="px-2 py-0.5 bg-slate-100 text-slate-600 border border-slate-200 rounded text-[10px] font-bold uppercase tracking-wide">{prod}</span>)}
+                      </div>
+                  )}
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-col gap-2 relative z-10 w-48 shrink-0">
+             <button onClick={() => { setEditCompanyDataState(companyInfo); setIsEditingCompany(true); }} className="px-4 py-2 text-xs bg-white border border-slate-200 shadow-sm rounded-lg font-bold text-slate-600 hover:bg-slate-50 transition-colors flex items-center justify-start gap-2">
+               <Edit2 size={14}/> Modifier Société
+             </button>
+             <button onClick={() => { setShowModal('contact'); setNewContactSource(''); }} className="px-4 py-2 text-xs text-white rounded-lg font-bold hover:shadow-md hover:-translate-y-0.5 flex items-center justify-start gap-2 transition-all" style={{ backgroundColor: BRAND_COLOR }}>
+               <Plus size={14}/> Ajouter un contact
+             </button>
+          </div>
+        </div>
+
+        {/* Panneau d'édition Société (si actif) */}
+        {isEditingCompany && (
+          <div className="p-8 bg-slate-50 border-b border-slate-200 shadow-inner animate-fade-in z-20 relative shrink-0 overflow-y-auto max-h-[50vh] custom-scrollbar">
+             <div className="flex justify-between items-center mb-6">
+                 <h4 className="font-bold text-slate-800 font-poppins text-lg flex items-center gap-2"><Settings size={20}/> Modifier la Société</h4>
+                 <button onClick={() => setIsEditingCompany(false)} className="text-slate-400 hover:text-slate-600"><X size={24}/></button>
+             </div>
+             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+                <div>
+                  <label className={UI_CLASSES.label}>Forme Juridique</label>
+                  <select className={UI_CLASSES.input} value={editCompanyDataState.legalStatus || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, legalStatus: e.target.value})}>
+                    <option value="">-- Non définie --</option>
+                    <option value="SA">SA</option>
+                    <option value="SARL">SARL / Sàrl</option>
+                    <option value="Raison Individuelle">Raison Individuelle</option>
+                    <option value="SNC">SNC</option>
+                    <option value="Association">Association</option>
+                  </select>
+                </div>
+                <div><label className={UI_CLASSES.label}>Numéro IDE / CHE</label><input className={UI_CLASSES.input} value={editCompanyDataState.cheNumber || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, cheNumber: e.target.value})} placeholder="Ex: CHE-123.456.789" /></div>
+                <div><label className={UI_CLASSES.label}>Numéro TVA</label><input className={UI_CLASSES.input} value={editCompanyDataState.tvaNumber || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, tvaNumber: e.target.value})} placeholder="Si applicable..." /></div>
+                
+                <div className="col-span-1 md:col-span-2 lg:col-span-3 pt-4 border-t border-slate-200">
+                    <h5 className="font-bold text-slate-700 text-sm mb-4">Adresse Officielle</h5>
+                </div>
+                <div className="col-span-1 md:col-span-2 lg:col-span-3"><label className={UI_CLASSES.label}>Rue et numéro</label><input className={UI_CLASSES.input} value={editCompanyDataState.addressLine || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, addressLine: e.target.value})} placeholder="Rue de Genève 1..." /></div>
+                <div><label className={UI_CLASSES.label}>NPA / Code Postal</label><input className={UI_CLASSES.input} value={editCompanyDataState.zipCode || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, zipCode: e.target.value})} placeholder="Ex: 1200" /></div>
+                <div><label className={UI_CLASSES.label}>Ville</label><input className={UI_CLASSES.input} value={editCompanyDataState.city || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, city: e.target.value})} placeholder="Ex: Genève" /></div>
+                <div><label className={UI_CLASSES.label}>Canton / Pays</label><input className={UI_CLASSES.input} value={editCompanyDataState.country || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, country: e.target.value})} placeholder="Ex: Suisse" /></div>
+                
+                <div className="col-span-1 md:col-span-2 lg:col-span-3 pt-4 border-t border-slate-200">
+                    <label className={UI_CLASSES.label}>Notes / Informations complémentaires</label>
+                    <textarea className={`${UI_CLASSES.input} h-20 resize-none`} value={editCompanyDataState.notes || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, notes: e.target.value})} placeholder="Détails spécifiques à l'entreprise..."></textarea>
+                </div>
+
+                <div className="col-span-1 md:col-span-2 lg:col-span-3 pt-4 border-t border-slate-200">
+                    <label className={UI_CLASSES.label}>Audience Ciblée par l'entreprise</label>
+                    <div className="flex gap-3 mt-3">
+                        {['Résident', 'Frontalier', 'Les deux'].map(aud => (
+                            <button
+                                key={aud} type="button" onClick={() => setEditCompanyDataState({...editCompanyDataState, targetAudience: aud})}
+                                className={`px-5 py-2.5 rounded-xl text-sm font-bold border-2 transition-all ${editCompanyDataState.targetAudience === aud ? 'border-[#01189B] bg-blue-50 text-[#01189B] shadow-sm' : 'border-slate-200 text-slate-500 bg-white hover:border-slate-300'}`}
+                            >
+                                {aud}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="col-span-1 md:col-span-2 lg:col-span-3">
+                    <label className={UI_CLASSES.label}>Services & Produits vendus par l'entreprise</label>
+                    <div className="flex flex-wrap gap-2 mt-3">
+                        {['LAMal', 'LCA', '3ème Pilier', 'LPP', 'Prévoyance', 'Assurance Vie', 'Hypothèque', 'Fiscalité'].map(prod => {
+                            const isActive = (editCompanyDataState.offeredProducts || []).includes(prod);
+                            return (
+                                <button
+                                    key={prod} type="button"
+                                    onClick={() => {
+                                        const current = editCompanyDataState.offeredProducts || [];
+                                        setEditCompanyDataState({ ...editCompanyDataState, offeredProducts: isActive ? current.filter((p: string) => p !== prod) : [...current, prod] });
+                                    }}
+                                    className={`px-4 py-2 rounded-xl text-xs font-bold border-2 transition-all shadow-sm ${isActive ? 'bg-[#01189B] text-white border-[#01189B]' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'}`}
+                                >
+                                    {isActive ? '✓ ' : '+ '}{prod}
+                                </button>
+                            )
+                        })}
+                    </div>
+                </div>
+
+             </div>
+             <div className="flex gap-4 justify-end mt-6 pt-6 border-t border-slate-200">
+               <button onClick={handleSaveCompanyEdit} className="px-8 py-3.5 text-white rounded-xl font-bold hover:opacity-90 shadow-md transition-opacity" style={{ backgroundColor: BRAND_COLOR }}>Enregistrer les infos</button>
+             </div>
+          </div>
+        )}
+
+        <div className="flex-1 overflow-auto p-8 bg-slate-50/50 custom-scrollbar grid grid-cols-1 lg:grid-cols-3 gap-8">
+            
+            {/* COLONNE GAUCHE : INFOS & CAMPAGNES */}
+            <div className="lg:col-span-1 space-y-6">
+               {/* Widget Campagnes en cours */}
+               <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]">
+                 <h4 className="font-extrabold text-slate-800 mb-4 font-poppins text-lg flex items-center gap-2"><PlayCircle size={20} className="text-indigo-500"/> Campagnes Actives</h4>
+                 {companySimulations.length === 0 ? (
+                     <p className="text-xs text-slate-400 italic text-center py-4">Aucune campagne active pour cette société.</p>
+                 ) : (
+                     <div className="space-y-4">
+                         {companySimulations.map(sim => {
+                             const duration = sim.duration || 30;
+                             const start = new Date(sim.createdAt);
+                             const diffDays = Math.max(0, Math.floor((new Date().getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+                             const day = Math.min(diffDays, duration);
+                             const isFinished = day >= duration;
+                             const endDate = new Date(start.getTime() + duration * 24 * 60 * 60 * 1000);
+                             
+                             // Retrouver le contact lié
+                             const linkedContact = companyContacts.find(c => c.id === sim.clientId);
+
+                             return (
+                                 <div key={sim.id} className="p-4 rounded-xl border border-slate-100 bg-slate-50 relative overflow-hidden">
+                                     <div className="flex justify-between items-start mb-2 relative z-10">
+                                         <div>
+                                            <span className="font-bold text-sm text-slate-700 flex items-center gap-1.5"><Package size={14}/> {sim.productName}</span>
+                                            {linkedContact && <span className="text-[10px] text-slate-500 font-medium block mt-1 bg-white px-2 py-0.5 rounded border border-slate-200 inline-flex items-center gap-1"><Users size={10} className="text-indigo-400"/> Gérée par {linkedContact.name}</span>}
+                                         </div>
+                                         <span className={`text-[10px] px-2 py-1 rounded font-bold uppercase tracking-widest shrink-0 ${isFinished ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>{isFinished ? 'Terminé' : 'En cours'}</span>
+                                     </div>
+                                     <div className="w-full bg-slate-200 rounded-full h-1.5 mb-2 overflow-hidden relative z-10 mt-3">
+                                         <div className={`h-full rounded-full transition-all ${isFinished ? 'bg-emerald-500' : 'bg-[#01189B]'}`} style={{ width: `${(day/duration)*100}%` }}></div>
+                                     </div>
+                                     <div className="flex justify-between text-[10px] text-slate-500 font-bold uppercase tracking-wider relative z-10">
+                                         <span>J-{day} / {duration}</span>
+                                         <span>Fin : {formatDate(endDate.toISOString())}</span>
+                                     </div>
+                                 </div>
+                             )
+                         })}
+                     </div>
+                 )}
+               </div>
+
+               {/* Widget Factures */}
+               <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]">
+                 <h4 className="font-extrabold text-slate-800 mb-4 font-poppins text-lg flex items-center gap-2"><FileText size={20} className="text-slate-400"/> Factures Globales</h4>
+                 {companyInvoices.length === 0 ? (
+                     <p className="text-xs text-slate-400 italic text-center py-4">Aucune facture pour cette société.</p>
+                 ) : (
+                     <div className="space-y-3 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+                         {companyInvoices.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((inv: any) => (
+                             <div key={inv.id} onClick={() => { setCurrentInvoice(inv); setShowModal('invoice'); }} className="flex justify-between items-center p-3 bg-slate-50 border border-slate-100 rounded-xl cursor-pointer hover:border-[#01189B] hover:bg-white shadow-sm transition-all group">
+                                 <div>
+                                     <p className="font-bold text-slate-700 text-sm group-hover:text-[#01189B] transition-colors">{inv.id}</p>
+                                     <p className="text-[10px] text-slate-400 font-bold uppercase">{formatDate(inv.date)}</p>
+                                 </div>
+                                 <div className="text-right">
+                                     <p className="font-mono font-bold text-slate-800 text-sm">{renderCurrency(inv.amount)}</p>
+                                     <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md ${INVOICE_STATUSES[inv.status]?.color || 'bg-slate-200 text-slate-600'}`}>{INVOICE_STATUSES[inv.status]?.label || inv.status}</span>
+                                 </div>
+                             </div>
+                         ))}
+                     </div>
+                 )}
+               </div>
+            </div>
+
+            {/* COLONNE DROITE : EQUIPE & ACTIVITE */}
+            <div className="lg:col-span-2 space-y-6 flex flex-col h-full">
+              {/* Widget Activité Globale */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] p-6 shrink-0">
+                  <h3 className="font-extrabold text-slate-800 mb-4 font-poppins text-lg flex items-center gap-2"><Activity className="text-orange-500" size={20}/> Activité Globale (Notes récentes)</h3>
+                  {companyInteractions.length === 0 ? (
+                      <p className="text-xs text-slate-400 italic text-center py-4">Aucune activité enregistrée sur les contacts de cette société.</p>
+                  ) : (
+                      <div className="space-y-3">
+                          {companyInteractions.map(act => {
+                              const relatedContact = companyContacts.find(c => c.id === act.contactId);
+                              return (
+                                  <div key={act.id} className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
+                                      <p className="text-[10px] font-bold text-slate-500 mb-1 flex justify-between uppercase tracking-widest">
+                                          <span className="flex items-center gap-1.5"><Users size={12}/> {relatedContact ? relatedContact.name : 'Inconnu'}</span> 
+                                          <span className="text-slate-400 font-medium"><Clock size={10} className="inline mr-1 -mt-0.5"/> {formatDateTime(act.createdAt)}</span>
+                                      </p>
+                                      <p className="text-sm text-slate-700 line-clamp-2">{act.content}</p>
+                                  </div>
+                              )
+                          })}
+                      </div>
+                  )}
+              </div>
+
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] p-6 flex-1 flex flex-col">
+                  <div className="flex justify-between items-center mb-6 shrink-0">
+                    <h3 className="font-extrabold text-slate-800 font-poppins text-xl flex items-center gap-2"><Users size={24} style={{ color: BRAND_COLOR }}/> Équipe & Contacts ({companyContacts.length})</h3>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 overflow-auto custom-scrollbar p-1">
+                     {companyContacts.map(c => {
+                        const cInvoices = invoices.filter(inv => inv.clientId === c.id);
+                        const cCaEncaisse = cInvoices.filter(i => i.status === 'payee').reduce((a, b) => a + b.amount, 0) + Number(c.manualCA || 0);
+                        return (
+                          <div key={c.id} onClick={() => setSelectedContactId(c.id)} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:border-[#01189B] hover:shadow-lg transition-all cursor-pointer group flex flex-col justify-between">
+                             <div className="flex justify-between items-start mb-4">
+                                <div className="flex items-center gap-3">
+                                   <div className="w-10 h-10 rounded-full bg-blue-100 text-[#01189B] flex items-center justify-center font-bold text-lg shrink-0">{c.name ? c.name.substring(0,2).toUpperCase() : '?'}</div>
+                                   <div className="overflow-hidden">
+                                     <p className="font-bold text-slate-800 text-sm truncate">{c.name || 'Sans Nom'}</p>
+                                     <p className="text-[10px] text-slate-500 font-medium truncate">{c.email || 'Pas d\'email'}</p>
+                                   </div>
+                                </div>
+                                <span className={`px-2 py-1 text-[9px] font-bold uppercase tracking-widest rounded-md border shrink-0 ${c.type === 'client' || c.status === 'gagne' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                                   {c.status}
+                                </span>
+                             </div>
+                             <div className="grid grid-cols-2 gap-2 mt-auto pt-4 border-t border-slate-100">
+                                <div>
+                                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-0.5">CA Indiv.</p>
+                                   <p className="text-sm font-extrabold text-[#01189B] font-mono">{renderCurrency(cCaEncaisse)}</p>
+                                </div>
+                                <div className="text-right">
+                                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-0.5">Notes</p>
+                                   <p className="text-sm font-bold text-slate-600 flex items-center justify-end gap-1"><MessageSquare size={14}/> {interactions.filter(i => i.contactId === c.id).length}</p>
+                                </div>
+                             </div>
+                          </div>
+                        );
+                     })}
+                  </div>
+                  {companyContacts.length === 0 && (
+                      <div className="text-center py-12 text-slate-400 font-medium bg-slate-50 rounded-2xl border border-slate-200 border-dashed mt-4 flex-1 flex flex-col items-center justify-center">
+                          Aucun contact pour cette société. <br/>Cliquez sur "Ajouter un contact" en haut à droite.
+                      </div>
+                  )}
+              </div>
+            </div>
 
         </div>
       </div>
@@ -3090,8 +3435,8 @@ export default function App() {
       <aside className="w-72 bg-white flex flex-col no-print shrink-0 border-r border-slate-200 relative z-20">
         <div className="absolute top-0 left-0 w-full h-1" style={{ backgroundColor: BRAND_COLOR }}></div>
         <div className="p-8">
-          <div className="flex items-center gap-4 mb-12 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => {setActiveView('dashboard'); setSelectedContactId(null);}}>
-             <div className="w-12 h-12 rounded-xl flex items-center justify-center font-extrabold text-2xl shadow-sm text-white shrink-0" style={{ backgroundColor: BRAND_COLOR }}>
+          <div className="flex items-center gap-4 mb-12 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => {setActiveView('dashboard'); setSelectedContactId(null); setSelectedCompanyName(null); setIsEditingCompany(false);}}>
+             <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-blue-50 text-[#01189B] font-black text-2xl shadow-inner border-2 border-blue-100">
                 LP
              </div>
              <div className="overflow-hidden">
@@ -3115,7 +3460,7 @@ export default function App() {
             ].map((item) => (
               <button
                 key={item.id}
-                onClick={() => { setActiveView(item.id); setSelectedContactId(null); }}
+                onClick={() => { setActiveView(item.id); setSelectedContactId(null); setSelectedCompanyName(null); }}
                 className={`w-full flex items-center gap-4 px-4 py-3.5 text-sm font-bold rounded-xl transition-all ${
                   activeView === item.id ? 'text-white shadow-md translate-x-1' : 'text-slate-500 hover:bg-slate-50 hover:text-[#01189B]'
                 }`}
@@ -3146,6 +3491,8 @@ export default function App() {
                 if (e.target.value && activeView !== 'contacts') {
                     setActiveView('contacts');
                     setContactFilterType('all');
+                    setSelectedContactId(null);
+                    setSelectedCompanyName(null);
                 }
             }} />
           </div>
@@ -3169,7 +3516,7 @@ export default function App() {
         </header>
 
         <main className="flex-1 overflow-auto p-10 relative">
-          {selectedContact ? renderContactDetail() : (
+          {selectedContactId ? renderContactDetail() : selectedCompanyName ? renderCompanyDetail() : (
             <>
               {activeView === 'dashboard' && renderDashboard()}
               {activeView === 'prospection' && renderProspection()}
@@ -3254,21 +3601,21 @@ export default function App() {
                   const loadScriptConfig = (id: string) => {
                       if (!id) {
                           setCurrentScriptId(null); setScriptName(''); setScriptProductId(''); setManualWeights([]); 
-                          setEnablePacing(true); setPacingTargetSize(20);
+                          setEnablePacing(true);
                           setScriptGlobalSheetId(''); setScriptGlobalTabName('Distribution'); setScriptPhoneColIndex(6);
                           return;
                       }
                       const conf = (settings.distributionScripts || []).find((s:any) => s.id === id);
                       if (conf) {
                           setCurrentScriptId(conf.id); setScriptName(conf.name); setScriptProductId(conf.productId || ''); setManualWeights(conf.manuals || []);
-                          setEnablePacing(conf.enablePacing !== false); setPacingTargetSize(conf.pacingTargetSize || 20);
+                          setEnablePacing(conf.enablePacing !== false);
                           setScriptGlobalSheetId(conf.sheetId || ''); setScriptGlobalTabName(conf.tabName || 'Distribution'); setScriptPhoneColIndex(conf.phoneCol || 6);
                       }
                   };
 
                   const saveScriptConfig = () => {
                       if (!scriptName) return addNotification('error', 'Veuillez donner un nom à cette configuration.');
-                      const newConf = { id: currentScriptId || Math.random().toString(36).substr(2, 9), name: scriptName, productId: scriptProductId, manuals: manualWeights, enablePacing, pacingTargetSize, sheetId: scriptGlobalSheetId, tabName: scriptGlobalTabName, phoneCol: scriptPhoneColIndex };
+                      const newConf = { id: currentScriptId || Math.random().toString(36).substr(2, 9), name: scriptName, productId: scriptProductId, manuals: manualWeights, enablePacing, sheetId: scriptGlobalSheetId, tabName: scriptGlobalTabName, phoneCol: scriptPhoneColIndex };
                       let list = [...(settings.distributionScripts || [])];
                       if (currentScriptId) list = list.map(s => s.id === currentScriptId ? newConf : s);
                       else list.push(newConf);
@@ -3289,13 +3636,13 @@ export default function App() {
                   const handleAddManualWeight = () => {
                       const inputValue = manualWeightClient.trim();
                       if (!inputValue) return addNotification('error', 'Veuillez saisir le nom d\'un client.');
-                      if(manualWeightBudget <= 0) return addNotification('error', 'Veuillez définir un budget.');
+                      if(manualWeightParts <= 0) return addNotification('error', 'Veuillez définir un nombre de leads supérieur à 0.');
                       
                       setManualWeights([...manualWeights, {
                           id: Math.random().toString(36).substr(2,9),
                           clientId: inputValue,
                           name: inputValue,
-                          budget: manualWeightBudget,
+                          parts: manualWeightParts,
                           maxDaily: manualWeightMaxDaily,
                           maxTotal: manualWeightMaxTotal,
                           residentOnly: manualWeightResidentOnly,
@@ -3307,41 +3654,16 @@ export default function App() {
                       setManualWeightMaxTotal('');
                       setManualWeightResidentOnly(false);
                       setManualWeightSheetId('');
+                      setManualWeightParts(1);
                   };
 
-                  // --- CALCUL DE LA PONDÉRATION BASÉE SUR LE BUDGET ---
-                  let totalActiveBudget = manualWeights.reduce((acc, mw) => acc + Number(mw.budget || 0), 0);
-                  let cycleData: any[] = [];
-                  
-                  if (enablePacing && totalActiveBudget > 0) {
-                      cycleData = manualWeights.map(mw => {
-                          const b = Math.round(Number(mw.budget || 0));
-                          let parts = Math.max(1, Math.round((b / totalActiveBudget) * pacingTargetSize));
-                          return { ...mw, parts };
-                      });
-                  } else {
-                      const getGCD = (a: number, b: number): number => b === 0 ? a : getGCD(b, a % b);
-                      let gcdVal = 0;
-                      const validBudgets = manualWeights.map(mw => Math.round(Number(mw.budget || 0))).filter(b => b > 0);
-                      if (validBudgets.length > 0) {
-                          gcdVal = validBudgets[0];
-                          for (let i = 1; i < validBudgets.length; i++) {
-                              gcdVal = getGCD(gcdVal, validBudgets[i]);
-                          }
-                      }
-                      
-                      cycleData = manualWeights.map(mw => {
-                          const b = Math.round(Number(mw.budget || 0));
-                          let parts = gcdVal > 0 ? b / gcdVal : 0;
-                          return { ...mw, parts };
-                      });
-                  }
-
+                  // --- CALCUL DE LA PONDÉRATION (Nombre de leads direct) ---
+                  let cycleData = manualWeights.map(mw => ({ ...mw, parts: Number(mw.parts || 1) }));
                   let totalCycleParts = cycleData.reduce((acc, mw) => acc + mw.parts, 0);
                   
                   // Lissage par entrelacement (Weighted Round Robin) pour éviter qu'un client reçoive tout d'un coup
                   let sequence: string[] = [];
-                  if (totalCycleParts > 0 && totalCycleParts <= 1000) {
+                  if (enablePacing && totalCycleParts > 0 && totalCycleParts <= 1000) {
                       let items = cycleData.map(c => ({ name: c.name, weight: c.parts, current: 0 })).filter(c => c.weight > 0);
                       for (let i = 0; i < totalCycleParts; i++) {
                           let maxItem = null;
@@ -3358,6 +3680,11 @@ export default function App() {
                               sequence.push(maxItem.name);
                           }
                       }
+                  } else {
+                      // Sans lissage, on les ajoute simplement à la suite
+                      cycleData.forEach(c => {
+                          for(let i=0; i<c.parts; i++) sequence.push(c.name);
+                      });
                   }
 
                   const scriptContent = `/**
@@ -3549,13 +3876,7 @@ function envoyerLead(agent, ligne) {
                                                   <label className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1 cursor-pointer" onClick={() => setEnablePacing(!enablePacing)}><Activity size={14} className={enablePacing ? "text-[#01189B]" : "text-slate-400"}/> Lead Pacing (Lissage de la distribution)</label>
                                                   <input type="checkbox" checked={enablePacing} onChange={e => setEnablePacing(e.target.checked)} className="w-4 h-4 text-[#01189B] cursor-pointer" />
                                               </div>
-                                              {enablePacing && (
-                                                  <div className="flex items-center gap-2 mt-1">
-                                                      <span className="text-[10px] font-medium text-slate-400">Réduire la boucle à max.</span>
-                                                      <input type="number" min="1" max="1000" value={pacingTargetSize} onChange={e => setPacingTargetSize(Number(e.target.value))} className="w-14 border-b-2 border-slate-200 outline-none text-center font-bold text-[#01189B] text-xs focus:border-[#01189B] bg-transparent" />
-                                                      <span className="text-[10px] font-medium text-slate-400">leads totaux</span>
-                                                  </div>
-                                              )}
+                                              <p className="text-[10px] text-slate-400 font-medium">Répartit les leads de manière alternée pour éviter les envois groupés consécutifs.</p>
                                           </div>
                                       </div>
 
@@ -3606,8 +3927,8 @@ function envoyerLead(agent, ligne) {
                                                   </div>
                                                   <div className="grid grid-cols-2 gap-2">
                                                       <div>
-                                                          <label className="text-[10px] font-bold text-slate-500 uppercase">Budget (CHF)</label>
-                                                          <input type="number" value={manualWeightBudget} onChange={e => setManualWeightBudget(Number(e.target.value))} className="w-full border border-slate-200 p-2 rounded-lg text-xs font-mono outline-none mt-1" />
+                                                          <label className="text-[10px] font-bold text-slate-500 uppercase">Nombre de leads</label>
+                                                          <input type="number" min="1" value={manualWeightParts} onChange={e => setManualWeightParts(Number(e.target.value))} className="w-full border border-slate-200 p-2 rounded-lg text-xs font-mono outline-none mt-1 focus:border-[#01189B]" />
                                                       </div>
                                                       <div>
                                                           <label className="text-[10px] font-bold text-slate-500 uppercase flex justify-between"><span>Max Leads</span><span className="text-slate-300 font-medium">Opt.</span></label>
@@ -3627,7 +3948,7 @@ function envoyerLead(agent, ligne) {
                                            <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-3">
                                               <h4 className="font-bold text-slate-800 flex items-center gap-2"><PieChart size={18} className="text-orange-500"/> Distribution du Cycle</h4>
                                               <div className="text-right">
-                                                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Budget Total du Cycle : <span className="text-[#01189B] font-extrabold text-sm">{renderCurrency(totalActiveBudget)}</span></p>
+                                                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Taille du Cycle : <span className="text-[#01189B] font-extrabold text-sm">{totalCycleParts} leads</span></p>
                                               </div>
                                            </div>
                                            
@@ -3694,7 +4015,6 @@ function envoyerLead(agent, ligne) {
                                                                   {mw.residentOnly && <span className="bg-red-100 text-red-700 text-[9px] font-extrabold px-2 py-0.5 rounded-md uppercase tracking-widest flex items-center gap-1"><Globe size={10}/> +41 Only</span>}
                                                                   {mw.maxTotal ? <span className="bg-orange-100 text-orange-700 text-[9px] font-extrabold px-2 py-0.5 rounded-md uppercase tracking-widest flex items-center gap-1"><Target size={10}/> Max {mw.maxTotal}</span> : null}
                                                               </div>
-                                                              <div className="text-[10px] text-slate-500 font-mono">Budget alloué: {renderCurrency(mw.budget)}</div>
                                                           </div>
                                                           
                                                           <div className="flex gap-6 items-center w-full md:w-auto mt-2 md:mt-0 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100">
@@ -3818,106 +4138,71 @@ function envoyerLead(agent, ligne) {
                 </div>
               )}
               {activeView === 'contacts' && (
-                <div className="flex flex-col h-full animate-fade-in pb-8">
+                <div className="flex flex-col h-full animate-fade-in pb-8 max-w-7xl mx-auto w-full">
                   <div className="flex justify-between items-center mb-8">
-                     <h2 className={UI_CLASSES.title}><Users style={{ color: BRAND_COLOR }} size={32}/> CRM</h2>
+                     <h2 className={UI_CLASSES.title}><Users style={{ color: BRAND_COLOR }} size={32}/> Portefeuille Clients</h2>
                      <div className="flex gap-3">
                          <button onClick={() => setShowModal('bulkIds')} className="bg-white text-slate-600 px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 border border-slate-200 shadow-sm transition-all"><Search size={18} /> Liste des IDs</button>
                          <button onClick={() => { 
                              setBulkContacts([{ company: '', name: '', email: '', phone: '' }, { company: '', name: '', email: '', phone: '' }, { company: '', name: '', email: '', phone: '' }]);
                              setShowModal('bulkContact'); 
                          }} className="bg-white text-[#01189B] px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-blue-50 border border-blue-200 shadow-sm transition-all"><Users size={18} /> Ajout Rapide (Bulk)</button>
-                         <button onClick={() => { setShowModal('contact'); setNewContactSource(''); }} className={UI_CLASSES.btnPrimary} style={{ backgroundColor: BRAND_COLOR }}><Plus size={18} /> Nouveau Contact</button>
+                         <button onClick={() => { setShowModal('contact'); setNewContactSource(''); }} className={UI_CLASSES.btnPrimary} style={{ backgroundColor: BRAND_COLOR }}><Plus size={18} /> Nouvelle Société</button>
                      </div>
                   </div>
-                  <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden flex flex-col flex-1">
-                    <div className="flex border-b border-slate-100 bg-slate-50/50 p-2 gap-2">
-                      <button onClick={() => setContactFilterType('all')} className={`px-6 py-3 text-sm font-bold rounded-xl transition-colors font-poppins ${contactFilterType === 'all' ? 'bg-white text-[#01189B] shadow-sm border border-slate-100' : 'text-slate-500 hover:bg-slate-100 border border-transparent'}`}>Tous les contacts</button>
-                      <button onClick={() => setContactFilterType('prospect')} className={`px-6 py-3 text-sm font-bold rounded-xl transition-colors font-poppins ${contactFilterType === 'prospect' ? 'bg-white text-[#01189B] shadow-sm border border-slate-100' : 'text-slate-500 hover:bg-slate-100 border border-transparent'}`}>Prospects en cours</button>
-                      <button onClick={() => setContactFilterType('client')} className={`px-6 py-3 text-sm font-bold rounded-xl transition-colors font-poppins ${contactFilterType === 'client' ? 'bg-white text-[#01189B] shadow-sm border border-slate-100' : 'text-slate-500 hover:bg-slate-100 border border-transparent'}`}>Clients Gagnés</button>
-                    </div>
-                    <div className="flex-1 overflow-auto bg-slate-50/20 p-4 md:p-6 custom-scrollbar space-y-6">
-                      {displayedContacts.length === 0 ? (
-                         <div className="p-20 text-center text-slate-400 font-medium">Aucun contact trouvé dans cette catégorie.</div>
-                      ) : (
-                         Object.entries(
-                            displayedContacts.reduce((acc: any, c: any) => {
-                                const comp = c.company || 'Sans Entreprise';
-                                if (!acc[comp]) acc[comp] = [];
-                                acc[comp].push(c);
-                                return acc;
-                            }, {})
-                         ).map(([companyName, companyContacts]: any) => (
-                             <div key={`company-${companyName}`} className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden animate-fade-in">
-                                 <div className="bg-slate-50 border-b border-slate-100 p-4 md:px-6 flex items-center justify-between">
-                                     <div className="flex items-center gap-4">
-                                         <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-extrabold shadow-inner">
-                                             {companyName.substring(0, 2).toUpperCase()}
-                                         </div>
-                                         <div>
-                                             <h3 className="font-extrabold text-slate-800 font-poppins text-lg leading-tight">{companyName}</h3>
-                                             <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">{companyContacts.length} contact(s)</p>
-                                         </div>
-                                     </div>
-                                 </div>
-                                 <div className="divide-y divide-slate-50">
-                                     {companyContacts.map((c: any) => {
-                                         const hasReminder = !!c.nextContactDate;
-                                         const isReminderDue = hasReminder && new Date(c.nextContactDate) <= new Date();
-                                         const typeBadge = c.type === 'client' || c.status === 'gagne' ? 'Client' : 'Prospect';
-                                         const stage = PIPELINE_STAGES.find(s => s.id === c.status) || PIPELINE_STAGES[0];
+                  
+                  <div className="flex gap-3 mb-6 border-b border-slate-200 pb-4">
+                     <button onClick={() => setContactFilterType('all')} className={`px-5 py-2.5 text-sm font-bold rounded-xl transition-all ${contactFilterType === 'all' ? 'bg-[#01189B] text-white shadow-md' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>Toutes les entreprises</button>
+                     <button onClick={() => setContactFilterType('client')} className={`px-5 py-2.5 text-sm font-bold rounded-xl transition-all ${contactFilterType === 'client' ? 'bg-[#01189B] text-white shadow-md' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>Clients Actifs</button>
+                     <button onClick={() => setContactFilterType('prospect')} className={`px-5 py-2.5 text-sm font-bold rounded-xl transition-all ${contactFilterType === 'prospect' ? 'bg-[#01189B] text-white shadow-md' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>Prospects</button>
+                  </div>
 
-                                         return (
-                                             <div key={c.id} onClick={() => setSelectedContactId(c.id)} className="p-4 md:px-6 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-blue-50/30 cursor-pointer transition-colors group">
-                                                 <div className="flex items-center gap-4 flex-1">
-                                                     <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 shrink-0 group-hover:text-[#01189B] group-hover:bg-blue-100 transition-colors">
-                                                         <Users size={20} />
-                                                     </div>
-                                                     <div>
-                                                         <div className="flex items-center gap-2 mb-1">
-                                                             <h4 className="font-bold text-slate-800 text-base">{c.name}</h4>
-                                                             <span className={`px-2 py-0.5 rounded-md text-[9px] uppercase font-bold tracking-widest ${typeBadge === 'Client' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-slate-100 text-slate-600 border border-slate-200'}`}>{typeBadge}</span>
-                                                         </div>
-                                                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 font-medium">
-                                                             {c.email && <span className="flex items-center gap-1 hover:text-[#01189B]"><Mail size={12}/> {c.email}</span>}
-                                                             {c.phone && <span className="flex items-center gap-1 hover:text-[#01189B]">📞 {c.phone}</span>}
-                                                         </div>
-                                                     </div>
-                                                 </div>
-                                                 <div className="flex flex-wrap items-center gap-3 md:w-64 shrink-0">
-                                                     <span className={`px-3 py-1.5 rounded-lg text-xs font-bold border shadow-sm w-full text-center md:w-auto ${stage.color}`}>
-                                                         {stage.label}
-                                                     </span>
-                                                     {c.source && <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest bg-slate-50 px-2 py-1 rounded-md border border-slate-100">{c.source}</span>}
-                                                 </div>
-                                                 <div className="md:w-32 shrink-0">
-                                                     {hasReminder ? (
-                                                         <div className="flex flex-col">
-                                                             <span className={`text-[10px] font-bold uppercase tracking-widest flex items-center gap-1 ${isReminderDue ? 'text-red-500' : 'text-orange-500'}`}>
-                                                                <Bell size={10} className={isReminderDue ? "animate-pulse" : ""}/> {isReminderDue ? 'Échu !' : 'Planifié'}
-                                                             </span>
-                                                             <span className="text-xs text-slate-600 font-medium">{formatDate(c.nextContactDate)}</span>
-                                                         </div>
-                                                     ) : (
-                                                         <span className="text-slate-300 text-xs font-medium italic">Pas de rappel</span>
-                                                     )}
-                                                 </div>
-                                                 <div className="flex items-center gap-2 justify-end shrink-0">
-                                                     <button onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(c.id); addNotification('success', 'ID Client copié !'); }} className="p-2 text-slate-400 hover:text-[#01189B] hover:bg-white rounded-lg transition-colors border border-transparent hover:border-blue-200 shadow-sm opacity-0 md:opacity-100 lg:opacity-0 group-hover:opacity-100" title="Copier l'ID unique">
-                                                         <Copy size={16}/>
-                                                     </button>
-                                                     <div className="w-8 h-8 rounded-full bg-white border border-slate-200 text-slate-400 flex items-center justify-center group-hover:border-[#01189B] group-hover:text-[#01189B] transition-all shadow-sm">
-                                                         <ArrowRight size={16}/>
-                                                     </div>
-                                                 </div>
-                                             </div>
-                                         );
-                                     })}
-                                 </div>
-                             </div>
-                         ))
-                      )}
-                    </div>
+                  <div className="flex-1 overflow-auto custom-scrollbar pb-10">
+                     {displayedContacts.length === 0 ? (
+                         <div className="p-20 text-center text-slate-400 font-medium">Aucune entreprise trouvée.</div>
+                     ) : (
+                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                            {Object.entries(
+                                displayedContacts.reduce((acc: any, c: any) => {
+                                    const comp = c.company || 'Sans Entreprise';
+                                    if (!acc[comp]) acc[comp] = [];
+                                    acc[comp].push(c);
+                                    return acc;
+                                }, {})
+                            ).map(([companyName, companyContacts]: any) => {
+                                // Find highest status or aggregate CA
+                                const clientInvoices = invoices.filter(inv => inv.clientName === companyName || companyContacts.some((c:any) => c.id === inv.clientId));
+                                const caTotal = clientInvoices.filter(i => i.status === 'payee').reduce((a, b) => a + b.amount, 0) + companyContacts.reduce((a:any, b:any) => a + Number(b.manualCA || 0), 0);
+                                const isClient = companyContacts.some((c:any) => c.type === 'client' || c.status === 'gagne');
+
+                                return (
+                                    <div key={companyName} onClick={() => setSelectedCompanyName(companyName)} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.04)] hover:border-[#01189B] hover:shadow-xl cursor-pointer transition-all group flex flex-col h-full">
+                                        <div className="flex items-start justify-between mb-4">
+                                            <div className="flex items-center gap-4">
+                                                <div className="w-14 h-14 rounded-2xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-extrabold text-2xl shadow-inner group-hover:scale-105 transition-transform shrink-0">
+                                                    {companyName.substring(0, 2).toUpperCase()}
+                                                </div>
+                                                <div className="overflow-hidden">
+                                                    <h3 className="font-extrabold text-slate-800 font-poppins text-lg leading-tight truncate" title={companyName}>{companyName}</h3>
+                                                    <span className={`inline-block mt-1 px-2 py-0.5 rounded-md text-[9px] uppercase font-bold tracking-widest ${isClient ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-slate-100 text-slate-600 border border-slate-200'}`}>{isClient ? 'Client Actif' : 'Prospect'}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="mt-auto pt-4 border-t border-slate-100 grid grid-cols-2 gap-2">
+                                            <div>
+                                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-0.5">CA Encaissé</p>
+                                                <p className="text-sm font-extrabold text-[#01189B] font-mono">{renderCurrency(caTotal)}</p>
+                                            </div>
+                                            <div>
+                                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-0.5">Équipe</p>
+                                                <p className="text-sm font-bold text-slate-700 flex items-center gap-1.5"><Users size={14} className="text-slate-400"/> {companyContacts.length} profils</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )
+                            })}
+                         </div>
+                     )}
                   </div>
                 </div>
               )}
@@ -4092,7 +4377,7 @@ function envoyerLead(agent, ligne) {
             
             <div className="mb-8 border-b border-slate-100 pb-5">
                 <h3 className="text-2xl font-extrabold text-slate-800 font-poppins flex items-center gap-3"><Users style={{ color: BRAND_COLOR }} size={28}/> Nouvelle Fiche CRM</h3>
-                <p className="text-slate-500 text-sm mt-2 leading-relaxed">Créez un nouveau prospect ou client. <br/><span className="bg-blue-50 text-[#01189B] px-2 py-0.5 rounded font-bold mr-1">💡 Astuce :</span> Si ce contact appartient à une entreprise déjà existante (ex: un conseiller de chez <i>WallSwiss</i> apportant son propre budget), sélectionnez le même nom de société. Leurs données (CA, notes) seront regroupées dans la vue pipeline sous cette même entité.</p>
+                <p className="text-slate-500 text-sm mt-2 leading-relaxed">Créez un nouveau prospect ou client. <br/><span className="bg-blue-50 text-[#01189B] px-2 py-0.5 rounded font-bold mr-1">💡 Astuce :</span> Si ce contact appartient à une entreprise déjà existante (ex: un conseiller d'une <i>Agence</i> apportant son propre budget), sélectionnez le même nom de société. Leurs données (CA, notes) seront regroupées dans la vue pipeline sous cette même entité.</p>
             </div>
 
             <form onSubmit={(e: any) => { e.preventDefault(); const fd = new FormData(e.target); handleCreate('contacts', { name: fd.get('name'), company: fd.get('company'), email: fd.get('email'), phone: fd.get('phone'), address: fd.get('address'), status: fd.get('type') === 'client' ? 'gagne' : 'nouveau', type: fd.get('type'), source: fd.get('source'), sourceDetails: fd.get('sourceDetails'), googleSheetId: fd.get('googleSheetId'), manualCA: Number(fd.get('manualCA') || 0), manualBenefice: Number(fd.get('manualBenefice') || 0) }); }} className="space-y-6">
@@ -4122,7 +4407,7 @@ function envoyerLead(agent, ligne) {
                           </div>
                           <div>
                               <label className={UI_CLASSES.label}>Société / Agence mère</label>
-                              <input name="company" required className={UI_CLASSES.input} placeholder="Ex: WallSwiss, LeadPartner..." list="companies-list" autoComplete="off" />
+                              <input name="company" required defaultValue={selectedCompanyName || ''} className={UI_CLASSES.input} placeholder="Ex: LeadPartner, TechCorp..." list="companies-list" autoComplete="off" />
                               <datalist id="companies-list">
                                   {uniqueCompanies.map((comp: any) => <option key={comp} value={comp} />)}
                               </datalist>
