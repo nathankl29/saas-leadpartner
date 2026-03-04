@@ -32,7 +32,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '59.8';
+const APP_VERSION = '59.7';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -465,7 +465,6 @@ export default function App() {
 
   const [scenarios, setScenarios] = useState<any[]>([]);
   const [deliveries, setDeliveries] = useState<any[]>([]);
-  const [selectedDeliveries, setSelectedDeliveries] = useState<string[]>([]);
   const [companiesData, setCompaniesData] = useState<any[]>([]);
 
   const [settings, setSettings] = useState<any>({
@@ -530,6 +529,7 @@ export default function App() {
   const [planDuration, setPlanDuration] = useState(30);
   const [planProductId, setPlanProductId] = useState('');
   const [planClientId, setPlanClientId] = useState('');
+  const [planDataSource, setPlanDataSource] = useState('deliveries');
 
   // --- NOUVEAU : ETAT LMC ---
   const [lmcGoal, setLmcGoal] = useState<number>(10000);
@@ -825,52 +825,6 @@ export default function App() {
     });
   };
 
-  const handleBulkDeleteDeliveries = async () => {
-      if (isOfflineMode || !user || selectedDeliveries.length === 0) return;
-      openConfirm('Supprimer la sélection ?', `Vous allez supprimer ${selectedDeliveries.length} livraison(s).`, async () => {
-          try {
-              const chunks = [];
-              for (let i = 0; i < selectedDeliveries.length; i += 400) {
-                  chunks.push(selectedDeliveries.slice(i, i + 400));
-              }
-              for (const chunk of chunks) {
-                  const b = writeBatch(db);
-                  chunk.forEach(id => {
-                      b.delete(doc(db, `artifacts/${getAppId()}/users/${user.uid}/lead_deliveries`, id));
-                  });
-                  await b.commit();
-              }
-              setSelectedDeliveries([]);
-              addNotification('success', 'Sélection supprimée.');
-          } catch(e) {
-              addNotification('error', 'Erreur lors de la suppression.');
-          }
-      });
-  };
-
-  const handlePurgeDeliveries = async () => {
-      if (isOfflineMode || !user || deliveries.length === 0) return;
-      openConfirm('Purger tout l\'historique ?', 'Action irréversible : tous les leads enregistrés seront supprimés.', async () => {
-          try {
-              const chunks = [];
-              for (let i = 0; i < deliveries.length; i += 400) {
-                  chunks.push(deliveries.slice(i, i + 400));
-              }
-              for (const chunk of chunks) {
-                  const b = writeBatch(db);
-                  chunk.forEach(d => {
-                      b.delete(doc(db, `artifacts/${getAppId()}/users/${user.uid}/lead_deliveries`, d.id));
-                  });
-                  await b.commit();
-              }
-              setSelectedDeliveries([]);
-              addNotification('success', 'Historique entièrement purgé.');
-          } catch(e) {
-              addNotification('error', 'Erreur lors de la purge.');
-          }
-      });
-  };
-
   const handleDeleteInvoice = async () => {
       if (!currentInvoice?.id) return;
       handleDelete('invoices', currentInvoice.id);
@@ -907,7 +861,9 @@ export default function App() {
                   clientId: inv.clientId || '', 
                   clientName: inv.clientName || 'Client', 
                   stats: { volumeTotal, costTotal, profit, arbitrage, fees: mgtFees, margin: (profit/inv.amount)*100 },
-                  createdAt: new Date().toISOString() 
+                  createdAt: new Date().toISOString(),
+                  dataSource: 'deliveries',
+                  deliveryMatchName: inv.clientName || 'Client'
               };
               await handleCreate('simulations', simData);
               addNotification('success', 'Facture payée : Prod média lancée et arbitrage calculé !');
@@ -1051,7 +1007,14 @@ export default function App() {
     const activeProduct = products.find((p) => p.id === planProductId);
     if (!activeProduct) return;
     const activeClient = contacts.find((c) => c.id === planClientId);
-    const simData = { budget: planBudget, duration: planDuration, productId: planProductId, productName: activeProduct.name, productPlatform: activeProduct.platform, clientId: planClientId, clientName: activeClient ? activeClient.company : 'Client Inconnu', stats: simStats, createdAt: new Date().toISOString() };
+    const clientName = activeClient ? activeClient.company : 'Client Inconnu';
+    const simData = { 
+        budget: planBudget, duration: planDuration, 
+        productId: planProductId, productName: activeProduct.name, productPlatform: activeProduct.platform, 
+        clientId: planClientId, clientName: clientName, 
+        stats: simStats, createdAt: new Date().toISOString(),
+        dataSource: planDataSource, deliveryMatchName: clientName
+    };
     await addDoc(collection(db, `artifacts/${getAppId()}/users/${user.uid}/simulations`), simData);
     addNotification('success', 'Production média activée dans vos cycles.');
   };
@@ -1535,32 +1498,14 @@ export default function App() {
             <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 mt-8">
                 <div className="flex justify-between items-center mb-6">
                     <h3 className="font-extrabold text-slate-800 flex items-center gap-2 text-lg"><Activity className="text-[#01189B]" size={20}/> Historique brut des livraisons</h3>
-                    <div className="flex items-center gap-3">
-                        {selectedDeliveries.length > 0 && (
-                            <button onClick={handleBulkDeleteDeliveries} className="px-4 py-2 bg-orange-50 text-orange-600 font-bold rounded-xl text-sm hover:bg-orange-100 transition-colors flex items-center gap-2 shadow-sm">
-                                <Trash2 size={16}/> Supprimer la sélection ({selectedDeliveries.length})
-                            </button>
-                        )}
-                        <button onClick={handlePurgeDeliveries} className="px-4 py-2 bg-red-50 text-red-600 font-bold rounded-xl text-sm hover:bg-red-100 transition-colors flex items-center gap-2">
-                            <Trash2 size={16}/> Tout Purger
-                        </button>
-                        <button onClick={() => setShowModal('add_delivery')} className="px-4 py-2 bg-blue-50 text-[#01189B] font-bold rounded-xl text-sm hover:bg-blue-100 transition-colors flex items-center gap-2">
-                            <Plus size={16}/> Ajouter manuellement
-                        </button>
-                    </div>
+                    <button onClick={() => setShowModal('add_delivery')} className="px-4 py-2 bg-blue-50 text-[#01189B] font-bold rounded-xl text-sm hover:bg-blue-100 transition-colors flex items-center gap-2">
+                        <Plus size={16}/> Ajouter manuellement
+                    </button>
                 </div>
                 <div className="max-h-96 overflow-y-auto custom-scrollbar border border-slate-100 rounded-xl">
                     <table className="w-full text-left text-sm">
                         <thead className="bg-slate-50 text-slate-500 uppercase font-extrabold text-[10px] tracking-wider sticky top-0 z-10 shadow-sm">
                             <tr>
-                                <th className="px-4 py-3 border-b border-slate-100 w-12 text-center">
-                                    <input 
-                                        type="checkbox" 
-                                        className="w-4 h-4 cursor-pointer rounded text-[#01189B] focus:ring-[#01189B]"
-                                        checked={deliveries.length > 0 && selectedDeliveries.length === deliveries.length}
-                                        onChange={(e) => setSelectedDeliveries(e.target.checked ? deliveries.map(d => d.id) : [])}
-                                    />
-                                </th>
                                 <th className="px-4 py-3 border-b border-slate-100">Date d'enregistrement</th>
                                 <th className="px-4 py-3 border-b border-slate-100">Client ciblé (Agent Name)</th>
                                 <th className="px-4 py-3 border-b border-slate-100">Campagne</th>
@@ -1569,18 +1514,7 @@ export default function App() {
                         </thead>
                         <tbody className="divide-y divide-slate-50">
                             {[...deliveries].sort((a,b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime()).map(d => (
-                                <tr key={d.id} className={`hover:bg-slate-50 transition-colors ${selectedDeliveries.includes(d.id) ? 'bg-blue-50/30' : ''}`}>
-                                    <td className="px-4 py-3 text-center">
-                                        <input 
-                                            type="checkbox" 
-                                            className="w-4 h-4 cursor-pointer rounded text-[#01189B] focus:ring-[#01189B]"
-                                            checked={selectedDeliveries.includes(d.id)}
-                                            onChange={(e) => {
-                                                if (e.target.checked) setSelectedDeliveries([...selectedDeliveries, d.id]);
-                                                else setSelectedDeliveries(selectedDeliveries.filter(id => id !== d.id));
-                                            }}
-                                        />
-                                    </td>
+                                <tr key={d.id} className="hover:bg-slate-50 transition-colors">
                                     <td className="px-4 py-3 font-medium text-slate-500">{formatDateTime(d.date || d.createdAt)}</td>
                                     <td className="px-4 py-3 font-bold text-slate-800">{d.agentName || 'Inconnu'}</td>
                                     <td className="px-4 py-3 text-slate-600">{d.campagne || 'Non définie'}</td>
@@ -1591,7 +1525,7 @@ export default function App() {
                                     </td>
                                 </tr>
                             ))}
-                            {deliveries.length === 0 && <tr><td colSpan={5} className="text-center py-8 text-slate-400 italic">Aucune donnée brute enregistrée.</td></tr>}
+                            {deliveries.length === 0 && <tr><td colSpan={4} className="text-center py-8 text-slate-400 italic">Aucune donnée brute enregistrée.</td></tr>}
                         </tbody>
                     </table>
                 </div>
@@ -2655,11 +2589,12 @@ export default function App() {
               <h2 className="text-lg font-extrabold flex items-center gap-2 font-poppins text-slate-800"><Calculator style={{ color: BRAND_COLOR }} size={20} /> Convertir Contrat en Production Média</h2>
               <p className="text-slate-500 text-sm mt-1">Ajoutez un contrat signé pour l'activer dans les cycles (Cela générera les graphiques dans le calendrier).</p>
             </div>
-            <div className="p-8 grid grid-cols-1 md:grid-cols-5 gap-6 items-end">
-              <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2 tracking-wide">1. Choix Client</label><select value={planClientId} onChange={(e) => setPlanClientId(e.target.value)} className={UI_CLASSES.input}><option value="">-- Aucun --</option>{contacts.map((c) => (<option key={c.id} value={c.id}>{c.company}</option>))}</select></div>
-              <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2 tracking-wide">2. Thématique</label><select value={planProductId} onChange={(e) => setPlanProductId(e.target.value)} className={UI_CLASSES.input}><option value="">-- Choisir --</option>{products.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}</select></div>
-              <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2 tracking-wide">3. Budget Signé</label><input type="number" value={planBudget} onChange={(e) => setPlanBudget(Number(e.target.value))} className={`${UI_CLASSES.input} text-[#01189B] text-lg font-extrabold`} /></div>
-              <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2 tracking-wide">4. Durée (Jours)</label><input type="number" value={planDuration} onChange={(e) => setPlanDuration(Number(e.target.value))} className={`${UI_CLASSES.input} text-slate-700 text-lg font-extrabold`} /></div>
+            <div className="p-8 grid grid-cols-1 md:grid-cols-6 gap-6 items-end">
+              <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-2 tracking-wide">1. Choix Client</label><select value={planClientId} onChange={(e) => setPlanClientId(e.target.value)} className={UI_CLASSES.input}><option value="">-- Aucun --</option>{contacts.map((c) => (<option key={c.id} value={c.id}>{c.company}</option>))}</select></div>
+              <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-2 tracking-wide">2. Thématique</label><select value={planProductId} onChange={(e) => setPlanProductId(e.target.value)} className={UI_CLASSES.input}><option value="">-- Choisir --</option>{products.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}</select></div>
+              <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-2 tracking-wide">3. Budget Signé</label><input type="number" value={planBudget} onChange={(e) => setPlanBudget(Number(e.target.value))} className={`${UI_CLASSES.input} text-[#01189B] text-lg font-extrabold`} /></div>
+              <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-2 tracking-wide">4. Jours</label><input type="number" value={planDuration} onChange={(e) => setPlanDuration(Number(e.target.value))} className={`${UI_CLASSES.input} text-slate-700 text-lg font-extrabold`} /></div>
+              <div><label className="block text-[10px] font-bold text-slate-500 uppercase mb-2 tracking-wide">5. Suivi Leads</label><select value={planDataSource} onChange={(e) => setPlanDataSource(e.target.value)} className={UI_CLASSES.input}><option value="deliveries">Livraisons</option><option value="auto">Auto (Temps)</option><option value="manual">Manuel</option></select></div>
               <button onClick={() => handleSaveSimulation(planStats)} className="w-full text-white py-3.5 rounded-xl font-bold flex items-center justify-center gap-2 hover:shadow-lg hover:-translate-y-0.5 transition-all text-lg" style={{ backgroundColor: BRAND_COLOR }}><Plus size={20} /> Lancer</button>
             </div>
           </div>
@@ -4485,59 +4420,50 @@ function envoyerLead(agent, ligne) {
 
                   <div className="flex-1 overflow-auto custom-scrollbar pb-10">
                      {displayedContacts.length === 0 ? (
-                         <div className="p-20 text-center text-slate-400 font-medium">Aucune société trouvée.</div>
+                         <div className="p-20 text-center text-slate-400 font-medium">Aucune entreprise trouvée.</div>
                      ) : (
-                         <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
-                            <table className="w-full text-sm text-left">
-                                <thead className="bg-slate-50 text-slate-500 uppercase font-extrabold text-[10px] tracking-wider border-b border-slate-100">
-                                    <tr>
-                                        <th className="px-6 py-4">Société</th>
-                                        <th className="px-6 py-4">Statut</th>
-                                        <th className="px-6 py-4 text-center">Équipe</th>
-                                        <th className="px-6 py-4 text-right">CA Encaissé</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-50">
-                                    {Object.entries(
-                                        displayedContacts.reduce((acc: any, c: any) => {
-                                            const comp = c.company || 'Sans Entreprise';
-                                            if (!acc[comp]) acc[comp] = [];
-                                            acc[comp].push(c);
-                                            return acc;
-                                        }, {})
-                                    ).map(([companyName, companyContacts]: any) => {
-                                        const clientInvoices = invoices.filter(inv => inv.clientName === companyName || companyContacts.some((c:any) => c.id === inv.clientId));
-                                        const companyNode = companiesData.find((c:any) => c.name === companyName) || {};
-                                        const caTotal = clientInvoices.filter(i => i.status === 'payee').reduce((a, b) => a + b.amount, 0) + companyContacts.reduce((a:any, b:any) => a + Number(b.manualCA || 0), 0) + Number(companyNode.manualCA || 0);
-                                        const isClient = companyContacts.some((c:any) => c.type === 'client' || c.status === 'gagne');
+                         <div className="space-y-3">
+                            {Object.entries(
+                                displayedContacts.reduce((acc: any, c: any) => {
+                                    const comp = c.company || 'Sans Entreprise';
+                                    if (!acc[comp]) acc[comp] = [];
+                                    acc[comp].push(c);
+                                    return acc;
+                                }, {})
+                            ).map(([companyName, companyContacts]: any) => {
+                                // Find highest status or aggregate CA
+                                const clientInvoices = invoices.filter(inv => inv.clientName === companyName || companyContacts.some((c:any) => c.id === inv.clientId));
+                                const companyNode = companiesData.find((c:any) => c.name === companyName) || {};
+                                const caTotal = clientInvoices.filter(i => i.status === 'payee').reduce((a, b) => a + b.amount, 0) + companyContacts.reduce((a:any, b:any) => a + Number(b.manualCA || 0), 0) + Number(companyNode.manualCA || 0);
+                                const isClient = companyContacts.some((c:any) => c.type === 'client' || c.status === 'gagne');
 
-                                        return (
-                                            <tr key={companyName} onClick={() => setSelectedCompanyName(companyName)} className="hover:bg-blue-50/30 transition-colors cursor-pointer group">
-                                                <td className="px-6 py-4">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-extrabold text-xs shadow-inner shrink-0">
-                                                            {companyName.substring(0, 2).toUpperCase()}
-                                                        </div>
-                                                        <span className="font-extrabold text-slate-800 font-poppins text-sm group-hover:text-[#01189B] transition-colors">{companyName}</span>
-                                                    </div>
-                                                </td>
-                                                <td className="px-6 py-4">
-                                                    <span className={`inline-block px-2 py-1 rounded-md text-[9px] uppercase font-bold tracking-widest ${isClient ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-slate-100 text-slate-600 border border-slate-200'}`}>
-                                                        {isClient ? 'Client' : 'Prospect'}
-                                                    </span>
-                                                </td>
-                                                <td className="px-6 py-4 text-center">
-                                                    <span className="text-xs font-bold text-slate-700 flex items-center justify-center gap-1.5"><Users size={14} className="text-slate-400"/> {companyContacts.length} profil(s)</span>
-                                                </td>
-                                                <td className="px-6 py-4 text-right">
-                                                    <span className="text-sm font-extrabold text-[#01189B] font-mono">{renderCurrency(caTotal)}</span>
-                                                    <ArrowRight size={16} className="inline-block ml-3 text-slate-300 group-hover:text-[#01189B] transition-colors" />
-                                                </td>
-                                            </tr>
-                                        )
-                                    })}
-                                </tbody>
-                            </table>
+                                return (
+                                    <div key={companyName} onClick={() => setSelectedCompanyName(companyName)} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm hover:border-[#01189B] hover:shadow-md cursor-pointer transition-all group flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                                        <div className="flex items-center gap-4 w-full md:w-1/3">
+                                            <div className="w-12 h-12 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-extrabold text-xl shadow-inner group-hover:scale-105 transition-transform shrink-0">
+                                                {companyName.substring(0, 2).toUpperCase()}
+                                            </div>
+                                            <div className="overflow-hidden">
+                                                <h3 className="font-extrabold text-slate-800 font-poppins text-base leading-tight truncate" title={companyName}>{companyName}</h3>
+                                                <span className={`inline-block mt-1 px-2 py-0.5 rounded-md text-[9px] uppercase font-bold tracking-widest ${isClient ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-slate-100 text-slate-600 border border-slate-200'}`}>{isClient ? 'Client' : 'Prospect'}</span>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-6 md:gap-8 w-full md:w-auto justify-between md:justify-end pt-3 md:pt-0 border-t md:border-t-0 border-slate-100">
+                                            <div className="text-left md:text-right">
+                                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-0.5">Équipe</p>
+                                                <p className="text-sm font-bold text-slate-700 flex items-center md:justify-end gap-1.5"><Users size={14} className="text-slate-400"/> {companyContacts.length} profil(s)</p>
+                                            </div>
+                                            <div className="text-right w-24 md:w-32 md:border-l md:border-slate-100 md:pl-6">
+                                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-0.5">CA Encaissé</p>
+                                                <p className="text-sm font-extrabold text-[#01189B] font-mono">{renderCurrency(caTotal)}</p>
+                                            </div>
+                                            <div className="text-slate-300 group-hover:text-[#01189B] transition-colors hidden md:block ml-2">
+                                                <ArrowRight size={20} />
+                                            </div>
+                                        </div>
+                                    </div>
+                                )
+                            })}
                          </div>
                      )}
                   </div>
@@ -5163,15 +5089,6 @@ function envoyerLead(agent, ligne) {
           </div>
           <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                  <div><label className={UI_CLASSES.label}>Client</label><input type="text" value={currentSimulation.clientName || ''} onChange={e => setCurrentSimulation({...currentSimulation, clientName: e.target.value})} className={UI_CLASSES.input} /></div>
-                  <div><label className={UI_CLASSES.label}>Thématique</label><input type="text" value={currentSimulation.productName || ''} onChange={e => setCurrentSimulation({...currentSimulation, productName: e.target.value})} className={UI_CLASSES.input} /></div>
-              </div>
-              <div className="grid grid-cols-3 gap-4 border-t border-slate-100 pt-4">
-                  <div><label className={UI_CLASSES.label}>Budget Global</label><input type="number" value={currentSimulation.budget || 0} onChange={e => setCurrentSimulation({...currentSimulation, budget: Number(e.target.value)})} className={UI_CLASSES.input} /></div>
-                  <div><label className={UI_CLASSES.label}>Bénéfice Prévu</label><input type="number" value={currentSimulation.stats?.profit || 0} onChange={e => setCurrentSimulation({...currentSimulation, stats: {...currentSimulation.stats, profit: Number(e.target.value)}})} className={UI_CLASSES.input} /></div>
-                  <div><label className={UI_CLASSES.label}>Objectif de Leads</label><input type="number" value={currentSimulation.stats?.volumeTotal || 0} onChange={e => setCurrentSimulation({...currentSimulation, stats: {...currentSimulation.stats, volumeTotal: Number(e.target.value)}})} className={UI_CLASSES.input} /></div>
-              </div>
-              <div className="grid grid-cols-2 gap-4 border-t border-slate-100 pt-4">
                   <div><label className={UI_CLASSES.label}>Date de début</label><input type="date" value={currentSimulation.createdAt ? currentSimulation.createdAt.split('T')[0] : ''} onChange={e => {
                       if(e.target.value) {
                           const [y,m,d] = e.target.value.split('-');
@@ -5181,6 +5098,7 @@ function envoyerLead(agent, ligne) {
                   }} className={UI_CLASSES.input} /></div>
                   <div><label className={UI_CLASSES.label}>Durée (Jours)</label><input type="number" value={currentSimulation.duration || 30} onChange={e => setCurrentSimulation({...currentSimulation, duration: Number(e.target.value)})} className={UI_CLASSES.input} /></div>
               </div>
+              <div><label className={UI_CLASSES.label}>Objectif de Leads</label><input type="number" value={currentSimulation.stats?.volumeTotal || 0} onChange={e => setCurrentSimulation({...currentSimulation, stats: {...currentSimulation.stats, volumeTotal: Number(e.target.value)}})} className={UI_CLASSES.input} /></div>
               
               <div className="pt-4 border-t border-slate-100">
                   <label className={UI_CLASSES.label}>Suivi des Leads Générés</label>
