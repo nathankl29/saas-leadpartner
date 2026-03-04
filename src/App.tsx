@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '55.8';
+const APP_VERSION = '56.2';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -428,6 +428,7 @@ export default function App() {
   const [isEditingContractInInvoice, setIsEditingContractInInvoice] = useState(false);
   const [isEditingLayout, setIsEditingLayout] = useState(false);
   const [showScriptGenerator, setShowScriptGenerator] = useState(false);
+  const [dragOverWidget, setDragOverWidget] = useState<string | null>(null);
 
   // Nouveaux états pour la pondération manuelle
   const [manualWeights, setManualWeights] = useState<any[]>([]);
@@ -1177,10 +1178,55 @@ export default function App() {
           return acc;
       }, {});
 
+      // NOUVEAU: Groupement par jour de la semaine
+      const byDayOfWeek = [0, 0, 0, 0, 0, 0, 0]; // Dim, Lun, Mar, Mer, Jeu, Ven, Sam
+
+      // Groupement par date pour l'évolution
+      const byDate = deliveries.reduce((acc: any, d: any) => {
+          const dateStr = d.date || d.createdAt;
+          if (!dateStr) return acc;
+          const dateObj = new Date(dateStr);
+          if (isNaN(dateObj.getTime())) return acc;
+          
+          // Ajout au jour de la semaine
+          byDayOfWeek[dateObj.getDay()]++;
+
+          const key = `${dateObj.getDate().toString().padStart(2, '0')}/${(dateObj.getMonth() + 1).toString().padStart(2, '0')}`;
+          acc[key] = (acc[key] || 0) + 1;
+          return acc;
+      }, {});
+
       const sortedCampaigns = Object.entries(byCampaign).sort((a: any, b: any) => b[1] - a[1]);
       const sortedAgents = Object.entries(byAgent).sort((a: any, b: any) => b[1] - a[1]);
       const maxCampaign = sortedCampaigns.length > 0 ? (sortedCampaigns[0][1] as number) : 1;
       const maxAgent = sortedAgents.length > 0 ? (sortedAgents[0][1] as number) : 1;
+
+      // Tri des dates (les 30 derniers jours actifs)
+      const sortedDates = Object.entries(byDate).sort((a: any, b: any) => {
+          const [d1, m1] = a[0].split('/');
+          const [d2, m2] = b[0].split('/');
+          const year = new Date().getFullYear();
+          return new Date(year, Number(m1)-1, Number(d1)).getTime() - new Date(year, Number(m2)-1, Number(d2)).getTime();
+      }).slice(-30);
+      const maxDate = sortedDates.length > 0 ? Math.max(...sortedDates.map((d: any) => d[1] as number)) : 1;
+
+      // KPIs
+      const todayStr = `${new Date().getDate().toString().padStart(2, '0')}/${(new Date().getMonth() + 1).toString().padStart(2, '0')}`;
+      const leadsToday = byDate[todayStr] || 0;
+      
+      // Leads depuis le début du mois
+      const currentMonth = new Date().getMonth() + 1;
+      const leadsThisMonth = Object.entries(byDate).reduce((acc: number, [dateKey, count]: any) => {
+          const [, m] = dateKey.split('/');
+          if (Number(m) === currentMonth) return acc + count;
+          return acc;
+      }, 0);
+
+      // Moyenne par jour actif sur les 30 derniers jours
+      const avgPerDay = sortedDates.length > 0 ? (sortedDates.reduce((acc: number, [, count]: any) => acc + count, 0) / sortedDates.length).toFixed(1) : '0';
+
+      const daysLabels = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+      const maxDayOfWeek = Math.max(...byDayOfWeek, 1);
 
       return (
         <div className="max-w-6xl mx-auto animate-fade-in space-y-8 pb-12">
@@ -1189,22 +1235,86 @@ export default function App() {
                     <h2 className="text-3xl font-extrabold text-slate-800 font-poppins flex items-center gap-3">
                         <Activity style={{ color: BRAND_COLOR }} size={32} /> Suivi des Livraisons (Leads)
                     </h2>
-                    <p className="text-slate-500 text-lg mt-1">Surveillez les volumes de leads distribués par campagne et par agent.</p>
-                </div>
-                <div className="bg-white px-5 py-3 rounded-2xl border border-slate-100 shadow-sm text-center">
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1">Total Leads Distribués</p>
-                    <p className="text-3xl font-black text-[#01189B] font-poppins">{deliveries.length}</p>
+                    <p className="text-slate-500 text-lg mt-1">Surveillez et analysez les volumes de leads distribués en temps réel.</p>
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-8">
+            {/* QUICK STATS */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+                <div className="bg-white px-6 py-5 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1 flex justify-between">Total Livré <Package size={14}/></p>
+                    <p className="text-3xl font-black text-[#01189B] font-poppins">{deliveries.length}</p>
+                </div>
+                <div className="bg-white px-6 py-5 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1 flex justify-between">Aujourd'hui <Clock size={14}/></p>
+                    <p className="text-3xl font-black text-emerald-500 font-poppins">{leadsToday}</p>
+                </div>
+                <div className="bg-white px-6 py-5 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1 flex justify-between truncate pr-2">Ce Mois-ci <CalendarClock size={14}/></p>
+                    <p className="text-3xl font-black text-purple-600 font-poppins truncate">{leadsThisMonth}</p>
+                </div>
+                <div className="bg-white px-6 py-5 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1 flex justify-between truncate pr-2">Moyenne / Jour <TrendingUp size={14}/></p>
+                    <p className="text-3xl font-black text-orange-500 font-poppins truncate">{avgPerDay}</p>
+                </div>
+            </div>
+
+            {/* EVOLUTION TEMPORELLE (30 Jours) */}
+            <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8">
+                <h3 className="font-extrabold text-slate-800 mb-6 flex items-center gap-2 text-lg"><TrendingUp className="text-[#01189B]" size={20}/> Évolution des Livraisons (30 derniers jours)</h3>
+                {sortedDates.length === 0 ? (
+                    <p className="text-slate-400 italic text-sm text-center py-6">Aucune donnée temporelle disponible.</p>
+                ) : (
+                    <div className="flex-1 flex items-end gap-1 h-56 border-b border-slate-100 pb-2 relative mt-4">
+                        {sortedDates.map(([dateKey, count]: any, idx: number) => {
+                            const percent = (count / maxDate) * 100;
+                            return (
+                                <div key={idx} className="flex-1 flex flex-col items-center justify-end h-full relative group">
+                                    <div className="w-full bg-blue-100/70 rounded-t-sm relative hover:bg-[#01189B] transition-all duration-300 cursor-pointer" style={{ height: `${Math.max(percent, 2)}%` }}>
+                                        <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-xs font-bold py-1.5 px-2.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none shadow-xl">
+                                            {count} leads
+                                        </div>
+                                    </div>
+                                    <span className="text-[7px] md:text-[9px] font-bold text-slate-400 mt-2 rotate-45 md:rotate-0 origin-left">{dateKey}</span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                {/* Répartition par Jour de la Semaine */}
+                <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 md:col-span-1">
+                    <h3 className="font-extrabold text-slate-800 mb-6 flex items-center gap-2 text-lg"><CalendarIcon className="text-purple-500" size={20}/> Répartition par Jour</h3>
+                    <div className="flex h-48 items-end gap-2 border-b border-slate-100 pb-2">
+                        {byDayOfWeek.map((count, idx) => {
+                            // Ordre: Lun (1) à Dim (0)
+                            const displayIdx = (idx + 6) % 7; 
+                            return { realIdx: idx, displayIdx, count };
+                        }).sort((a, b) => a.displayIdx - b.displayIdx).map(({ realIdx, count }) => {
+                            const percent = (count / maxDayOfWeek) * 100;
+                            return (
+                                <div key={realIdx} className="flex-1 flex flex-col items-center justify-end h-full relative group">
+                                    <div className="w-full bg-purple-100 rounded-t-md relative hover:bg-purple-500 transition-all duration-300 cursor-pointer" style={{ height: `${Math.max(percent, 5)}%` }}>
+                                        <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[10px] font-bold py-1 px-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
+                                            {count}
+                                        </div>
+                                    </div>
+                                    <span className="text-[9px] font-bold text-slate-500 mt-2 uppercase">{daysLabels[realIdx]}</span>
+                                </div>
+                            )
+                        })}
+                    </div>
+                </div>
+
                 {/* Graphique par Campagne */}
-                <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8">
-                    <h3 className="font-extrabold text-slate-800 mb-6 flex items-center gap-2 text-lg"><Package className="text-orange-500" size={20}/> Volume par Campagne</h3>
+                <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 md:col-span-1">
+                    <h3 className="font-extrabold text-slate-800 mb-6 flex items-center gap-2 text-lg"><Package className="text-orange-500" size={20}/> Par Campagne</h3>
                     {sortedCampaigns.length === 0 ? (
                         <p className="text-slate-400 italic text-sm">Aucune donnée de livraison.</p>
                     ) : (
-                        <div className="space-y-5">
+                        <div className="space-y-5 max-h-48 overflow-y-auto custom-scrollbar pr-2">
                             {sortedCampaigns.map(([campagne, count]: any) => {
                                 const percent = (count / maxCampaign) * 100;
                                 return (
@@ -1224,12 +1334,12 @@ export default function App() {
                 </div>
 
                 {/* Graphique par Agent */}
-                <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8">
-                    <h3 className="font-extrabold text-slate-800 mb-6 flex items-center gap-2 text-lg"><Users className="text-emerald-500" size={20}/> Répartition par Client (Agent ID)</h3>
+                <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 md:col-span-1">
+                    <h3 className="font-extrabold text-slate-800 mb-6 flex items-center gap-2 text-lg"><Users className="text-emerald-500" size={20}/> Par Client</h3>
                     {sortedAgents.length === 0 ? (
                         <p className="text-slate-400 italic text-sm">Aucune donnée de livraison.</p>
                     ) : (
-                        <div className="space-y-5">
+                        <div className="space-y-5 max-h-48 overflow-y-auto custom-scrollbar pr-2">
                             {sortedAgents.map(([agent, count]: any) => {
                                 const percent = (count / maxAgent) * 100;
                                 return (
@@ -1246,110 +1356,6 @@ export default function App() {
                             })}
                         </div>
                     )}
-                </div>
-            </div>
-            
-            <div className="bg-blue-50/50 p-6 rounded-2xl border border-blue-100 mt-8 flex flex-col gap-4">
-                <div className="flex items-start gap-4">
-                    <Info className="text-blue-500 shrink-0 mt-0.5" size={24}/>
-                    <div className="flex-1">
-                        <h4 className="font-bold text-[#01189B] mb-1">Connexion Directe Google Sheet ➔ Firebase CRM</h4>
-                        <p className="text-sm text-blue-800 mb-4">Plus besoin de Make.com ou Zapier ! Copiez-collez ce script directement dans <b>Extensions {'>'} Apps Script</b> sur votre Google Sheet Master Leads. À chaque nouvelle ligne, il s'authentifiera de façon transparente et enverra le Lead au CRM.</p>
-                        
-                        <div className="relative">
-                            <button 
-                                onClick={() => {
-                                    const script = `/**
- * SCRIPT DIRECT : MASTER LEADS -> FIREBASE CRM LEADPARTNER
- * À lier à un déclencheur temporel (Toutes les minutes).
- */
-function synchroniserLeadsVersCRM() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  const dataRange = sheet.getDataRange();
-  const data = dataRange.getValues();
-  
-  const apiKey = "${fallbackFirebaseConfig.apiKey}";
-  const projectId = "${fallbackFirebaseConfig.projectId}";
-  const appId = "${getAppId()}";
-  const uid = "${user?.uid || 'VOTRE_UID'}";
-  
-  let idToken = null;
-
-  // Boucle sur toutes les lignes (en commençant à 1 pour ignorer l'en-tête)
-  for (let i = 1; i < data.length; i++) {
-    const rowData = data[i];
-    
-    // Colonne K (index 10) = Statut Synchro
-    const statutSynchro = rowData[10]; 
-    
-    if (statutSynchro === "" || statutSynchro === undefined) {
-      
-      // G(6)=Date, H(7)=Campagne, I(8)=Id Agent, J(9)=Agent
-      let dateStr = new Date().toISOString();
-      if (rowData[6]) {
-        const parsedDate = new Date(rowData[6]);
-        if (!isNaN(parsedDate.getTime())) {
-          dateStr = parsedDate.toISOString();
-        }
-      }
-      
-      const campagne = rowData[7] || "Campagne Globale";
-      const idAgent = rowData[8] || "ID_Non_Defini"; 
-      const agentName = rowData[9] || idAgent;
-      
-      if (!idToken) {
-        try {
-          const authUrl = "https://identitytoolkit.googleapis.com/v1/accounts:signInAnonymously?key=" + apiKey;
-          const authRes = UrlFetchApp.fetch(authUrl, { method: "post", payload: "{}" });
-          idToken = JSON.parse(authRes.getContentText()).idToken;
-        } catch (error) {
-          Logger.log("Erreur auth Firebase"); return;
-        }
-      }
-      
-      const firebaseUrl = "https://firestore.googleapis.com/v1/projects/" + projectId + "/databases/(default)/documents/artifacts/" + appId + "/users/" + uid + "/lead_deliveries";
-      
-      const payload = {
-        fields: {
-          date: { stringValue: dateStr },
-          campagne: { stringValue: String(campagne) },
-          agentName: { stringValue: String(agentName) },
-          agentId: { stringValue: String(idAgent) },
-          createdAt: { stringValue: new Date().toISOString() }
-        }
-      };
-      
-      const options = {
-        method: "post",
-        contentType: "application/json",
-        headers: { "Authorization": "Bearer " + idToken },
-        payload: JSON.stringify(payload),
-        muteHttpExceptions: true
-      };
-      
-      try {
-        const response = UrlFetchApp.fetch(firebaseUrl, options);
-        if (response.getResponseCode() >= 200 && response.getResponseCode() < 300) {
-          sheet.getRange(i + 1, 11).setValue("OK"); // Marque OK en col K
-        }
-      } catch (e) {}
-    }
-  }
-}`;
-                                    navigator.clipboard.writeText(script);
-                                    addNotification('success', 'Script Firebase copié !');
-                                }} 
-                                className="absolute top-3 right-3 bg-white text-[#01189B] px-3 py-1.5 rounded-lg text-xs font-bold border border-blue-200 shadow-sm hover:bg-blue-50 transition-colors flex items-center gap-1.5 z-10"
-                            >
-                                <Copy size={14}/> Copier le script
-                            </button>
-                            <textarea 
-                                readOnly 
-                                value={`/**\n * SCRIPT DIRECT : MASTER LEADS -> FIREBASE CRM LEADPARTNER\n * À lier à un déclencheur temporel (Toutes les minutes).\n */\nfunction synchroniserLeadsVersCRM() {\n  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();\n  const dataRange = sheet.getDataRange();\n  const data = dataRange.getValues();\n  \n  const apiKey = "${fallbackFirebaseConfig.apiKey}";\n  const projectId = "${fallbackFirebaseConfig.projectId}";\n  const appId = "${getAppId()}";\n  const uid = "${user?.uid || 'VOTRE_UID'}";\n  \n  let idToken = null;\n\n  // Boucle sur toutes les lignes (en commençant à 1 pour ignorer l'en-tête)\n  for (let i = 1; i < data.length; i++) {\n    const rowData = data[i];\n    \n    // Colonne K (index 10) = Statut Synchro\n    const statutSynchro = rowData[10]; \n    \n    if (statutSynchro === "" || statutSynchro === undefined) {\n      \n      // G(6)=Date, H(7)=Campagne, I(8)=Id Agent, J(9)=Agent\n      let dateStr = new Date().toISOString();\n      if (rowData[6]) {\n        const parsedDate = new Date(rowData[6]);\n        if (!isNaN(parsedDate.getTime())) {\n          dateStr = parsedDate.toISOString();\n        }\n      }\n      \n      const campagne = rowData[7] || "Campagne Globale";\n      const idAgent = rowData[8] || "ID_Non_Defini"; \n      const agentName = rowData[9] || idAgent;\n      \n      if (!idToken) {\n        try {\n          const authUrl = "https://identitytoolkit.googleapis.com/v1/accounts:signInAnonymously?key=" + apiKey;\n          const authRes = UrlFetchApp.fetch(authUrl, { method: "post", payload: "{}" });\n          idToken = JSON.parse(authRes.getContentText()).idToken;\n        } catch (error) {\n          Logger.log("Erreur auth Firebase"); return;\n        }\n      }\n      \n      const firebaseUrl = "https://firestore.googleapis.com/v1/projects/" + projectId + "/databases/(default)/documents/artifacts/" + appId + "/users/" + uid + "/lead_deliveries";\n      \n      const payload = {\n        fields: {\n          date: { stringValue: dateStr },\n          campagne: { stringValue: String(campagne) },\n          agentName: { stringValue: String(agentName) },\n          agentId: { stringValue: String(idAgent) },\n          createdAt: { stringValue: new Date().toISOString() }\n        }\n      };\n      \n      const options = {\n        method: "post",\n        contentType: "application/json",\n        headers: { "Authorization": "Bearer " + idToken },\n        payload: JSON.stringify(payload),\n        muteHttpExceptions: true\n      };\n      \n      try {\n        const response = UrlFetchApp.fetch(firebaseUrl, options);\n        if (response.getResponseCode() >= 200 && response.getResponseCode() < 300) {\n          sheet.getRange(i + 1, 11).setValue("OK"); // Marque OK en col K\n        }\n      } catch (e) {}\n    }\n  }\n}`}
-                                className="w-full h-80 bg-[#1e293b] text-blue-300 font-mono text-[11px] leading-relaxed p-4 rounded-xl outline-none resize-none custom-scrollbar border-4 border-slate-800 relative"
-                            />
-                        </div>
-                    </div>
                 </div>
             </div>
         </div>
@@ -2334,42 +2340,54 @@ function synchroniserLeadsVersCRM() {
         }
     };
 
-    const handleDragStart = (e: any, id: string) => {
-        e.dataTransfer.setData('widget_id', id);
+    const defaultSizes: Record<string, string> = {
+        objective: 'grand', widget_finances_data: 'grand', chart_annual_1: 'grand',
+        widget_ca_details: 'moyen', reminders: 'moyen', invoices: 'moyen', activity: 'moyen'
+    };
+    const widgetSizes = settings.dashboardWidgetSizes || defaultSizes;
+
+    const changeWidgetSize = async (widgetId: string, size: string) => {
+        const newSizes = { ...widgetSizes, [widgetId]: size };
+        setSettings((prev: any) => ({ ...prev, dashboardWidgetSizes: newSizes }));
+        if (user && !isOfflineMode) {
+            try {
+                await setDoc(doc(db, `artifacts/${getAppId()}/users/${user.uid}/config`, 'general'), { dashboardWidgetSizes: newSizes }, { merge: true });
+            } catch(err) {}
+        }
+    };
+
+    const handleDragStart = (e: any, widgetId: string) => {
+        e.dataTransfer.setData('widgetId', widgetId);
         e.dataTransfer.effectAllowed = 'move';
     };
 
-    const handleDrop = async (e: any, targetId: string) => {
+    const handleDrop = async (e: any, targetWidgetId: string) => {
         e.preventDefault();
-        const draggedId = e.dataTransfer.getData('widget_id');
-        if (!draggedId || draggedId === targetId) return;
+        const draggedWidgetId = e.dataTransfer.getData('widgetId');
+        if (!draggedWidgetId || draggedWidgetId === targetWidgetId) return;
 
         const newLayout = [...currentLayout];
-        const draggedIndex = newLayout.indexOf(draggedId);
-        const targetIndex = newLayout.indexOf(targetId);
+        const draggedIdx = newLayout.indexOf(draggedWidgetId);
+        const targetIdx = newLayout.indexOf(targetWidgetId);
 
-        newLayout.splice(draggedIndex, 1);
-        newLayout.splice(targetIndex, 0, draggedId);
+        if (draggedIdx > -1 && targetIdx > -1) {
+            newLayout.splice(draggedIdx, 1);
+            newLayout.splice(targetIdx, 0, draggedWidgetId);
 
-        setSettings((prev: any) => ({ ...prev, dashboardLayout: newLayout }));
-        
-        if (user && !isOfflineMode) {
-            try {
-                await setDoc(doc(db, `artifacts/${getAppId()}/users/${user.uid}/config`, 'general'), { dashboardLayout: newLayout }, { merge: true });
-            } catch(err) {
-                console.error("Erreur save layout", err);
+            setSettings((prev: any) => ({ ...prev, dashboardLayout: newLayout }));
+            if (user && !isOfflineMode) {
+                try {
+                    await setDoc(doc(db, `artifacts/${getAppId()}/users/${user.uid}/config`, 'general'), { dashboardLayout: newLayout }, { merge: true });
+                } catch(err) {}
             }
         }
     };
 
-    const widgetSpans: Record<string, string> = {
-        objective: 'col-span-1 md:col-span-2 lg:col-span-4',
-        widget_finances_data: 'col-span-1 md:col-span-2 lg:col-span-4',
-        chart_annual_1: 'col-span-1 md:col-span-2 lg:col-span-4',
-        widget_ca_details: 'col-span-1 md:col-span-2',
-        reminders: 'col-span-1 md:col-span-2',
-        invoices: 'col-span-1 md:col-span-2',
-        activity: 'col-span-1 md:col-span-2',
+    const getWidgetSpan = (widgetId: string) => {
+        const size = widgetSizes[widgetId] || defaultSizes[widgetId] || 'moyen';
+        if (size === 'petit') return 'col-span-1 md:col-span-1 lg:col-span-1';
+        if (size === 'moyen') return 'col-span-1 md:col-span-2 lg:col-span-2';
+        return 'col-span-1 md:col-span-2 lg:col-span-4'; // grand
     };
 
     const widgets: Record<string, any> = {
@@ -2651,22 +2669,52 @@ function synchroniserLeadsVersCRM() {
         </div>
 
         {isEditingLayout && (
-            <div className="bg-white p-6 rounded-3xl border-2 border-[#01189B] shadow-lg animate-fade-in">
-                <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><LayoutDashboard size={18} style={{color: BRAND_COLOR}}/> Activer/Désactiver les Widgets</h4>
-                <div className="flex flex-wrap gap-3">
-                    {AVAILABLE_WIDGETS.map(w => {
-                        const isActive = currentLayout.includes(w.id);
-                        return (
-                            <button
-                                key={w.id}
-                                onClick={() => toggleWidget(w.id)}
-                                className={`px-4 py-2 rounded-xl text-xs font-bold border-2 transition-all flex items-center gap-2 ${isActive ? 'bg-blue-50 border-[#01189B] text-[#01189B] shadow-sm' : 'bg-slate-50 border-slate-200 text-slate-500 hover:border-slate-300'}`}
-                            >
-                                {isActive ? <CheckCircle size={14}/> : <Plus size={14}/>} {w.label}
-                            </button>
-                        );
-                    })}
+            <div className="bg-white p-6 rounded-3xl border-2 border-[#01189B] shadow-lg animate-fade-in flex flex-col gap-6">
+                <div>
+                    <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><LayoutDashboard size={18} style={{color: BRAND_COLOR}}/> Activer/Désactiver les Widgets</h4>
+                    <div className="flex flex-wrap gap-3">
+                        {AVAILABLE_WIDGETS.map(w => {
+                            const isActive = currentLayout.includes(w.id);
+                            return (
+                                <button
+                                    key={w.id}
+                                    onClick={() => toggleWidget(w.id)}
+                                    className={`px-4 py-2 rounded-xl text-xs font-bold border-2 transition-all flex items-center gap-2 ${isActive ? 'bg-blue-50 border-[#01189B] text-[#01189B] shadow-sm' : 'bg-slate-50 border-slate-200 text-slate-500 hover:border-slate-300'}`}
+                                >
+                                    {isActive ? <CheckCircle size={14}/> : <Plus size={14}/>} {w.label}
+                                </button>
+                            );
+                        })}
+                    </div>
                 </div>
+
+                {currentLayout.length > 0 && (
+                    <div className="pt-4 border-t border-slate-100">
+                        <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><Settings size={18} className="text-orange-500"/> Personnaliser la taille</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {currentLayout.map((wId: string) => {
+                                const wDef = AVAILABLE_WIDGETS.find(w => w.id === wId);
+                                const currentSize = widgetSizes[wId] || defaultSizes[wId] || 'moyen';
+                                return (
+                                    <div key={`size-${wId}`} className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex flex-col gap-2">
+                                        <p className="text-xs font-bold text-slate-700">{wDef?.label}</p>
+                                        <div className="flex bg-white rounded-lg border border-slate-200 p-1 shadow-sm">
+                                            {['petit', 'moyen', 'grand'].map(sz => (
+                                                <button 
+                                                    key={sz}
+                                                    onClick={() => changeWidgetSize(wId, sz)}
+                                                    className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded-md transition-all ${currentSize === sz ? 'bg-[#01189B] text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
+                                                >
+                                                    {sz}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    </div>
+                )}
             </div>
         )}
 
@@ -2684,13 +2732,15 @@ function synchroniserLeadsVersCRM() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 auto-rows-min">
             {currentLayout.map((widgetId: string) => {
                 if (!widgets[widgetId]) return null;
+                const isDragOver = dragOverWidget === widgetId;
                 return (
                     <div
                         key={widgetId} draggable
                         onDragStart={(e) => handleDragStart(e, widgetId)}
-                        onDragOver={(e) => e.preventDefault()}
-                        onDrop={(e) => handleDrop(e, widgetId)}
-                        className={`${widgetSpans[widgetId]} relative group cursor-grab active:cursor-grabbing`}
+                        onDragOver={(e) => { e.preventDefault(); setDragOverWidget(widgetId); }}
+                        onDragLeave={() => setDragOverWidget(null)}
+                        onDrop={(e) => { setDragOverWidget(null); handleDrop(e, widgetId); }}
+                        className={`${getWidgetSpan(widgetId)} relative group cursor-grab active:cursor-grabbing transition-all duration-200 ${isDragOver ? 'scale-[1.02] shadow-[0_0_0_4px_#01189B33] rounded-3xl z-10' : ''}`}
                     >
                         <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 text-slate-300 hover:text-slate-500 transition-opacity z-50 bg-white/50 backdrop-blur-sm p-1 rounded-md">
                             <GripHorizontal size={20} />
