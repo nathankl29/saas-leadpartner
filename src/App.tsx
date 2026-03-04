@@ -5158,12 +5158,18 @@ function envoyerLead(agent, ligne) {
           }} className="space-y-4">
               <div>
                   <label className={UI_CLASSES.label}>Client (Agent Name exact)</label>
-                  <input name="agentName" required className={UI_CLASSES.input} placeholder="Ex: TechCorp" />
-                  <p className="text-[10px] text-slate-400 mt-1">Doit correspondre exactement au nom surveillé par la campagne pour être comptabilisé.</p>
+                  <input name="agentName" list="agentNames-list-add" required className={UI_CLASSES.input} placeholder="Ex: TechCorp" />
+                  <datalist id="agentNames-list-add">
+                      {Array.from(new Set(simulations.map((s:any) => s.deliveryMatchName || s.clientName).filter(Boolean))).map((name: any) => <option key={name} value={name} />)}
+                  </datalist>
+                  <p className="text-[10px] text-slate-400 mt-1">Sélectionnez le nom configuré dans votre campagne pour faire le lien.</p>
               </div>
               <div>
                   <label className={UI_CLASSES.label}>Nom de la campagne</label>
-                  <input name="campagne" className={UI_CLASSES.input} placeholder="Ex: Meta Ads 3P" />
+                  <input name="campagne" list="campagnes-list-add" className={UI_CLASSES.input} placeholder="Ex: Meta Ads 3P" />
+                  <datalist id="campagnes-list-add">
+                      {Array.from(new Set(simulations.map((s:any) => s.deliveryMatchCampaign || s.productName).filter(Boolean))).map((camp: any) => <option key={camp} value={camp} />)}
+                  </datalist>
               </div>
               <div className="flex gap-4 pt-4 mt-4 border-t border-slate-100">
                   <button type="button" onClick={() => setShowModal(null)} className={UI_CLASSES.btnSecondary}>Annuler</button>
