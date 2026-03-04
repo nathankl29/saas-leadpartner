@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '57.2';
+const APP_VERSION = '57.5';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -1567,293 +1567,339 @@ export default function App() {
     const isReminderDue = hasReminder && new Date(selectedContact.nextContactDate) <= new Date();
 
     return (
-      <div className="flex flex-col h-full bg-slate-50/50 overflow-hidden animate-fade-in">
+      <div className="flex flex-col h-full bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden animate-fade-in border border-slate-100">
         
-        {/* HEADER FIXE ET ÉPURÉ */}
-        <div className="bg-white px-8 py-6 border-b border-slate-200 shrink-0 flex flex-wrap justify-between items-center z-10 shadow-sm gap-4">
-           <div className="flex items-center gap-6">
-              <button onClick={() => setSelectedContactId(null)} className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl transition-colors">
-                <ChevronLeft size={20} />
-              </button>
-              <div>
-                <div className="flex items-center gap-3">
-                  <h2 className="text-3xl font-extrabold font-poppins text-slate-800 tracking-tight">{selectedContact.company}</h2>
-                  <span className={`px-3 py-1 text-[10px] font-bold uppercase tracking-widest rounded-lg border ${PIPELINE_STAGES.find(s => s.id === selectedContact.status)?.color}`}>
-                    {PIPELINE_STAGES.find(s => s.id === selectedContact.status)?.label}
-                  </span>
-                </div>
-                <p className="text-slate-500 font-medium text-sm mt-1">{selectedContact.name} • {selectedContact.type === 'client' || selectedContact.status === 'gagne' ? 'Client' : 'Prospect'}</p>
-              </div>
-           </div>
-           
-           <div className="flex flex-wrap items-center gap-3">
-              <button 
-                onClick={() => {
-                  navigator.clipboard.writeText(selectedContact.id);
-                  addNotification('success', 'ID Client copié !');
-                }}
-                className="px-4 py-2.5 text-xs bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 transition-colors flex items-center gap-2"
-                title="Copier l'ID unique"
-              >
-                <Copy size={14}/> ID
-              </button>
-              {selectedContact.email && (
-                 <button onClick={() => handleEmailProspect(selectedContact)} className="px-4 py-2.5 bg-blue-50 text-[#01189B] font-bold rounded-xl hover:bg-[#01189B] hover:text-white transition-colors flex items-center gap-2 text-sm shadow-sm">
-                   <Send size={16}/> Email
-                 </button>
-              )}
-              <button onClick={() => { setEditContactData(selectedContact); setIsEditingContact(true); }} className="px-5 py-2.5 bg-white border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-50 transition-colors flex items-center gap-2 text-sm shadow-sm">
-                <Edit2 size={16}/> Éditer Fiche
-              </button>
-           </div>
-        </div>
-
         {/* BANNIÈRE DE RAPPEL */}
         {hasReminder && (
-            <div className={`px-8 py-3 flex justify-between items-center text-sm font-bold shrink-0 shadow-sm z-10 ${isReminderDue ? 'bg-red-500 text-white' : 'bg-orange-100 text-orange-800'}`}>
+            <div className={`px-8 py-3 flex justify-between items-center text-sm font-bold shrink-0 ${isReminderDue ? 'bg-red-500 text-white' : 'bg-orange-100 text-orange-800'}`}>
                 <div className="flex items-center gap-2">
                     <Bell size={18} className={isReminderDue ? 'animate-bounce' : ''} />
-                    <span>{isReminderDue ? 'Rappel Échu : ' : 'Rappel Planifié : '} {selectedContact.nextContactNote} (Pour le {formatDate(selectedContact.nextContactDate)})</span>
+                    <span>
+                        {isReminderDue ? 'Rappel Échu : ' : 'Rappel Planifié : '}
+                        {selectedContact.nextContactNote} (Pour le {formatDate(selectedContact.nextContactDate)})
+                    </span>
                 </div>
-                <button onClick={handleClearReminder} className={`px-4 py-1.5 rounded-lg text-xs transition-colors shadow-sm border ${isReminderDue ? 'bg-red-600 hover:bg-red-700 border-red-400' : 'bg-orange-200 hover:bg-orange-300 text-orange-900 border-orange-300'}`}>
+                <button onClick={handleClearReminder} className={`px-3 py-1 rounded-lg text-xs transition-colors ${isReminderDue ? 'bg-red-600 hover:bg-red-700' : 'bg-orange-200 hover:bg-orange-300'}`}>
                     Marquer comme fait
                 </button>
             </div>
         )}
 
-        {/* CONTENU PRINCIPAL AÉRÉ */}
-        <div className="flex-1 overflow-auto p-8 custom-scrollbar">
-           {isEditingContact && (
-               <div className="bg-white p-8 rounded-3xl border-2 border-[#01189B] shadow-lg mb-8 animate-fade-in relative">
-                   <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
-                       <h4 className="font-bold text-slate-800 font-poppins text-lg flex items-center gap-2"><Settings size={20} className="text-[#01189B]"/> Mode Édition du Profil</h4>
-                       <button onClick={() => setIsEditingContact(false)} className="text-slate-400 hover:text-slate-600"><X size={24}/></button>
-                   </div>
-                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-                      <div><label className={UI_CLASSES.label}>Société</label><input className={UI_CLASSES.input} value={editContactData.company || ''} onChange={e => setEditContactData({...editContactData, company: e.target.value})} /></div>
-                      <div><label className={UI_CLASSES.label}>Contact</label><input className={UI_CLASSES.input} value={editContactData.name || ''} onChange={e => setEditContactData({...editContactData, name: e.target.value})} /></div>
-                      <div><label className={UI_CLASSES.label}>Email</label><input className={UI_CLASSES.input} value={editContactData.email || ''} onChange={e => setEditContactData({...editContactData, email: e.target.value})} /></div>
-                      <div><label className={UI_CLASSES.label}>Téléphone</label><input className={UI_CLASSES.input} value={editContactData.phone || ''} onChange={e => setEditContactData({...editContactData, phone: e.target.value})} /></div>
-                      <div><label className={UI_CLASSES.label}>Google Sheet ID (Leads)</label><input className={UI_CLASSES.input} value={editContactData.googleSheetId || ''} onChange={e => setEditContactData({...editContactData, googleSheetId: e.target.value})} placeholder="ID GSheet du client" /></div>
-                      <div className="col-span-1 md:col-span-2 lg:col-span-3"><label className={UI_CLASSES.label}>Adresse complète (Facturation)</label><textarea className={`${UI_CLASSES.input} resize-none h-14`} value={editContactData.address || ''} onChange={e => setEditContactData({...editContactData, address: e.target.value})} /></div>
-
-                      <div className="col-span-1 md:col-span-2 lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-6 p-5 bg-slate-50 rounded-2xl border border-slate-200">
-                          <div><label className={UI_CLASSES.label}>CA Historique (Manuel)</label><input type="number" className={UI_CLASSES.input} value={editContactData.manualCA || ''} onChange={e => setEditContactData({...editContactData, manualCA: e.target.value})} placeholder="Ajouter au CA global..." /></div>
-                          <div><label className={UI_CLASSES.label}>Bénéfice Historique (Manuel)</label><input type="number" className={UI_CLASSES.input} value={editContactData.manualBenefice || ''} onChange={e => setEditContactData({...editContactData, manualBenefice: e.target.value})} placeholder="Ajouter au bénéfice..." /></div>
-                      </div>
-
-                      <div><label className={UI_CLASSES.label}>Type de Contact</label>
-                        <select className={UI_CLASSES.input} value={editContactData.type || 'prospect'} onChange={e => setEditContactData({...editContactData, type: e.target.value})}>
-                          <option value="prospect">Prospect</option>
-                          <option value="client">Client</option>
-                        </select>
-                      </div>
-
-                      <div><label className={UI_CLASSES.label}>Provenance / Source</label>
-                        <select className={UI_CLASSES.input} value={editContactData.source || ''} onChange={e => setEditContactData({...editContactData, source: e.target.value})}>
-                          <option value="">-- Non définie --</option>
-                          <option value="Recommandation">Recommandation</option>
-                          <option value="Call froid">Call froid</option>
-                          <option value="Lead site internet">Lead site internet</option>
-                          <option value="LinkedIn">LinkedIn</option>
-                          <option value="Autre">Autre</option>
-                        </select>
-                      </div>
-
-                      {editContactData.source === 'Recommandation' && (
-                          <div><label className={UI_CLASSES.label}>Nom de la Recommandation</label>
-                              <input className={UI_CLASSES.input} value={editContactData.sourceDetails || ''} onChange={e => setEditContactData({...editContactData, sourceDetails: e.target.value})} placeholder="Recommandé par..." />
-                          </div>
-                      )}
-
-                      <div><label className={UI_CLASSES.label}>Statut Pipeline</label>
-                        <select className={`${UI_CLASSES.input} text-[#01189B] font-bold`} value={editContactData.status || 'nouveau'} onChange={e => setEditContactData({...editContactData, status: e.target.value})}>
-                          {PIPELINE_STAGES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-                        </select>
-                      </div>
-                      <div><label className={UI_CLASSES.label}>Intérêt Principal (Campagne)</label>
-                        <select className={UI_CLASSES.input} value={editContactData.interestedProductId || ''} onChange={e => setEditContactData({...editContactData, interestedProductId: e.target.value})}>
-                          <option value="">-- Non défini --</option>
-                          {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                        </select>
-                      </div>
-
-                      <div className="col-span-1 md:col-span-2 lg:col-span-3 pt-4 border-t border-slate-200">
-                          <label className={UI_CLASSES.label}>Audience Ciblée</label>
-                          <div className="flex gap-3 mt-3">
-                              {['Résident', 'Frontalier', 'Les deux'].map(aud => (
-                                  <button
-                                      key={aud} type="button" onClick={() => setEditContactData({...editContactData, targetAudience: aud})}
-                                      className={`px-5 py-2.5 rounded-xl text-sm font-bold border-2 transition-all ${editContactData.targetAudience === aud ? 'border-[#01189B] bg-blue-50 text-[#01189B] shadow-sm' : 'border-slate-200 text-slate-500 bg-white hover:border-slate-300'}`}
-                                  >
-                                      {aud}
-                                  </button>
-                              ))}
-                          </div>
-                      </div>
-
-                      <div className="col-span-1 md:col-span-2 lg:col-span-3">
-                          <label className={UI_CLASSES.label}>Services & Produits vendus par ce client</label>
-                          <div className="flex flex-wrap gap-2 mt-3">
-                              {['LAMal', 'LCA', '3ème Pilier', 'LPP', 'Prévoyance', 'Assurance Vie', 'Hypothèque', 'Fiscalité'].map(prod => {
-                                  const isActive = (editContactData.offeredProducts || []).includes(prod);
-                                  return (
-                                      <button
-                                          key={prod} type="button"
-                                          onClick={() => {
-                                              const current = editContactData.offeredProducts || [];
-                                              setEditContactData({ ...editContactData, offeredProducts: isActive ? current.filter((p: string) => p !== prod) : [...current, prod] });
-                                          }}
-                                          className={`px-4 py-2 rounded-xl text-xs font-bold border-2 transition-all shadow-sm ${isActive ? 'bg-[#01189B] text-white border-[#01189B]' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'}`}
-                                      >
-                                          {isActive ? '✓ ' : '+ '}{prod}
-                                      </button>
-                                  )
-                              })}
-                          </div>
-                      </div>
-
-                   </div>
-                   <div className="flex gap-4 justify-end mt-6 pt-6 border-t border-slate-200">
-                     <button onClick={handleSaveContactEdit} className="px-8 py-3.5 text-white rounded-xl font-bold hover:shadow-lg transition-all text-lg" style={{ backgroundColor: BRAND_COLOR }}><CheckCircle size={20} className="inline mr-2"/> Mettre à jour</button>
-                   </div>
-               </div>
-           )}
-
-           {!isEditingContact && (
-              <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 max-w-7xl mx-auto">
-                  
-                  {/* COLONNE GAUCHE: INFOS & KPIS */}
-                  <div className="lg:col-span-1 space-y-6">
-                      <div className="bg-white p-7 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.03)] relative overflow-hidden">
-                          <div className="absolute top-0 right-0 w-24 h-24 bg-blue-50 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none"></div>
-                          <h4 className="font-extrabold text-slate-800 mb-6 text-sm uppercase tracking-widest flex items-center gap-2 relative z-10"><Info size={16} className="text-[#01189B]"/> Coordonnées</h4>
-                          
-                          <div className="space-y-5 text-sm font-medium text-slate-600 relative z-10">
-                              {selectedContact.email && <div className="flex items-center gap-3"><Mail size={16} className="text-slate-400 shrink-0"/> <span className="truncate">{selectedContact.email}</span></div>}
-                              {selectedContact.phone && <div className="flex items-center gap-3"><Clock size={16} className="text-slate-400 shrink-0"/> <span>{selectedContact.phone}</span></div>}
-                              {selectedContact.address && <div className="flex items-start gap-3"><MapPin size={16} className="text-slate-400 shrink-0 mt-0.5"/> <span className="leading-relaxed">{selectedContact.address}</span></div>}
-                          </div>
-                          
-                          <div className="mt-6 pt-6 border-t border-slate-100 space-y-4 relative z-10">
-                              {selectedContact.source && (
-                                  <div>
-                                      <p className="text-[10px] text-slate-400 uppercase font-bold mb-1">Source d'acquisition</p>
-                                      <p className="text-sm font-bold text-slate-700 flex items-center gap-1.5"><Globe size={14} className="text-slate-400"/> {selectedContact.source} {selectedContact.sourceDetails ? `(${selectedContact.sourceDetails})` : ''}</p>
-                                  </div>
-                              )}
-                              {(selectedContact.offeredProducts || []).length > 0 && (
-                                  <div>
-                                      <p className="text-[10px] text-slate-400 uppercase font-bold mb-2">Expertise / Produits</p>
-                                      <div className="flex flex-wrap gap-2">
-                                          {(selectedContact.offeredProducts || []).map((p: string) => (
-                                              <span key={p} className="bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-bold px-2 py-1 rounded-md">{p}</span>
-                                          ))}
-                                      </div>
-                                  </div>
-                              )}
-                          </div>
-                      </div>
-
-                      {/* KPIS CA / BÉNÉFICE */}
-                      <div className="bg-gradient-to-br from-[#01189B] to-blue-800 p-7 rounded-3xl shadow-lg text-white relative overflow-hidden">
-                          <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none"></div>
-                          
-                          <div className="relative z-10 mb-6">
-                              <p className="text-blue-200 text-[10px] font-bold uppercase tracking-widest mb-1 flex items-center gap-1.5"><Wallet size={14}/> CA Total Encaissé</p>
-                              <p className="text-3xl font-black font-mono">{renderCurrency(caEncaisse)}</p>
-                          </div>
-                          
-                          <div className="bg-black/20 p-4 rounded-2xl backdrop-blur-sm border border-white/10 relative z-10">
-                              <p className="text-emerald-300 text-[10px] font-bold uppercase tracking-widest mb-1 flex items-center gap-1.5"><TrendingUp size={14}/> Bénéfice Net Généré</p>
-                              <p className="text-2xl font-bold font-mono text-emerald-400">{renderCurrency(beneficeTotalClient)}</p>
-                          </div>
-                      </div>
-
-                      <button onClick={() => handleDelete('contacts', selectedContact.id)} className="w-full py-4 bg-white border border-red-100 text-red-500 font-bold rounded-2xl hover:bg-red-50 hover:border-red-200 transition-colors shadow-sm flex items-center justify-center gap-2 text-sm">
-                          <Trash2 size={18}/> Supprimer la fiche client
-                      </button>
-                  </div>
-
-                  {/* COLONNE DROITE: ACTIVITÉ & NOTES */}
-                  <div className="lg:col-span-3 space-y-6 flex flex-col">
-                      
-                      {/* WIDGETS HORIZONTAUX : RAPPEL / FACTURES */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 shrink-0">
-                          <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.03)] hover:border-[#01189B] transition-colors">
-                              <h4 className="font-extrabold text-slate-800 mb-4 font-poppins flex items-center gap-2 text-sm uppercase tracking-widest"><CalendarClock className="text-orange-500" size={18}/> Programmer un Rappel</h4>
-                              <div className="flex gap-3">
-                                  <input type="text" placeholder="Note pour le rappel..." value={reminderNote} onChange={e => setReminderNote(e.target.value)} className="flex-1 text-sm border-2 border-slate-100 bg-slate-50 p-3 rounded-xl outline-none focus:border-orange-400 transition-colors" />
-                                  <button onClick={() => handleSetReminder(7)} className="px-5 bg-orange-50 text-orange-700 font-bold rounded-xl hover:bg-orange-100 border border-orange-100 transition-colors text-sm shrink-0">+ 7J</button>
-                              </div>
-                          </div>
-                          
-                          <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.03)] hover:border-[#01189B] transition-colors">
-                              <div className="flex justify-between items-center mb-4">
-                                  <h4 className="font-extrabold text-slate-800 font-poppins flex items-center gap-2 text-sm uppercase tracking-widest"><FileText className="text-[#01189B]" size={18}/> Factures Liées</h4>
-                                  <span className="bg-blue-50 text-[#01189B] text-xs font-bold px-2 py-0.5 rounded-md">{clientInvoices.length}</span>
-                              </div>
-                              <div className="flex gap-3 overflow-x-auto custom-scrollbar pb-2">
-                                  {clientInvoices.length === 0 ? <p className="text-sm text-slate-400 italic">Aucune facture émise.</p> : clientInvoices.map(inv => (
-                                      <div key={inv.id} onClick={() => { setCurrentInvoice(inv); setShowModal('invoice'); }} className="shrink-0 p-3 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer hover:border-[#01189B] hover:bg-white shadow-sm transition-all min-w-[150px]">
-                                          <p className="font-extrabold text-slate-800 text-sm font-mono">{renderCurrency(inv.amount)}</p>
-                                          <p className={`text-[10px] font-bold uppercase tracking-widest mt-1.5 px-2 py-0.5 rounded inline-block ${INVOICE_STATUSES[inv.status]?.color || 'bg-slate-200 text-slate-600'}`}>{INVOICE_STATUSES[inv.status]?.label}</p>
-                                      </div>
-                                  ))}
-                              </div>
-                          </div>
-                      </div>
-
-                      {/* COMPTE-RENDUS / NOTES */}
-                      <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.03)] flex flex-col flex-1 min-h-[400px]">
-                          <div className="p-6 border-b border-slate-100 flex justify-between items-center shrink-0">
-                              <h4 className="font-extrabold text-slate-800 flex items-center gap-2 font-poppins text-lg">
-                                  <MessageSquare size={22} style={{ color: BRAND_COLOR }} /> Compte-Rendus & Historique
-                              </h4>
-                              <span className="text-xs font-bold text-slate-400 bg-slate-100 px-3 py-1.5 rounded-lg">{contactInteractions.length} notes</span>
-                          </div>
-                          
-                          <div className="flex-1 overflow-auto p-6 space-y-5 bg-slate-50/30 custom-scrollbar">
-                              {contactInteractions.length === 0 ? (
-                                  <div className="text-center text-slate-400 italic mt-16 flex flex-col items-center justify-center">
-                                      <div className="w-16 h-16 bg-white border border-slate-200 rounded-full flex items-center justify-center mb-4 shadow-sm"><MessageSquare size={24} className="text-slate-300"/></div>
-                                      <p className="font-bold text-slate-600 mb-1">Aucune note pour le moment.</p>
-                                      <p className="text-sm">Enregistrez le résumé de votre premier échange !</p>
-                                  </div>
-                              ) : (
-                                  contactInteractions.map(interaction => (
-                                      <div key={interaction.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm relative group hover:border-[#01189B] transition-colors">
-                                          <button onClick={() => handleDelete('interactions', interaction.id)} className="absolute top-4 right-4 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity bg-red-50 p-1.5 rounded-lg">
-                                              <Trash2 size={16}/>
-                                          </button>
-                                          <div className="flex items-center gap-2 mb-3">
-                                              <div className="w-6 h-6 rounded-full bg-blue-50 flex items-center justify-center text-[#01189B]"><Clock size={12}/></div>
-                                              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{formatDateTime(interaction.createdAt)}</p>
-                                          </div>
-                                          <p className="text-slate-700 whitespace-pre-wrap text-sm leading-relaxed pl-8">{interaction.content}</p>
-                                      </div>
-                                  ))
-                              )}
-                          </div>
-
-                          <div className="p-6 bg-white border-t border-slate-100 rounded-b-3xl shrink-0">
-                              <div className="flex gap-4">
-                                  <textarea 
-                                      value={newNoteContent} 
-                                      onChange={e => setNewNoteContent(e.target.value)} 
-                                      placeholder="Saisissez le compte-rendu du rendez-vous..."
-                                      className="flex-1 border-2 border-slate-200 bg-slate-50 rounded-xl p-4 outline-none focus:border-[#01189B] focus:bg-white resize-none text-sm transition-colors h-20 custom-scrollbar"
-                                  />
-                                  <button onClick={handleAddQuickNote} disabled={!newNoteContent.trim()} className="px-8 text-white rounded-xl font-bold hover:shadow-lg transition-all disabled:opacity-50 flex items-center gap-2" style={{ backgroundColor: BRAND_COLOR }}>
-                                      <Send size={18}/> Envoyer
-                                  </button>
-                              </div>
-                          </div>
-                      </div>
-
-                  </div>
+        {/* Header Contact */}
+        <div className="p-8 border-b border-slate-100 bg-white/50 backdrop-blur-sm flex justify-between items-start relative shrink-0">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-slate-50 rounded-full blur-3xl opacity-50 pointer-events-none -mr-20 -mt-20"></div>
+          <div className="flex gap-6 relative z-10">
+            <button onClick={() => setSelectedContactId(null)} className="mt-1 p-3 bg-white border border-slate-200 shadow-sm rounded-xl hover:bg-slate-50 transition-colors text-slate-500 h-fit">
+              <ChevronLeft size={20} />
+            </button>
+            <div>
+              <div className="flex items-center gap-4 mb-2">
+                <h2 className="text-4xl font-extrabold font-poppins text-slate-800 tracking-tight">{selectedContact.company}</h2>
+                <span className={`px-4 py-1.5 text-xs font-bold rounded-xl border shadow-sm ${PIPELINE_STAGES.find(s => s.id === selectedContact.status)?.color}`}>
+                  {PIPELINE_STAGES.find(s => s.id === selectedContact.status)?.label}
+                </span>
               </div>
-           )}
+              <div className="flex gap-3 mb-4">
+                  <span className="text-sm font-bold text-[#01189B] bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200 shadow-sm flex items-center gap-2"><Wallet size={16}/> CA : {renderCurrency(caEncaisse)}</span>
+                  <span className="text-sm font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 shadow-sm flex items-center gap-2"><TrendingUp size={16}/> Bénéfice : {renderCurrency(beneficeTotalClient)}</span>
+              </div>
+              <p className="text-slate-500 flex items-center gap-2 font-medium text-lg"><Users size={20}/> {selectedContact.name}</p>
+              {selectedContact.address && <p className="text-slate-400 flex items-center gap-2 font-medium mt-1 text-sm"><MapPin size={16}/> {selectedContact.address}</p>}
+
+              <div className="flex flex-wrap gap-2 mt-5">
+                  <span className={`px-3 py-1.5 border rounded-lg text-xs font-bold uppercase tracking-wide flex items-center gap-1.5 ${selectedContact.type === 'client' || selectedContact.status === 'gagne' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
+                      <Users size={14}/> {selectedContact.type === 'client' || selectedContact.status === 'gagne' ? 'Client' : 'Prospect'}
+                  </span>
+                  {selectedContact.source && (
+                      <span className="px-3 py-1.5 bg-slate-100 text-slate-600 border border-slate-200 rounded-lg text-xs font-bold uppercase tracking-wide flex items-center gap-1.5">
+                          <Globe size={14}/> Source : {selectedContact.source} {selectedContact.source === 'Recommandation' && selectedContact.sourceDetails ? `(${selectedContact.sourceDetails})` : ''}
+                      </span>
+                  )}
+                  {selectedContact.targetAudience && (
+                      <span className="px-3 py-1.5 bg-purple-50 text-purple-700 border border-purple-200 rounded-lg text-xs font-bold uppercase tracking-wide flex items-center gap-1.5">
+                          <Target size={14}/> {selectedContact.targetAudience}
+                      </span>
+                  )}
+                  {(selectedContact.offeredProducts || []).map((p: string) => (
+                      <span key={p} className="px-3 py-1.5 bg-slate-100 text-slate-600 border border-slate-200 rounded-lg text-xs font-bold uppercase tracking-wide flex items-center gap-1.5">
+                          <Package size={14}/> {p}
+                      </span>
+                  ))}
+              </div>
+              
+              <div className="flex items-center gap-6 mt-6 text-sm font-bold text-slate-600">
+                {selectedContact.email && <button onClick={() => handleEmailProspect(selectedContact)} className="flex items-center gap-2 hover:text-[#01189B] transition-colors bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm"><Mail size={16}/> {selectedContact.email}</button>}
+                {selectedContact.phone && <a href={`tel:${selectedContact.phone}`} className="flex items-center gap-2 hover:text-[#01189B] transition-colors bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm">📞 {selectedContact.phone}</a>}
+              </div>
+            </div>
+          </div>
+          
+          <div className="flex flex-col gap-2 relative z-10 w-48 shrink-0">
+            <button 
+              onClick={() => {
+                navigator.clipboard.writeText(selectedContact.id);
+                addNotification('success', 'ID Client copié !');
+              }}
+              className="px-4 py-2 text-xs bg-indigo-50 border border-indigo-200 shadow-sm rounded-lg font-bold text-indigo-700 hover:bg-indigo-100 transition-colors flex items-center justify-start gap-2"
+              title="Copier l'ID unique"
+            >
+              <Copy size={14}/> Copier ID
+            </button>
+            <button onClick={() => { setEditContactData(selectedContact); setIsEditingContact(true); }} className="px-4 py-2 text-xs bg-white border border-slate-200 shadow-sm rounded-lg font-bold text-slate-600 hover:bg-slate-50 transition-colors flex items-center justify-start gap-2">
+              <Edit2 size={14}/> Modifier Profil
+            </button>
+            <button onClick={() => handleDelete('contacts', selectedContact.id)} className="px-4 py-2 text-xs bg-white border border-slate-200 shadow-sm rounded-lg font-bold text-red-500 hover:bg-red-50 transition-colors flex items-center justify-start gap-2">
+              <Trash2 size={14}/> Supprimer
+            </button>
+            <button onClick={() => { 
+                const comp = selectedContact.company || '';
+                setBulkContacts([{ company: comp, name: '', email: '', phone: '' }, { company: comp, name: '', email: '', phone: '' }, { company: comp, name: '', email: '', phone: '' }]); 
+                setShowModal('bulkContact'); 
+            }} className="px-4 py-2 text-xs bg-white border border-slate-200 shadow-sm rounded-lg font-bold text-[#01189B] hover:bg-blue-50 transition-colors flex items-center justify-start gap-2">
+              <Users size={14}/> Ajout Rapide (Bulk)
+            </button>
+            {selectedContact.email && (
+               <button 
+                 onClick={() => handleEmailProspect(selectedContact)}
+                 className="px-4 py-2 text-xs text-white rounded-lg font-bold hover:shadow-md hover:-translate-y-0.5 flex items-center justify-start gap-2 transition-all" 
+                 style={{ backgroundColor: BRAND_COLOR }}
+               >
+                 <Send size={14}/> Écrire Email
+               </button>
+            )}
+          </div>
+        </div>
+
+        {/* Panneau d'édition (si actif) */}
+        {isEditingContact && (
+          <div className="p-8 bg-slate-50 border-b border-slate-200 shadow-inner animate-fade-in z-20 relative shrink-0 overflow-y-auto max-h-[50vh] custom-scrollbar">
+             <div className="flex justify-between items-center mb-6">
+                 <h4 className="font-bold text-slate-800 font-poppins text-lg flex items-center gap-2"><Settings size={20}/> Mode Édition</h4>
+                 <button onClick={() => setIsEditingContact(false)} className="text-slate-400 hover:text-slate-600"><X size={24}/></button>
+             </div>
+             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+                <div><label className={UI_CLASSES.label}>Société</label><input className={UI_CLASSES.input} value={editContactData.company || ''} onChange={e => setEditContactData({...editContactData, company: e.target.value})} /></div>
+                <div><label className={UI_CLASSES.label}>Contact</label><input className={UI_CLASSES.input} value={editContactData.name || ''} onChange={e => setEditContactData({...editContactData, name: e.target.value})} /></div>
+                <div><label className={UI_CLASSES.label}>Email</label><input className={UI_CLASSES.input} value={editContactData.email || ''} onChange={e => setEditContactData({...editContactData, email: e.target.value})} /></div>
+                <div><label className={UI_CLASSES.label}>Téléphone</label><input className={UI_CLASSES.input} value={editContactData.phone || ''} onChange={e => setEditContactData({...editContactData, phone: e.target.value})} /></div>
+                <div><label className={UI_CLASSES.label}>Google Sheet ID (Leads)</label><input className={UI_CLASSES.input} value={editContactData.googleSheetId || ''} onChange={e => setEditContactData({...editContactData, googleSheetId: e.target.value})} placeholder="ID GSheet du client" /></div>
+                <div className="col-span-1 md:col-span-2 lg:col-span-3"><label className={UI_CLASSES.label}>Adresse complète (Facturation)</label><textarea className={`${UI_CLASSES.input} resize-none h-14`} value={editContactData.address || ''} onChange={e => setEditContactData({...editContactData, address: e.target.value})} /></div>
+
+                <div className="col-span-1 md:col-span-2 lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-6 p-4 bg-white rounded-xl border border-slate-200 shadow-sm my-2">
+                    <div><label className={UI_CLASSES.label}>CA Historique (Manuel)</label><input type="number" className={UI_CLASSES.input} value={editContactData.manualCA || ''} onChange={e => setEditContactData({...editContactData, manualCA: e.target.value})} placeholder="Ajouter au CA global..." /></div>
+                    <div><label className={UI_CLASSES.label}>Bénéfice Historique (Manuel)</label><input type="number" className={UI_CLASSES.input} value={editContactData.manualBenefice || ''} onChange={e => setEditContactData({...editContactData, manualBenefice: e.target.value})} placeholder="Ajouter au bénéfice..." /></div>
+                </div>
+
+                <div><label className={UI_CLASSES.label}>Type de Contact</label>
+                  <select className={UI_CLASSES.input} value={editContactData.type || 'prospect'} onChange={e => setEditContactData({...editContactData, type: e.target.value})}>
+                    <option value="prospect">Prospect</option>
+                    <option value="client">Client</option>
+                  </select>
+                </div>
+
+                <div><label className={UI_CLASSES.label}>Provenance / Source</label>
+                  <select className={UI_CLASSES.input} value={editContactData.source || ''} onChange={e => setEditContactData({...editContactData, source: e.target.value})}>
+                    <option value="">-- Non définie --</option>
+                    <option value="Recommandation">Recommandation</option>
+                    <option value="Call froid">Call froid</option>
+                    <option value="Lead site internet">Lead site internet</option>
+                    <option value="LinkedIn">LinkedIn</option>
+                    <option value="Autre">Autre</option>
+                  </select>
+                </div>
+
+                {editContactData.source === 'Recommandation' && (
+                    <div><label className={UI_CLASSES.label}>Nom de la Recommandation</label>
+                        <input className={UI_CLASSES.input} value={editContactData.sourceDetails || ''} onChange={e => setEditContactData({...editContactData, sourceDetails: e.target.value})} placeholder="Recommandé par..." />
+                    </div>
+                )}
+
+                <div><label className={UI_CLASSES.label}>Statut Pipeline</label>
+                  <select className={`${UI_CLASSES.input} text-[#01189B]`} value={editContactData.status || 'nouveau'} onChange={e => setEditContactData({...editContactData, status: e.target.value})}>
+                    {PIPELINE_STAGES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+                  </select>
+                </div>
+                <div><label className={UI_CLASSES.label}>Intérêt Principal (Campagne)</label>
+                  <select className={UI_CLASSES.input} value={editContactData.interestedProductId || ''} onChange={e => setEditContactData({...editContactData, interestedProductId: e.target.value})}>
+                    <option value="">-- Non défini --</option>
+                    {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>
+
+                <div className="col-span-1 md:col-span-2 lg:col-span-3 pt-4 border-t border-slate-200">
+                    <label className={UI_CLASSES.label}>Audience Ciblée par ce client</label>
+                    <div className="flex gap-3 mt-3">
+                        {['Résident', 'Frontalier', 'Les deux'].map(aud => (
+                            <button
+                                key={aud} type="button" onClick={() => setEditContactData({...editContactData, targetAudience: aud})}
+                                className={`px-5 py-2.5 rounded-xl text-sm font-bold border-2 transition-all ${editContactData.targetAudience === aud ? 'border-[#01189B] bg-blue-50 text-[#01189B] shadow-sm' : 'border-slate-200 text-slate-500 bg-white hover:border-slate-300'}`}
+                            >
+                                {aud}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="col-span-1 md:col-span-2 lg:col-span-3">
+                    <label className={UI_CLASSES.label}>Services & Produits vendus par ce client</label>
+                    <div className="flex flex-wrap gap-2 mt-3">
+                        {['LAMal', 'LCA', '3ème Pilier', 'LPP', 'Prévoyance', 'Assurance Vie', 'Hypothèque', 'Fiscalité'].map(prod => {
+                            const isActive = (editContactData.offeredProducts || []).includes(prod);
+                            return (
+                                <button
+                                    key={prod} type="button"
+                                    onClick={() => {
+                                        const current = editContactData.offeredProducts || [];
+                                        setEditContactData({ ...editContactData, offeredProducts: isActive ? current.filter((p: string) => p !== prod) : [...current, prod] });
+                                    }}
+                                    className={`px-4 py-2 rounded-xl text-xs font-bold border-2 transition-all shadow-sm ${isActive ? 'bg-[#01189B] text-white border-[#01189B]' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'}`}
+                                >
+                                    {isActive ? '✓ ' : '+ '}{prod}
+                                </button>
+                            )
+                        })}
+                    </div>
+                </div>
+
+             </div>
+             <div className="flex gap-4 justify-end mt-6 pt-6 border-t border-slate-200">
+               <button onClick={handleSaveContactEdit} className="px-8 py-3.5 text-white rounded-xl font-bold hover:opacity-90 shadow-md transition-opacity" style={{ backgroundColor: BRAND_COLOR }}>Mettre à jour la fiche</button>
+             </div>
+          </div>
+        )}
+
+        {/* Contenu principal divisé en deux colonnes */}
+        <div className="flex-1 overflow-auto p-8 grid grid-cols-1 lg:grid-cols-3 gap-8 bg-slate-50/50">
+          
+          {/* Colonne Gauche: Outils & Stats */}
+          <div className="lg:col-span-1 space-y-6">
+            
+            {/* WIDGET : PROGRAMMER UN RAPPEL */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-1 h-full bg-orange-400"></div>
+                <h4 className="font-extrabold text-slate-800 mb-4 font-poppins text-lg flex items-center gap-2"><CalendarClock className="text-orange-500" size={20}/> Programmer un Rappel</h4>
+                <div className="space-y-4">
+                    <input 
+                        type="text" 
+                        placeholder="Ex: Rappeler pour faire le point..." 
+                        value={reminderNote}
+                        onChange={e => setReminderNote(e.target.value)}
+                        className="w-full text-sm border-2 border-slate-100 bg-slate-50 p-3 rounded-xl outline-none focus:border-orange-400 focus:bg-white transition-colors"
+                    />
+                    <div className="grid grid-cols-3 gap-2">
+                        <button onClick={() => handleSetReminder(7)} className="py-2 text-[10px] font-bold uppercase tracking-wide bg-orange-50 text-orange-700 rounded-lg hover:bg-orange-100 border border-orange-100 transition-colors">+ 1 Sem.</button>
+                        <button onClick={() => handleSetReminder(30)} className="py-2 text-[10px] font-bold uppercase tracking-wide bg-orange-50 text-orange-700 rounded-lg hover:bg-orange-100 border border-orange-100 transition-colors">+ 1 Mois</button>
+                        <button onClick={() => handleSetReminder(90)} className="py-2 text-[10px] font-bold uppercase tracking-wide bg-orange-50 text-orange-700 rounded-lg hover:bg-orange-100 border border-orange-100 transition-colors">+ 3 Mois</button>
+                    </div>
+                </div>
+            </div>
+
+            {/* WIDGET : CAMPAGNES EN COURS */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]">
+               <h4 className="font-extrabold text-slate-800 mb-4 font-poppins text-lg flex items-center gap-2"><PlayCircle size={20} className="text-indigo-500"/> Campagnes en cours</h4>
+               {clientSimulations.length === 0 ? (
+                   <p className="text-xs text-slate-400 italic text-center py-4">Aucune campagne active.</p>
+               ) : (
+                   <div className="space-y-4">
+                       {clientSimulations.map(sim => {
+                           const duration = sim.duration || 30;
+                           const start = new Date(sim.createdAt);
+                           const diffDays = Math.max(0, Math.floor((new Date().getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+                           const day = Math.min(diffDays, duration);
+                           const isFinished = day >= duration;
+                           const endDate = new Date(start.getTime() + duration * 24 * 60 * 60 * 1000);
+                           return (
+                               <div key={sim.id} className="p-4 rounded-xl border border-slate-100 bg-slate-50 relative overflow-hidden">
+                                   <div className="flex justify-between items-start mb-2 relative z-10">
+                                       <span className="font-bold text-sm text-slate-700 flex items-center gap-1"><Package size={14}/> {sim.productName}</span>
+                                       <span className={`text-[10px] px-2 py-1 rounded font-bold uppercase tracking-widest ${isFinished ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>{isFinished ? 'Terminé' : 'En cours'}</span>
+                                   </div>
+                                   <div className="w-full bg-slate-200 rounded-full h-1.5 mb-2 overflow-hidden relative z-10">
+                                       <div className={`h-full rounded-full transition-all ${isFinished ? 'bg-emerald-500' : 'bg-[#01189B]'}`} style={{ width: `${(day/duration)*100}%` }}></div>
+                                   </div>
+                                   <div className="flex justify-between text-[10px] text-slate-500 font-bold uppercase tracking-wider relative z-10">
+                                       <span>J-{day} / {duration}</span>
+                                       <span>Fin : {formatDate(endDate.toISOString())}</span>
+                                   </div>
+                               </div>
+                           )
+                       })}
+                   </div>
+               )}
+            </div>
+
+            {/* WIDGET : HISTORIQUE FACTURES */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]">
+               <h4 className="font-extrabold text-slate-800 mb-4 font-poppins text-lg flex items-center gap-2"><FileText size={18} className="text-slate-400"/> Factures Associées</h4>
+               {clientInvoices.length === 0 ? (
+                 <p className="text-xs text-slate-400 italic text-center py-4">Aucune facture émise pour ce client.</p>
+               ) : (
+                 <div className="space-y-3">
+                   {clientInvoices.map(inv => (
+                     <div key={inv.id} onClick={() => { setCurrentInvoice(inv); setShowModal('invoice'); }} className="flex justify-between items-center p-3 bg-slate-50 border border-slate-100 rounded-xl cursor-pointer hover:border-[#01189B] hover:bg-white shadow-sm transition-all group">
+                       <div>
+                         <p className="font-bold text-slate-700 text-sm group-hover:text-[#01189B] transition-colors">{inv.id}</p>
+                         <p className="text-[10px] text-slate-400 font-bold uppercase">{formatDate(inv.date)}</p>
+                       </div>
+                       <div className="text-right">
+                         <p className="font-mono font-bold text-slate-800 text-sm">{renderCurrency(inv.amount)}</p>
+                         <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md ${INVOICE_STATUSES[inv.status]?.color || 'bg-slate-200 text-slate-600'}`}>{INVOICE_STATUSES[inv.status]?.label || inv.status}</span>
+                       </div>
+                     </div>
+                   ))}
+                 </div>
+               )}
+            </div>
+
+          </div>
+
+          {/* Colonne Droite: Notes et Historique */}
+          <div className="lg:col-span-2 flex flex-col h-full bg-white rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] overflow-hidden">
+             <div className="p-6 border-b border-slate-100 bg-white flex justify-between items-center">
+                 <h4 className="font-extrabold text-slate-800 flex items-center gap-2 font-poppins text-lg">
+                    <MessageSquare size={20} style={{ color: BRAND_COLOR }} /> Historique & Compte-Rendus
+                 </h4>
+                 <span className="text-xs font-bold text-slate-400 bg-slate-100 px-3 py-1 rounded-full">{contactInteractions.length} note(s)</span>
+             </div>
+             
+             <div className="flex-1 overflow-auto p-6 space-y-6 bg-slate-50/50 custom-scrollbar">
+                {contactInteractions.length === 0 ? (
+                  <div className="text-center text-slate-400 italic mt-16 flex flex-col items-center justify-center">
+                     <div className="w-20 h-20 bg-white border border-slate-100 shadow-sm rounded-full flex items-center justify-center mb-4"><MessageSquare size={32} className="text-slate-300"/></div>
+                     <p className="font-bold text-slate-600 mb-1">Aucune note pour le moment.</p>
+                     <p className="text-sm">Enregistrez le résumé de votre premier appel !</p>
+                  </div>
+                ) : (
+                  contactInteractions.map(interaction => (
+                    <div key={interaction.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm relative group hover:border-[#01189B] transition-colors">
+                       <button onClick={() => handleDelete('interactions', interaction.id)} className="absolute top-4 right-4 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity bg-red-50 p-1.5 rounded-lg">
+                         <Trash2 size={16}/>
+                       </button>
+                       <div className="flex items-center gap-2 mb-3">
+                           <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center"><Clock size={14} style={{ color: BRAND_COLOR }}/></div>
+                           <p className="text-xs text-slate-400 font-bold uppercase tracking-wide">{formatDateTime(interaction.createdAt)}</p>
+                       </div>
+                       <p className="text-slate-700 whitespace-pre-wrap text-sm leading-relaxed pl-10">{interaction.content}</p>
+                    </div>
+                  ))
+                )}
+             </div>
+
+             <div className="p-6 bg-white border-t border-slate-100 shadow-[0_-10px_30px_rgb(0,0,0,0.02)] relative z-10">
+                <div className="relative">
+                  <textarea 
+                    value={newNoteContent} 
+                    onChange={e => setNewNoteContent(e.target.value)} 
+                    placeholder="Saisissez le compte-rendu du rendez-vous, une info importante..."
+                    className="w-full border-2 border-slate-200 bg-slate-50 rounded-xl p-4 pr-16 h-28 outline-none focus:border-[#01189B] focus:bg-white resize-none text-sm transition-colors shadow-inner"
+                  />
+                  <button onClick={handleAddQuickNote} className="absolute bottom-4 right-4 p-3 text-white rounded-xl hover:shadow-lg hover:-translate-y-0.5 transition-all disabled:opacity-50" style={{ backgroundColor: BRAND_COLOR }} disabled={!newNoteContent.trim()}>
+                    <Send size={18}/>
+                  </button>
+                </div>
+             </div>
+          </div>
+
         </div>
       </div>
     );
@@ -3059,7 +3105,7 @@ export default function App() {
               { id: 'contacts', label: 'CRM', icon: Users },
               { id: 'prospection', label: 'Prospection', icon: Mail },
               { id: 'deliveries', label: 'Suivi Livraisons', icon: Activity },
-              { id: 'calendar', label: 'Campagnes & Objectifs', icon: Target },
+              { id: 'calendar', label: 'Campagnes', icon: Target },
               { id: 'ponderation', label: 'Pondération', icon: PieChart },
               { id: 'invoices', label: 'Facturation', icon: FileText },
               { id: 'products', label: 'Catalogue Offres', icon: Package },
@@ -3132,7 +3178,7 @@ export default function App() {
                   <div className="max-w-6xl mx-auto animate-fade-in space-y-8 pb-12">
                       <div className="flex justify-between items-center mb-2">
                         <h2 className={UI_CLASSES.title}>
-                          <Target size={32} style={{ color: BRAND_COLOR }}/> Campagnes & Objectifs
+                          <Target size={32} style={{ color: BRAND_COLOR }}/> Campagnes
                         </h2>
                       </div>
                       <p className="text-slate-500 text-lg mb-8">Vue d'ensemble graphique de l'avancement de vos productions média en cours.</p>
@@ -3777,7 +3823,10 @@ function envoyerLead(agent, ligne) {
                      <h2 className={UI_CLASSES.title}><Users style={{ color: BRAND_COLOR }} size={32}/> CRM</h2>
                      <div className="flex gap-3">
                          <button onClick={() => setShowModal('bulkIds')} className="bg-white text-slate-600 px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 border border-slate-200 shadow-sm transition-all"><Search size={18} /> Liste des IDs</button>
-                         <button onClick={() => setShowModal('bulkContact')} className="bg-white text-[#01189B] px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-blue-50 border border-blue-200 shadow-sm transition-all"><Users size={18} /> Ajout Rapide (Bulk)</button>
+                         <button onClick={() => { 
+                             setBulkContacts([{ company: '', name: '', email: '', phone: '' }, { company: '', name: '', email: '', phone: '' }, { company: '', name: '', email: '', phone: '' }]);
+                             setShowModal('bulkContact'); 
+                         }} className="bg-white text-[#01189B] px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-blue-50 border border-blue-200 shadow-sm transition-all"><Users size={18} /> Ajout Rapide (Bulk)</button>
                          <button onClick={() => { setShowModal('contact'); setNewContactSource(''); }} className={UI_CLASSES.btnPrimary} style={{ backgroundColor: BRAND_COLOR }}><Plus size={18} /> Nouveau Contact</button>
                      </div>
                   </div>
@@ -3787,80 +3836,86 @@ function envoyerLead(agent, ligne) {
                       <button onClick={() => setContactFilterType('prospect')} className={`px-6 py-3 text-sm font-bold rounded-xl transition-colors font-poppins ${contactFilterType === 'prospect' ? 'bg-white text-[#01189B] shadow-sm border border-slate-100' : 'text-slate-500 hover:bg-slate-100 border border-transparent'}`}>Prospects en cours</button>
                       <button onClick={() => setContactFilterType('client')} className={`px-6 py-3 text-sm font-bold rounded-xl transition-colors font-poppins ${contactFilterType === 'client' ? 'bg-white text-[#01189B] shadow-sm border border-slate-100' : 'text-slate-500 hover:bg-slate-100 border border-transparent'}`}>Clients Gagnés</button>
                     </div>
-                    <div className="flex-1 overflow-auto bg-slate-50/20">
+                    <div className="flex-1 overflow-auto bg-slate-50/20 p-4 md:p-6 custom-scrollbar space-y-6">
                       {displayedContacts.length === 0 ? (
                          <div className="p-20 text-center text-slate-400 font-medium">Aucun contact trouvé dans cette catégorie.</div>
                       ) : (
-                        <table className="w-full text-sm text-left">
-                          <thead className="bg-white text-slate-400 uppercase font-extrabold text-[10px] tracking-wider border-b border-slate-100 sticky top-0 z-10 shadow-sm">
-                            <tr><th className="px-8 py-5">Contact & Coordonnées</th><th className="px-8 py-5">Étape Pipeline</th><th className="px-8 py-5">Rappel Actif</th><th className="px-8 py-5 text-right">Actions</th></tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-50">
-                            {Object.entries(
-                                displayedContacts.reduce((acc: any, c: any) => {
-                                    const comp = c.company || 'Sans Entreprise';
-                                    if (!acc[comp]) acc[comp] = [];
-                                    acc[comp].push(c);
-                                    return acc;
-                                }, {})
-                            ).flatMap(([companyName, companyContacts]: any) => [
-                                <tr key={`header-${companyName}`} className="bg-slate-50/80 border-y border-slate-200">
-                                    <td colSpan={4} className="px-8 py-3">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold">
-                                                <Briefcase size={16} />
-                                            </div>
-                                            <h3 className="font-extrabold text-slate-800 font-poppins text-lg">{companyName}</h3>
-                                            <span className="bg-white border border-slate-200 text-slate-500 text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm">
-                                                {companyContacts.length} contact(s)
-                                            </span>
-                                        </div>
-                                    </td>
-                                </tr>,
-                                ...companyContacts.map((c: any) => {
-                                  const hasReminder = !!c.nextContactDate;
-                                  const isReminderDue = hasReminder && new Date(c.nextContactDate) <= new Date();
-                                  const typeBadge = c.type === 'client' || c.status === 'gagne' ? 'Client' : 'Prospect';
+                         Object.entries(
+                            displayedContacts.reduce((acc: any, c: any) => {
+                                const comp = c.company || 'Sans Entreprise';
+                                if (!acc[comp]) acc[comp] = [];
+                                acc[comp].push(c);
+                                return acc;
+                            }, {})
+                         ).map(([companyName, companyContacts]: any) => (
+                             <div key={`company-${companyName}`} className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden animate-fade-in">
+                                 <div className="bg-slate-50 border-b border-slate-100 p-4 md:px-6 flex items-center justify-between">
+                                     <div className="flex items-center gap-4">
+                                         <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-extrabold shadow-inner">
+                                             {companyName.substring(0, 2).toUpperCase()}
+                                         </div>
+                                         <div>
+                                             <h3 className="font-extrabold text-slate-800 font-poppins text-lg leading-tight">{companyName}</h3>
+                                             <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">{companyContacts.length} contact(s)</p>
+                                         </div>
+                                     </div>
+                                 </div>
+                                 <div className="divide-y divide-slate-50">
+                                     {companyContacts.map((c: any) => {
+                                         const hasReminder = !!c.nextContactDate;
+                                         const isReminderDue = hasReminder && new Date(c.nextContactDate) <= new Date();
+                                         const typeBadge = c.type === 'client' || c.status === 'gagne' ? 'Client' : 'Prospect';
+                                         const stage = PIPELINE_STAGES.find(s => s.id === c.status) || PIPELINE_STAGES[0];
 
-                                  return (
-                                    <tr key={c.id} onClick={() => setSelectedContactId(c.id)} className="bg-white hover:bg-blue-50/40 cursor-pointer group transition-colors">
-                                      <td className="px-8 py-4 pl-16">
-                                        <div className="flex items-center gap-2 mb-1">
-                                          <p className="font-extrabold text-slate-700 font-poppins text-base flex items-center gap-2">
-                                            <Users size={16} className="text-slate-400"/> {c.name}
-                                            <button onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(c.id); addNotification('success', 'ID Client copié !'); }} className="text-slate-300 hover:text-[#01189B] p-1 rounded transition-colors ml-1" title="Copier l'ID unique">
-                                                <Copy size={14}/>
-                                            </button>
-                                          </p>
-                                          <span className={`px-2 py-0.5 rounded-md text-[9px] uppercase font-bold tracking-widest ${typeBadge === 'Client' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>{typeBadge}</span>
-                                        </div>
-                                        <p className="text-slate-500 text-xs font-medium">{c.email || 'Pas d\'email'} • {c.phone || 'Pas de tel'}</p>
-                                      </td>
-                                      <td className="px-8 py-4">
-                                        <div className="flex items-center gap-2">
-                                            <span className={`w-2 h-2 rounded-full ${PIPELINE_STAGES.find(s => s.id === c.status)?.color?.split(' ')[0] || 'bg-slate-300'}`}></span>
-                                            <span className="font-bold text-slate-600 text-sm">{PIPELINE_STAGES.find(s => s.id === c.status)?.label}</span>
-                                        </div>
-                                      </td>
-                                      <td className="px-8 py-4">
-                                        {hasReminder ? (
-                                            <div className="flex flex-col">
-                                                <span className={`text-[10px] font-bold uppercase tracking-widest ${isReminderDue ? 'text-red-500' : 'text-orange-500'}`}>{isReminderDue ? 'Échu !' : 'Planifié'}</span>
-                                                <span className="text-xs text-slate-600 font-medium">{formatDate(c.nextContactDate)}</span>
-                                            </div>
-                                        ) : (
-                                            <span className="text-slate-300 text-xs font-medium">-</span>
-                                        )}
-                                      </td>
-                                      <td className="px-8 py-4 text-right">
-                                        <button className="text-[#01189B] font-bold text-xs uppercase tracking-wide opacity-0 group-hover:opacity-100 transition-opacity flex justify-end items-center gap-1 ml-auto">Ouvrir <ArrowRight size={14}/></button>
-                                      </td>
-                                    </tr>
-                                  );
-                                })
-                            ])}
-                          </tbody>
-                        </table>
+                                         return (
+                                             <div key={c.id} onClick={() => setSelectedContactId(c.id)} className="p-4 md:px-6 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-blue-50/30 cursor-pointer transition-colors group">
+                                                 <div className="flex items-center gap-4 flex-1">
+                                                     <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 shrink-0 group-hover:text-[#01189B] group-hover:bg-blue-100 transition-colors">
+                                                         <Users size={20} />
+                                                     </div>
+                                                     <div>
+                                                         <div className="flex items-center gap-2 mb-1">
+                                                             <h4 className="font-bold text-slate-800 text-base">{c.name}</h4>
+                                                             <span className={`px-2 py-0.5 rounded-md text-[9px] uppercase font-bold tracking-widest ${typeBadge === 'Client' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-slate-100 text-slate-600 border border-slate-200'}`}>{typeBadge}</span>
+                                                         </div>
+                                                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 font-medium">
+                                                             {c.email && <span className="flex items-center gap-1 hover:text-[#01189B]"><Mail size={12}/> {c.email}</span>}
+                                                             {c.phone && <span className="flex items-center gap-1 hover:text-[#01189B]">📞 {c.phone}</span>}
+                                                         </div>
+                                                     </div>
+                                                 </div>
+                                                 <div className="flex flex-wrap items-center gap-3 md:w-64 shrink-0">
+                                                     <span className={`px-3 py-1.5 rounded-lg text-xs font-bold border shadow-sm w-full text-center md:w-auto ${stage.color}`}>
+                                                         {stage.label}
+                                                     </span>
+                                                     {c.source && <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest bg-slate-50 px-2 py-1 rounded-md border border-slate-100">{c.source}</span>}
+                                                 </div>
+                                                 <div className="md:w-32 shrink-0">
+                                                     {hasReminder ? (
+                                                         <div className="flex flex-col">
+                                                             <span className={`text-[10px] font-bold uppercase tracking-widest flex items-center gap-1 ${isReminderDue ? 'text-red-500' : 'text-orange-500'}`}>
+                                                                <Bell size={10} className={isReminderDue ? "animate-pulse" : ""}/> {isReminderDue ? 'Échu !' : 'Planifié'}
+                                                             </span>
+                                                             <span className="text-xs text-slate-600 font-medium">{formatDate(c.nextContactDate)}</span>
+                                                         </div>
+                                                     ) : (
+                                                         <span className="text-slate-300 text-xs font-medium italic">Pas de rappel</span>
+                                                     )}
+                                                 </div>
+                                                 <div className="flex items-center gap-2 justify-end shrink-0">
+                                                     <button onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(c.id); addNotification('success', 'ID Client copié !'); }} className="p-2 text-slate-400 hover:text-[#01189B] hover:bg-white rounded-lg transition-colors border border-transparent hover:border-blue-200 shadow-sm opacity-0 md:opacity-100 lg:opacity-0 group-hover:opacity-100" title="Copier l'ID unique">
+                                                         <Copy size={16}/>
+                                                     </button>
+                                                     <div className="w-8 h-8 rounded-full bg-white border border-slate-200 text-slate-400 flex items-center justify-center group-hover:border-[#01189B] group-hover:text-[#01189B] transition-all shadow-sm">
+                                                         <ArrowRight size={16}/>
+                                                     </div>
+                                                 </div>
+                                             </div>
+                                         );
+                                     })}
+                                 </div>
+                             </div>
+                         ))
                       )}
                     </div>
                   </div>
@@ -4013,7 +4068,10 @@ function envoyerLead(agent, ligne) {
                 </div>
                 
                 <div className="flex justify-between items-center pt-2">
-                    <button type="button" onClick={() => setBulkContacts([...bulkContacts, { company: '', name: '', email: '', phone: '' }])} className="text-sm font-bold text-[#01189B] bg-blue-50 hover:bg-blue-100 px-4 py-2 rounded-xl transition-colors flex items-center gap-2"><Plus size={16}/> Ajouter une ligne</button>
+                    <button type="button" onClick={() => {
+                        const lastCompany = bulkContacts.length > 0 ? bulkContacts[bulkContacts.length - 1].company : '';
+                        setBulkContacts([...bulkContacts, { company: lastCompany, name: '', email: '', phone: '' }]);
+                    }} className="text-sm font-bold text-[#01189B] bg-blue-50 hover:bg-blue-100 px-4 py-2 rounded-xl transition-colors flex items-center gap-2"><Plus size={16}/> Ajouter une ligne</button>
                     <div className="flex justify-end gap-4">
                         <button type="button" onClick={() => setShowModal(null)} className="px-6 py-2.5 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-xl font-bold transition-colors">Annuler</button>
                         <button type="submit" className="px-6 py-2.5 text-white rounded-xl font-bold flex items-center gap-2 hover:shadow-lg hover:-translate-y-0.5 transition-all" style={{ backgroundColor: BRAND_COLOR }}><CheckCircle size={18}/> Importer les lignes</button>
