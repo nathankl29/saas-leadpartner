@@ -32,7 +32,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '59.5';
+const APP_VERSION = '59.7';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -1483,6 +1483,44 @@ export default function App() {
                     )}
                 </div>
             </div>
+
+            {/* NOUVEAU BLOC : GESTION DES DONNÉES BRUTES */}
+            <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 mt-8">
+                <div className="flex justify-between items-center mb-6">
+                    <h3 className="font-extrabold text-slate-800 flex items-center gap-2 text-lg"><Activity className="text-[#01189B]" size={20}/> Historique brut des livraisons</h3>
+                    <button onClick={() => setShowModal('add_delivery')} className="px-4 py-2 bg-blue-50 text-[#01189B] font-bold rounded-xl text-sm hover:bg-blue-100 transition-colors flex items-center gap-2">
+                        <Plus size={16}/> Ajouter manuellement
+                    </button>
+                </div>
+                <div className="max-h-96 overflow-y-auto custom-scrollbar border border-slate-100 rounded-xl">
+                    <table className="w-full text-left text-sm">
+                        <thead className="bg-slate-50 text-slate-500 uppercase font-extrabold text-[10px] tracking-wider sticky top-0 z-10 shadow-sm">
+                            <tr>
+                                <th className="px-4 py-3 border-b border-slate-100">Date d'enregistrement</th>
+                                <th className="px-4 py-3 border-b border-slate-100">Client ciblé (Agent Name)</th>
+                                <th className="px-4 py-3 border-b border-slate-100">Campagne</th>
+                                <th className="px-4 py-3 border-b border-slate-100 text-right">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50">
+                            {[...deliveries].sort((a,b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime()).map(d => (
+                                <tr key={d.id} className="hover:bg-slate-50 transition-colors">
+                                    <td className="px-4 py-3 font-medium text-slate-500">{formatDateTime(d.date || d.createdAt)}</td>
+                                    <td className="px-4 py-3 font-bold text-slate-800">{d.agentName || 'Inconnu'}</td>
+                                    <td className="px-4 py-3 text-slate-600">{d.campagne || 'Non définie'}</td>
+                                    <td className="px-4 py-3 text-right">
+                                        <button onClick={() => handleDelete('lead_deliveries', d.id)} className="p-1.5 text-slate-300 hover:text-red-500 bg-white hover:bg-red-50 rounded-lg shadow-sm border border-slate-200 hover:border-red-200 transition-colors">
+                                            <Trash2 size={14}/>
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                            {deliveries.length === 0 && <tr><td colSpan={4} className="text-center py-8 text-slate-400 italic">Aucune donnée brute enregistrée.</td></tr>}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
         </div>
       );
   };
@@ -4371,50 +4409,59 @@ function envoyerLead(agent, ligne) {
 
                   <div className="flex-1 overflow-auto custom-scrollbar pb-10">
                      {displayedContacts.length === 0 ? (
-                         <div className="p-20 text-center text-slate-400 font-medium">Aucune entreprise trouvée.</div>
+                         <div className="p-20 text-center text-slate-400 font-medium">Aucune société trouvée.</div>
                      ) : (
-                         <div className="space-y-3">
-                            {Object.entries(
-                                displayedContacts.reduce((acc: any, c: any) => {
-                                    const comp = c.company || 'Sans Entreprise';
-                                    if (!acc[comp]) acc[comp] = [];
-                                    acc[comp].push(c);
-                                    return acc;
-                                }, {})
-                            ).map(([companyName, companyContacts]: any) => {
-                                // Find highest status or aggregate CA
-                                const clientInvoices = invoices.filter(inv => inv.clientName === companyName || companyContacts.some((c:any) => c.id === inv.clientId));
-                                const companyNode = companiesData.find((c:any) => c.name === companyName) || {};
-                                const caTotal = clientInvoices.filter(i => i.status === 'payee').reduce((a, b) => a + b.amount, 0) + companyContacts.reduce((a:any, b:any) => a + Number(b.manualCA || 0), 0) + Number(companyNode.manualCA || 0);
-                                const isClient = companyContacts.some((c:any) => c.type === 'client' || c.status === 'gagne');
+                         <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
+                            <table className="w-full text-sm text-left">
+                                <thead className="bg-slate-50 text-slate-500 uppercase font-extrabold text-[10px] tracking-wider border-b border-slate-100">
+                                    <tr>
+                                        <th className="px-6 py-4">Société</th>
+                                        <th className="px-6 py-4">Statut</th>
+                                        <th className="px-6 py-4 text-center">Équipe</th>
+                                        <th className="px-6 py-4 text-right">CA Encaissé</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-50">
+                                    {Object.entries(
+                                        displayedContacts.reduce((acc: any, c: any) => {
+                                            const comp = c.company || 'Sans Entreprise';
+                                            if (!acc[comp]) acc[comp] = [];
+                                            acc[comp].push(c);
+                                            return acc;
+                                        }, {})
+                                    ).map(([companyName, companyContacts]: any) => {
+                                        const clientInvoices = invoices.filter(inv => inv.clientName === companyName || companyContacts.some((c:any) => c.id === inv.clientId));
+                                        const companyNode = companiesData.find((c:any) => c.name === companyName) || {};
+                                        const caTotal = clientInvoices.filter(i => i.status === 'payee').reduce((a, b) => a + b.amount, 0) + companyContacts.reduce((a:any, b:any) => a + Number(b.manualCA || 0), 0) + Number(companyNode.manualCA || 0);
+                                        const isClient = companyContacts.some((c:any) => c.type === 'client' || c.status === 'gagne');
 
-                                return (
-                                    <div key={companyName} onClick={() => setSelectedCompanyName(companyName)} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm hover:border-[#01189B] hover:shadow-md cursor-pointer transition-all group flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                                        <div className="flex items-center gap-4 w-full md:w-1/3">
-                                            <div className="w-12 h-12 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-extrabold text-xl shadow-inner group-hover:scale-105 transition-transform shrink-0">
-                                                {companyName.substring(0, 2).toUpperCase()}
-                                            </div>
-                                            <div className="overflow-hidden">
-                                                <h3 className="font-extrabold text-slate-800 font-poppins text-base leading-tight truncate" title={companyName}>{companyName}</h3>
-                                                <span className={`inline-block mt-1 px-2 py-0.5 rounded-md text-[9px] uppercase font-bold tracking-widest ${isClient ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-slate-100 text-slate-600 border border-slate-200'}`}>{isClient ? 'Client' : 'Prospect'}</span>
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center gap-6 md:gap-8 w-full md:w-auto justify-between md:justify-end pt-3 md:pt-0 border-t md:border-t-0 border-slate-100">
-                                            <div className="text-left md:text-right">
-                                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-0.5">Équipe</p>
-                                                <p className="text-sm font-bold text-slate-700 flex items-center md:justify-end gap-1.5"><Users size={14} className="text-slate-400"/> {companyContacts.length} profil(s)</p>
-                                            </div>
-                                            <div className="text-right w-24 md:w-32 md:border-l md:border-slate-100 md:pl-6">
-                                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-0.5">CA Encaissé</p>
-                                                <p className="text-sm font-extrabold text-[#01189B] font-mono">{renderCurrency(caTotal)}</p>
-                                            </div>
-                                            <div className="text-slate-300 group-hover:text-[#01189B] transition-colors hidden md:block ml-2">
-                                                <ArrowRight size={20} />
-                                            </div>
-                                        </div>
-                                    </div>
-                                )
-                            })}
+                                        return (
+                                            <tr key={companyName} onClick={() => setSelectedCompanyName(companyName)} className="hover:bg-blue-50/30 transition-colors cursor-pointer group">
+                                                <td className="px-6 py-4">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-extrabold text-xs shadow-inner shrink-0">
+                                                            {companyName.substring(0, 2).toUpperCase()}
+                                                        </div>
+                                                        <span className="font-extrabold text-slate-800 font-poppins text-sm group-hover:text-[#01189B] transition-colors">{companyName}</span>
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <span className={`inline-block px-2 py-1 rounded-md text-[9px] uppercase font-bold tracking-widest ${isClient ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-slate-100 text-slate-600 border border-slate-200'}`}>
+                                                        {isClient ? 'Client' : 'Prospect'}
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4 text-center">
+                                                    <span className="text-xs font-bold text-slate-700 flex items-center justify-center gap-1.5"><Users size={14} className="text-slate-400"/> {companyContacts.length} profil(s)</span>
+                                                </td>
+                                                <td className="px-6 py-4 text-right">
+                                                    <span className="text-sm font-extrabold text-[#01189B] font-mono">{renderCurrency(caTotal)}</span>
+                                                    <ArrowRight size={16} className="inline-block ml-3 text-slate-300 group-hover:text-[#01189B] transition-colors" />
+                                                </td>
+                                            </tr>
+                                        )
+                                    })}
+                                </tbody>
+                            </table>
                          </div>
                      )}
                   </div>
@@ -5040,6 +5087,15 @@ function envoyerLead(agent, ligne) {
           </div>
           <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
+                  <div><label className={UI_CLASSES.label}>Client</label><input type="text" value={currentSimulation.clientName || ''} onChange={e => setCurrentSimulation({...currentSimulation, clientName: e.target.value})} className={UI_CLASSES.input} /></div>
+                  <div><label className={UI_CLASSES.label}>Thématique</label><input type="text" value={currentSimulation.productName || ''} onChange={e => setCurrentSimulation({...currentSimulation, productName: e.target.value})} className={UI_CLASSES.input} /></div>
+              </div>
+              <div className="grid grid-cols-3 gap-4 border-t border-slate-100 pt-4">
+                  <div><label className={UI_CLASSES.label}>Budget Global</label><input type="number" value={currentSimulation.budget || 0} onChange={e => setCurrentSimulation({...currentSimulation, budget: Number(e.target.value)})} className={UI_CLASSES.input} /></div>
+                  <div><label className={UI_CLASSES.label}>Bénéfice Prévu</label><input type="number" value={currentSimulation.stats?.profit || 0} onChange={e => setCurrentSimulation({...currentSimulation, stats: {...currentSimulation.stats, profit: Number(e.target.value)}})} className={UI_CLASSES.input} /></div>
+                  <div><label className={UI_CLASSES.label}>Objectif de Leads</label><input type="number" value={currentSimulation.stats?.volumeTotal || 0} onChange={e => setCurrentSimulation({...currentSimulation, stats: {...currentSimulation.stats, volumeTotal: Number(e.target.value)}})} className={UI_CLASSES.input} /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-4 border-t border-slate-100 pt-4">
                   <div><label className={UI_CLASSES.label}>Date de début</label><input type="date" value={currentSimulation.createdAt ? currentSimulation.createdAt.split('T')[0] : ''} onChange={e => {
                       if(e.target.value) {
                           const [y,m,d] = e.target.value.split('-');
@@ -5049,7 +5105,6 @@ function envoyerLead(agent, ligne) {
                   }} className={UI_CLASSES.input} /></div>
                   <div><label className={UI_CLASSES.label}>Durée (Jours)</label><input type="number" value={currentSimulation.duration || 30} onChange={e => setCurrentSimulation({...currentSimulation, duration: Number(e.target.value)})} className={UI_CLASSES.input} /></div>
               </div>
-              <div><label className={UI_CLASSES.label}>Objectif de Leads</label><input type="number" value={currentSimulation.stats?.volumeTotal || 0} onChange={e => setCurrentSimulation({...currentSimulation, stats: {...currentSimulation.stats, volumeTotal: Number(e.target.value)}})} className={UI_CLASSES.input} /></div>
               
               <div className="pt-4 border-t border-slate-100">
                   <label className={UI_CLASSES.label}>Suivi des Leads Générés</label>
@@ -5087,6 +5142,40 @@ function envoyerLead(agent, ligne) {
                   setShowModal(null);
               }} className={UI_CLASSES.btnPrimary} style={{ backgroundColor: BRAND_COLOR }}><Save size={18}/> Enregistrer</button>
           </div>
+        </div>
+      </div>
+    )}
+
+    {/* MODAL AJOUT LIVRAISON MANUELLE */}
+    {showModal === 'add_delivery' && (
+      <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-[2000] p-4">
+        <div className="bg-white p-8 rounded-3xl w-full max-w-md shadow-2xl border border-slate-100 animate-fade-in">
+          <h3 className="text-2xl font-extrabold text-slate-800 font-poppins flex items-center gap-3 mb-6"><Plus style={{ color: BRAND_COLOR }} size={24}/> Ajouter un Lead Manuellement</h3>
+          <form onSubmit={(e: any) => {
+              e.preventDefault();
+              const fd = new FormData(e.target);
+              handleCreate('lead_deliveries', {
+                  agentName: fd.get('agentName'),
+                  campagne: fd.get('campagne'),
+                  date: new Date().toISOString(),
+                  createdAt: new Date().toISOString()
+              });
+              setShowModal(null);
+          }} className="space-y-4">
+              <div>
+                  <label className={UI_CLASSES.label}>Client (Agent Name exact)</label>
+                  <input name="agentName" required className={UI_CLASSES.input} placeholder="Ex: TechCorp" />
+                  <p className="text-[10px] text-slate-400 mt-1">Doit correspondre exactement au nom surveillé par la campagne pour être comptabilisé.</p>
+              </div>
+              <div>
+                  <label className={UI_CLASSES.label}>Nom de la campagne</label>
+                  <input name="campagne" className={UI_CLASSES.input} placeholder="Ex: Meta Ads 3P" />
+              </div>
+              <div className="flex gap-4 pt-4 mt-4 border-t border-slate-100">
+                  <button type="button" onClick={() => setShowModal(null)} className={UI_CLASSES.btnSecondary}>Annuler</button>
+                  <button type="submit" className={UI_CLASSES.btnPrimary} style={{ backgroundColor: BRAND_COLOR }}>Ajouter le Lead</button>
+              </div>
+          </form>
         </div>
       </div>
     )}
