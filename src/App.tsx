@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '56.2';
+const APP_VERSION = '57.2';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -427,20 +427,29 @@ export default function App() {
   const [isSecretMode, setIsSecretMode] = useState(false);
   const [isEditingContractInInvoice, setIsEditingContractInInvoice] = useState(false);
   const [isEditingLayout, setIsEditingLayout] = useState(false);
-  const [showScriptGenerator, setShowScriptGenerator] = useState(false);
   const [dragOverWidget, setDragOverWidget] = useState<string | null>(null);
 
   // Nouveaux états pour la pondération manuelle
   const [manualWeights, setManualWeights] = useState<any[]>([]);
   const [manualWeightClient, setManualWeightClient] = useState('');
   const [manualWeightBudget, setManualWeightBudget] = useState(1000);
-  const [manualWeightCpl, setManualWeightCpl] = useState(80);
+  const [manualWeightMaxDaily, setManualWeightMaxDaily] = useState<number | ''>('');
+  
+  // Nouveaux états pour le Script & Arbitrage
+  const [manualWeightMaxTotal, setManualWeightMaxTotal] = useState<number | ''>('');
+  const [manualWeightResidentOnly, setManualWeightResidentOnly] = useState(false);
+  const [manualWeightSheetId, setManualWeightSheetId] = useState('');
+  
+  // Nouveaux états pour le Pacing (Lissage)
+  const [enablePacing, setEnablePacing] = useState(true);
+  const [pacingTargetSize, setPacingTargetSize] = useState(20);
+  
+  const [bulkContacts, setBulkContacts] = useState([{ company: '', name: '', email: '', phone: '' }, { company: '', name: '', email: '', phone: '' }, { company: '', name: '', email: '', phone: '' }]);
 
   // Etats de configuration du Script
   const [scriptGlobalSheetId, setScriptGlobalSheetId] = useState('');
   const [scriptGlobalTabName, setScriptGlobalTabName] = useState('Distribution');
   const [scriptPhoneColIndex, setScriptPhoneColIndex] = useState(6);
-  const [weightOverrides, setWeightOverrides] = useState<any>({});
   const [currentScriptId, setCurrentScriptId] = useState<string | null>(null);
   const [scriptName, setScriptName] = useState('');
   const [scriptProductId, setScriptProductId] = useState('');
@@ -1558,332 +1567,293 @@ export default function App() {
     const isReminderDue = hasReminder && new Date(selectedContact.nextContactDate) <= new Date();
 
     return (
-      <div className="flex flex-col h-full bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden animate-fade-in border border-slate-100">
+      <div className="flex flex-col h-full bg-slate-50/50 overflow-hidden animate-fade-in">
         
+        {/* HEADER FIXE ET ÉPURÉ */}
+        <div className="bg-white px-8 py-6 border-b border-slate-200 shrink-0 flex flex-wrap justify-between items-center z-10 shadow-sm gap-4">
+           <div className="flex items-center gap-6">
+              <button onClick={() => setSelectedContactId(null)} className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl transition-colors">
+                <ChevronLeft size={20} />
+              </button>
+              <div>
+                <div className="flex items-center gap-3">
+                  <h2 className="text-3xl font-extrabold font-poppins text-slate-800 tracking-tight">{selectedContact.company}</h2>
+                  <span className={`px-3 py-1 text-[10px] font-bold uppercase tracking-widest rounded-lg border ${PIPELINE_STAGES.find(s => s.id === selectedContact.status)?.color}`}>
+                    {PIPELINE_STAGES.find(s => s.id === selectedContact.status)?.label}
+                  </span>
+                </div>
+                <p className="text-slate-500 font-medium text-sm mt-1">{selectedContact.name} • {selectedContact.type === 'client' || selectedContact.status === 'gagne' ? 'Client' : 'Prospect'}</p>
+              </div>
+           </div>
+           
+           <div className="flex flex-wrap items-center gap-3">
+              <button 
+                onClick={() => {
+                  navigator.clipboard.writeText(selectedContact.id);
+                  addNotification('success', 'ID Client copié !');
+                }}
+                className="px-4 py-2.5 text-xs bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 transition-colors flex items-center gap-2"
+                title="Copier l'ID unique"
+              >
+                <Copy size={14}/> ID
+              </button>
+              {selectedContact.email && (
+                 <button onClick={() => handleEmailProspect(selectedContact)} className="px-4 py-2.5 bg-blue-50 text-[#01189B] font-bold rounded-xl hover:bg-[#01189B] hover:text-white transition-colors flex items-center gap-2 text-sm shadow-sm">
+                   <Send size={16}/> Email
+                 </button>
+              )}
+              <button onClick={() => { setEditContactData(selectedContact); setIsEditingContact(true); }} className="px-5 py-2.5 bg-white border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-50 transition-colors flex items-center gap-2 text-sm shadow-sm">
+                <Edit2 size={16}/> Éditer Fiche
+              </button>
+           </div>
+        </div>
+
         {/* BANNIÈRE DE RAPPEL */}
         {hasReminder && (
-            <div className={`px-8 py-3 flex justify-between items-center text-sm font-bold shrink-0 ${isReminderDue ? 'bg-red-500 text-white' : 'bg-orange-100 text-orange-800'}`}>
+            <div className={`px-8 py-3 flex justify-between items-center text-sm font-bold shrink-0 shadow-sm z-10 ${isReminderDue ? 'bg-red-500 text-white' : 'bg-orange-100 text-orange-800'}`}>
                 <div className="flex items-center gap-2">
                     <Bell size={18} className={isReminderDue ? 'animate-bounce' : ''} />
-                    <span>
-                        {isReminderDue ? 'Rappel Échu : ' : 'Rappel Planifié : '}
-                        {selectedContact.nextContactNote} (Pour le {formatDate(selectedContact.nextContactDate)})
-                    </span>
+                    <span>{isReminderDue ? 'Rappel Échu : ' : 'Rappel Planifié : '} {selectedContact.nextContactNote} (Pour le {formatDate(selectedContact.nextContactDate)})</span>
                 </div>
-                <button onClick={handleClearReminder} className={`px-3 py-1 rounded-lg text-xs transition-colors ${isReminderDue ? 'bg-red-600 hover:bg-red-700' : 'bg-orange-200 hover:bg-orange-300'}`}>
+                <button onClick={handleClearReminder} className={`px-4 py-1.5 rounded-lg text-xs transition-colors shadow-sm border ${isReminderDue ? 'bg-red-600 hover:bg-red-700 border-red-400' : 'bg-orange-200 hover:bg-orange-300 text-orange-900 border-orange-300'}`}>
                     Marquer comme fait
                 </button>
             </div>
         )}
 
-        {/* Header Contact */}
-        <div className="p-8 border-b border-slate-100 bg-white/50 backdrop-blur-sm flex justify-between items-start relative shrink-0">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-slate-50 rounded-full blur-3xl opacity-50 pointer-events-none -mr-20 -mt-20"></div>
-          <div className="flex gap-6 relative z-10">
-            <button onClick={() => setSelectedContactId(null)} className="mt-1 p-3 bg-white border border-slate-200 shadow-sm rounded-xl hover:bg-slate-50 transition-colors text-slate-500 h-fit">
-              <ChevronLeft size={20} />
-            </button>
-            <div>
-              <div className="flex items-center gap-4 mb-2">
-                <h2 className="text-4xl font-extrabold font-poppins text-slate-800 tracking-tight">{selectedContact.company}</h2>
-                <span className={`px-4 py-1.5 text-xs font-bold rounded-xl border shadow-sm ${PIPELINE_STAGES.find(s => s.id === selectedContact.status)?.color}`}>
-                  {PIPELINE_STAGES.find(s => s.id === selectedContact.status)?.label}
-                </span>
-              </div>
-              <div className="flex gap-3 mb-4">
-                  <span className="text-sm font-bold text-[#01189B] bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200 shadow-sm flex items-center gap-2"><Wallet size={16}/> CA : {renderCurrency(caEncaisse)}</span>
-                  <span className="text-sm font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 shadow-sm flex items-center gap-2"><TrendingUp size={16}/> Bénéfice : {renderCurrency(beneficeTotalClient)}</span>
-              </div>
-              <p className="text-slate-500 flex items-center gap-2 font-medium text-lg"><Users size={20}/> {selectedContact.name}</p>
-              {selectedContact.address && <p className="text-slate-400 flex items-center gap-2 font-medium mt-1 text-sm"><MapPin size={16}/> {selectedContact.address}</p>}
-
-              <div className="flex flex-wrap gap-2 mt-5">
-                  <span className={`px-3 py-1.5 border rounded-lg text-xs font-bold uppercase tracking-wide flex items-center gap-1.5 ${selectedContact.type === 'client' || selectedContact.status === 'gagne' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
-                      <Users size={14}/> {selectedContact.type === 'client' || selectedContact.status === 'gagne' ? 'Client' : 'Prospect'}
-                  </span>
-                  {selectedContact.source && (
-                      <span className="px-3 py-1.5 bg-slate-100 text-slate-600 border border-slate-200 rounded-lg text-xs font-bold uppercase tracking-wide flex items-center gap-1.5">
-                          <Globe size={14}/> Source : {selectedContact.source} {selectedContact.source === 'Recommandation' && selectedContact.sourceDetails ? `(${selectedContact.sourceDetails})` : ''}
-                      </span>
-                  )}
-                  {selectedContact.targetAudience && (
-                      <span className="px-3 py-1.5 bg-purple-50 text-purple-700 border border-purple-200 rounded-lg text-xs font-bold uppercase tracking-wide flex items-center gap-1.5">
-                          <Target size={14}/> {selectedContact.targetAudience}
-                      </span>
-                  )}
-                  {(selectedContact.offeredProducts || []).map((p: string) => (
-                      <span key={p} className="px-3 py-1.5 bg-slate-100 text-slate-600 border border-slate-200 rounded-lg text-xs font-bold uppercase tracking-wide flex items-center gap-1.5">
-                          <Package size={14}/> {p}
-                      </span>
-                  ))}
-              </div>
-              
-              <div className="flex items-center gap-6 mt-6 text-sm font-bold text-slate-600">
-                {selectedContact.email && <button onClick={() => handleEmailProspect(selectedContact)} className="flex items-center gap-2 hover:text-[#01189B] transition-colors bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm"><Mail size={16}/> {selectedContact.email}</button>}
-                {selectedContact.phone && <a href={`tel:${selectedContact.phone}`} className="flex items-center gap-2 hover:text-[#01189B] transition-colors bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm">📞 {selectedContact.phone}</a>}
-              </div>
-            </div>
-          </div>
-          
-          <div className="flex flex-col gap-2 relative z-10 w-48 shrink-0">
-            <button 
-              onClick={() => {
-                navigator.clipboard.writeText(selectedContact.id);
-                addNotification('success', 'ID Client copié !');
-              }}
-              className="px-4 py-2 text-xs bg-indigo-50 border border-indigo-200 shadow-sm rounded-lg font-bold text-indigo-700 hover:bg-indigo-100 transition-colors flex items-center justify-start gap-2"
-              title="Copier l'ID unique"
-            >
-              <Copy size={14}/> Copier ID
-            </button>
-            <button onClick={() => { setEditContactData(selectedContact); setIsEditingContact(true); }} className="px-4 py-2 text-xs bg-white border border-slate-200 shadow-sm rounded-lg font-bold text-slate-600 hover:bg-slate-50 transition-colors flex items-center justify-start gap-2">
-              <Edit2 size={14}/> Modifier Profil
-            </button>
-            <button onClick={() => handleDelete('contacts', selectedContact.id)} className="px-4 py-2 text-xs bg-white border border-slate-200 shadow-sm rounded-lg font-bold text-red-500 hover:bg-red-50 transition-colors flex items-center justify-start gap-2">
-              <Trash2 size={14}/> Supprimer
-            </button>
-            {selectedContact.email && (
-               <button 
-                 onClick={() => handleEmailProspect(selectedContact)}
-                 className="px-4 py-2 text-xs text-white rounded-lg font-bold hover:shadow-md hover:-translate-y-0.5 flex items-center justify-start gap-2 transition-all" 
-                 style={{ backgroundColor: BRAND_COLOR }}
-               >
-                 <Send size={14}/> Écrire Email
-               </button>
-            )}
-          </div>
-        </div>
-
-        {/* Panneau d'édition (si actif) */}
-        {isEditingContact && (
-          <div className="p-8 bg-slate-50 border-b border-slate-200 shadow-inner animate-fade-in z-20 relative shrink-0 overflow-y-auto max-h-[50vh] custom-scrollbar">
-             <div className="flex justify-between items-center mb-6">
-                 <h4 className="font-bold text-slate-800 font-poppins text-lg flex items-center gap-2"><Settings size={20}/> Mode Édition</h4>
-                 <button onClick={() => setIsEditingContact(false)} className="text-slate-400 hover:text-slate-600"><X size={24}/></button>
-             </div>
-             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-                <div><label className={UI_CLASSES.label}>Société</label><input className={UI_CLASSES.input} value={editContactData.company || ''} onChange={e => setEditContactData({...editContactData, company: e.target.value})} /></div>
-                <div><label className={UI_CLASSES.label}>Contact</label><input className={UI_CLASSES.input} value={editContactData.name || ''} onChange={e => setEditContactData({...editContactData, name: e.target.value})} /></div>
-                <div><label className={UI_CLASSES.label}>Email</label><input className={UI_CLASSES.input} value={editContactData.email || ''} onChange={e => setEditContactData({...editContactData, email: e.target.value})} /></div>
-                <div><label className={UI_CLASSES.label}>Téléphone</label><input className={UI_CLASSES.input} value={editContactData.phone || ''} onChange={e => setEditContactData({...editContactData, phone: e.target.value})} /></div>
-                <div><label className={UI_CLASSES.label}>Google Sheet ID (Leads)</label><input className={UI_CLASSES.input} value={editContactData.googleSheetId || ''} onChange={e => setEditContactData({...editContactData, googleSheetId: e.target.value})} placeholder="ID GSheet du client" /></div>
-                <div className="col-span-1 md:col-span-2 lg:col-span-3"><label className={UI_CLASSES.label}>Adresse complète (Facturation)</label><textarea className={`${UI_CLASSES.input} resize-none h-14`} value={editContactData.address || ''} onChange={e => setEditContactData({...editContactData, address: e.target.value})} /></div>
-
-                <div className="col-span-1 md:col-span-2 lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-6 p-4 bg-white rounded-xl border border-slate-200 shadow-sm my-2">
-                    <div><label className={UI_CLASSES.label}>CA Historique (Manuel)</label><input type="number" className={UI_CLASSES.input} value={editContactData.manualCA || ''} onChange={e => setEditContactData({...editContactData, manualCA: e.target.value})} placeholder="Ajouter au CA global..." /></div>
-                    <div><label className={UI_CLASSES.label}>Bénéfice Historique (Manuel)</label><input type="number" className={UI_CLASSES.input} value={editContactData.manualBenefice || ''} onChange={e => setEditContactData({...editContactData, manualBenefice: e.target.value})} placeholder="Ajouter au bénéfice..." /></div>
-                </div>
-
-                <div><label className={UI_CLASSES.label}>Type de Contact</label>
-                  <select className={UI_CLASSES.input} value={editContactData.type || 'prospect'} onChange={e => setEditContactData({...editContactData, type: e.target.value})}>
-                    <option value="prospect">Prospect</option>
-                    <option value="client">Client</option>
-                  </select>
-                </div>
-
-                <div><label className={UI_CLASSES.label}>Provenance / Source</label>
-                  <select className={UI_CLASSES.input} value={editContactData.source || ''} onChange={e => setEditContactData({...editContactData, source: e.target.value})}>
-                    <option value="">-- Non définie --</option>
-                    <option value="Recommandation">Recommandation</option>
-                    <option value="Call froid">Call froid</option>
-                    <option value="Lead site internet">Lead site internet</option>
-                    <option value="LinkedIn">LinkedIn</option>
-                    <option value="Autre">Autre</option>
-                  </select>
-                </div>
-
-                {editContactData.source === 'Recommandation' && (
-                    <div><label className={UI_CLASSES.label}>Nom de la Recommandation</label>
-                        <input className={UI_CLASSES.input} value={editContactData.sourceDetails || ''} onChange={e => setEditContactData({...editContactData, sourceDetails: e.target.value})} placeholder="Recommandé par..." />
-                    </div>
-                )}
-
-                <div><label className={UI_CLASSES.label}>Statut Pipeline</label>
-                  <select className={`${UI_CLASSES.input} text-[#01189B]`} value={editContactData.status || 'nouveau'} onChange={e => setEditContactData({...editContactData, status: e.target.value})}>
-                    {PIPELINE_STAGES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-                  </select>
-                </div>
-                <div><label className={UI_CLASSES.label}>Intérêt Principal (Campagne)</label>
-                  <select className={UI_CLASSES.input} value={editContactData.interestedProductId || ''} onChange={e => setEditContactData({...editContactData, interestedProductId: e.target.value})}>
-                    <option value="">-- Non défini --</option>
-                    {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
-                </div>
-
-                <div className="col-span-1 md:col-span-2 lg:col-span-3 pt-4 border-t border-slate-200">
-                    <label className={UI_CLASSES.label}>Audience Ciblée par ce client</label>
-                    <div className="flex gap-3 mt-3">
-                        {['Résident', 'Frontalier', 'Les deux'].map(aud => (
-                            <button
-                                key={aud} type="button" onClick={() => setEditContactData({...editContactData, targetAudience: aud})}
-                                className={`px-5 py-2.5 rounded-xl text-sm font-bold border-2 transition-all ${editContactData.targetAudience === aud ? 'border-[#01189B] bg-blue-50 text-[#01189B] shadow-sm' : 'border-slate-200 text-slate-500 bg-white hover:border-slate-300'}`}
-                            >
-                                {aud}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-
-                <div className="col-span-1 md:col-span-2 lg:col-span-3">
-                    <label className={UI_CLASSES.label}>Services & Produits vendus par ce client</label>
-                    <div className="flex flex-wrap gap-2 mt-3">
-                        {['LAMal', 'LCA', '3ème Pilier', 'LPP', 'Prévoyance', 'Assurance Vie', 'Hypothèque', 'Fiscalité'].map(prod => {
-                            const isActive = (editContactData.offeredProducts || []).includes(prod);
-                            return (
-                                <button
-                                    key={prod} type="button"
-                                    onClick={() => {
-                                        const current = editContactData.offeredProducts || [];
-                                        setEditContactData({ ...editContactData, offeredProducts: isActive ? current.filter((p: string) => p !== prod) : [...current, prod] });
-                                    }}
-                                    className={`px-4 py-2 rounded-xl text-xs font-bold border-2 transition-all shadow-sm ${isActive ? 'bg-[#01189B] text-white border-[#01189B]' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'}`}
-                                >
-                                    {isActive ? '✓ ' : '+ '}{prod}
-                                </button>
-                            )
-                        })}
-                    </div>
-                </div>
-
-             </div>
-             <div className="flex gap-4 justify-end mt-6 pt-6 border-t border-slate-200">
-               <button onClick={handleSaveContactEdit} className="px-8 py-3.5 text-white rounded-xl font-bold hover:opacity-90 shadow-md transition-opacity" style={{ backgroundColor: BRAND_COLOR }}>Mettre à jour la fiche</button>
-             </div>
-          </div>
-        )}
-
-        {/* Contenu principal divisé en deux colonnes */}
-        <div className="flex-1 overflow-auto p-8 grid grid-cols-1 lg:grid-cols-3 gap-8 bg-slate-50/50">
-          
-          {/* Colonne Gauche: Outils & Stats */}
-          <div className="lg:col-span-1 space-y-6">
-            
-            {/* WIDGET : PROGRAMMER UN RAPPEL */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] relative overflow-hidden">
-                <div className="absolute top-0 left-0 w-1 h-full bg-orange-400"></div>
-                <h4 className="font-extrabold text-slate-800 mb-4 font-poppins text-lg flex items-center gap-2"><CalendarClock className="text-orange-500" size={20}/> Programmer un Rappel</h4>
-                <div className="space-y-4">
-                    <input 
-                        type="text" 
-                        placeholder="Ex: Rappeler pour faire le point..." 
-                        value={reminderNote}
-                        onChange={e => setReminderNote(e.target.value)}
-                        className="w-full text-sm border-2 border-slate-100 bg-slate-50 p-3 rounded-xl outline-none focus:border-orange-400 focus:bg-white transition-colors"
-                    />
-                    <div className="grid grid-cols-3 gap-2">
-                        <button onClick={() => handleSetReminder(7)} className="py-2 text-[10px] font-bold uppercase tracking-wide bg-orange-50 text-orange-700 rounded-lg hover:bg-orange-100 border border-orange-100 transition-colors">+ 1 Sem.</button>
-                        <button onClick={() => handleSetReminder(30)} className="py-2 text-[10px] font-bold uppercase tracking-wide bg-orange-50 text-orange-700 rounded-lg hover:bg-orange-100 border border-orange-100 transition-colors">+ 1 Mois</button>
-                        <button onClick={() => handleSetReminder(90)} className="py-2 text-[10px] font-bold uppercase tracking-wide bg-orange-50 text-orange-700 rounded-lg hover:bg-orange-100 border border-orange-100 transition-colors">+ 3 Mois</button>
-                    </div>
-                </div>
-            </div>
-
-            {/* WIDGET : CAMPAGNES EN COURS */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]">
-               <h4 className="font-extrabold text-slate-800 mb-4 font-poppins text-lg flex items-center gap-2"><PlayCircle size={20} className="text-indigo-500"/> Campagnes en cours</h4>
-               {clientSimulations.length === 0 ? (
-                   <p className="text-xs text-slate-400 italic text-center py-4">Aucune campagne active.</p>
-               ) : (
-                   <div className="space-y-4">
-                       {clientSimulations.map(sim => {
-                           const duration = sim.duration || 30;
-                           const start = new Date(sim.createdAt);
-                           const diffDays = Math.max(0, Math.floor((new Date().getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
-                           const day = Math.min(diffDays, duration);
-                           const isFinished = day >= duration;
-                           const endDate = new Date(start.getTime() + duration * 24 * 60 * 60 * 1000);
-                           return (
-                               <div key={sim.id} className="p-4 rounded-xl border border-slate-100 bg-slate-50 relative overflow-hidden">
-                                   <div className="flex justify-between items-start mb-2 relative z-10">
-                                       <span className="font-bold text-sm text-slate-700 flex items-center gap-1"><Package size={14}/> {sim.productName}</span>
-                                       <span className={`text-[10px] px-2 py-1 rounded font-bold uppercase tracking-widest ${isFinished ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>{isFinished ? 'Terminé' : 'En cours'}</span>
-                                   </div>
-                                   <div className="w-full bg-slate-200 rounded-full h-1.5 mb-2 overflow-hidden relative z-10">
-                                       <div className={`h-full rounded-full transition-all ${isFinished ? 'bg-emerald-500' : 'bg-[#01189B]'}`} style={{ width: `${(day/duration)*100}%` }}></div>
-                                   </div>
-                                   <div className="flex justify-between text-[10px] text-slate-500 font-bold uppercase tracking-wider relative z-10">
-                                       <span>J-{day} / {duration}</span>
-                                       <span>Fin : {formatDate(endDate.toISOString())}</span>
-                                   </div>
-                               </div>
-                           )
-                       })}
+        {/* CONTENU PRINCIPAL AÉRÉ */}
+        <div className="flex-1 overflow-auto p-8 custom-scrollbar">
+           {isEditingContact && (
+               <div className="bg-white p-8 rounded-3xl border-2 border-[#01189B] shadow-lg mb-8 animate-fade-in relative">
+                   <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
+                       <h4 className="font-bold text-slate-800 font-poppins text-lg flex items-center gap-2"><Settings size={20} className="text-[#01189B]"/> Mode Édition du Profil</h4>
+                       <button onClick={() => setIsEditingContact(false)} className="text-slate-400 hover:text-slate-600"><X size={24}/></button>
                    </div>
-               )}
-            </div>
+                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+                      <div><label className={UI_CLASSES.label}>Société</label><input className={UI_CLASSES.input} value={editContactData.company || ''} onChange={e => setEditContactData({...editContactData, company: e.target.value})} /></div>
+                      <div><label className={UI_CLASSES.label}>Contact</label><input className={UI_CLASSES.input} value={editContactData.name || ''} onChange={e => setEditContactData({...editContactData, name: e.target.value})} /></div>
+                      <div><label className={UI_CLASSES.label}>Email</label><input className={UI_CLASSES.input} value={editContactData.email || ''} onChange={e => setEditContactData({...editContactData, email: e.target.value})} /></div>
+                      <div><label className={UI_CLASSES.label}>Téléphone</label><input className={UI_CLASSES.input} value={editContactData.phone || ''} onChange={e => setEditContactData({...editContactData, phone: e.target.value})} /></div>
+                      <div><label className={UI_CLASSES.label}>Google Sheet ID (Leads)</label><input className={UI_CLASSES.input} value={editContactData.googleSheetId || ''} onChange={e => setEditContactData({...editContactData, googleSheetId: e.target.value})} placeholder="ID GSheet du client" /></div>
+                      <div className="col-span-1 md:col-span-2 lg:col-span-3"><label className={UI_CLASSES.label}>Adresse complète (Facturation)</label><textarea className={`${UI_CLASSES.input} resize-none h-14`} value={editContactData.address || ''} onChange={e => setEditContactData({...editContactData, address: e.target.value})} /></div>
 
-            {/* WIDGET : HISTORIQUE FACTURES */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]">
-               <h4 className="font-extrabold text-slate-800 mb-4 font-poppins text-lg flex items-center gap-2"><FileText size={18} className="text-slate-400"/> Factures Associées</h4>
-               {clientInvoices.length === 0 ? (
-                 <p className="text-xs text-slate-400 italic text-center py-4">Aucune facture émise pour ce client.</p>
-               ) : (
-                 <div className="space-y-3">
-                   {clientInvoices.map(inv => (
-                     <div key={inv.id} onClick={() => { setCurrentInvoice(inv); setShowModal('invoice'); }} className="flex justify-between items-center p-3 bg-slate-50 border border-slate-100 rounded-xl cursor-pointer hover:border-[#01189B] hover:bg-white shadow-sm transition-all group">
-                       <div>
-                         <p className="font-bold text-slate-700 text-sm group-hover:text-[#01189B] transition-colors">{inv.id}</p>
-                         <p className="text-[10px] text-slate-400 font-bold uppercase">{formatDate(inv.date)}</p>
-                       </div>
-                       <div className="text-right">
-                         <p className="font-mono font-bold text-slate-800 text-sm">{renderCurrency(inv.amount)}</p>
-                         <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md ${INVOICE_STATUSES[inv.status]?.color || 'bg-slate-200 text-slate-600'}`}>{INVOICE_STATUSES[inv.status]?.label || inv.status}</span>
-                       </div>
-                     </div>
-                   ))}
-                 </div>
-               )}
-            </div>
+                      <div className="col-span-1 md:col-span-2 lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-6 p-5 bg-slate-50 rounded-2xl border border-slate-200">
+                          <div><label className={UI_CLASSES.label}>CA Historique (Manuel)</label><input type="number" className={UI_CLASSES.input} value={editContactData.manualCA || ''} onChange={e => setEditContactData({...editContactData, manualCA: e.target.value})} placeholder="Ajouter au CA global..." /></div>
+                          <div><label className={UI_CLASSES.label}>Bénéfice Historique (Manuel)</label><input type="number" className={UI_CLASSES.input} value={editContactData.manualBenefice || ''} onChange={e => setEditContactData({...editContactData, manualBenefice: e.target.value})} placeholder="Ajouter au bénéfice..." /></div>
+                      </div>
 
-          </div>
+                      <div><label className={UI_CLASSES.label}>Type de Contact</label>
+                        <select className={UI_CLASSES.input} value={editContactData.type || 'prospect'} onChange={e => setEditContactData({...editContactData, type: e.target.value})}>
+                          <option value="prospect">Prospect</option>
+                          <option value="client">Client</option>
+                        </select>
+                      </div>
 
-          {/* Colonne Droite: Notes et Historique */}
-          <div className="lg:col-span-2 flex flex-col h-full bg-white rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] overflow-hidden">
-             <div className="p-6 border-b border-slate-100 bg-white flex justify-between items-center">
-                 <h4 className="font-extrabold text-slate-800 flex items-center gap-2 font-poppins text-lg">
-                    <MessageSquare size={20} style={{ color: BRAND_COLOR }} /> Historique & Compte-Rendus
-                 </h4>
-                 <span className="text-xs font-bold text-slate-400 bg-slate-100 px-3 py-1 rounded-full">{contactInteractions.length} note(s)</span>
-             </div>
-             
-             <div className="flex-1 overflow-auto p-6 space-y-6 bg-slate-50/50 custom-scrollbar">
-                {contactInteractions.length === 0 ? (
-                  <div className="text-center text-slate-400 italic mt-16 flex flex-col items-center justify-center">
-                     <div className="w-20 h-20 bg-white border border-slate-100 shadow-sm rounded-full flex items-center justify-center mb-4"><MessageSquare size={32} className="text-slate-300"/></div>
-                     <p className="font-bold text-slate-600 mb-1">Aucune note pour le moment.</p>
-                     <p className="text-sm">Enregistrez le résumé de votre premier appel !</p>
+                      <div><label className={UI_CLASSES.label}>Provenance / Source</label>
+                        <select className={UI_CLASSES.input} value={editContactData.source || ''} onChange={e => setEditContactData({...editContactData, source: e.target.value})}>
+                          <option value="">-- Non définie --</option>
+                          <option value="Recommandation">Recommandation</option>
+                          <option value="Call froid">Call froid</option>
+                          <option value="Lead site internet">Lead site internet</option>
+                          <option value="LinkedIn">LinkedIn</option>
+                          <option value="Autre">Autre</option>
+                        </select>
+                      </div>
+
+                      {editContactData.source === 'Recommandation' && (
+                          <div><label className={UI_CLASSES.label}>Nom de la Recommandation</label>
+                              <input className={UI_CLASSES.input} value={editContactData.sourceDetails || ''} onChange={e => setEditContactData({...editContactData, sourceDetails: e.target.value})} placeholder="Recommandé par..." />
+                          </div>
+                      )}
+
+                      <div><label className={UI_CLASSES.label}>Statut Pipeline</label>
+                        <select className={`${UI_CLASSES.input} text-[#01189B] font-bold`} value={editContactData.status || 'nouveau'} onChange={e => setEditContactData({...editContactData, status: e.target.value})}>
+                          {PIPELINE_STAGES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+                        </select>
+                      </div>
+                      <div><label className={UI_CLASSES.label}>Intérêt Principal (Campagne)</label>
+                        <select className={UI_CLASSES.input} value={editContactData.interestedProductId || ''} onChange={e => setEditContactData({...editContactData, interestedProductId: e.target.value})}>
+                          <option value="">-- Non défini --</option>
+                          {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                        </select>
+                      </div>
+
+                      <div className="col-span-1 md:col-span-2 lg:col-span-3 pt-4 border-t border-slate-200">
+                          <label className={UI_CLASSES.label}>Audience Ciblée</label>
+                          <div className="flex gap-3 mt-3">
+                              {['Résident', 'Frontalier', 'Les deux'].map(aud => (
+                                  <button
+                                      key={aud} type="button" onClick={() => setEditContactData({...editContactData, targetAudience: aud})}
+                                      className={`px-5 py-2.5 rounded-xl text-sm font-bold border-2 transition-all ${editContactData.targetAudience === aud ? 'border-[#01189B] bg-blue-50 text-[#01189B] shadow-sm' : 'border-slate-200 text-slate-500 bg-white hover:border-slate-300'}`}
+                                  >
+                                      {aud}
+                                  </button>
+                              ))}
+                          </div>
+                      </div>
+
+                      <div className="col-span-1 md:col-span-2 lg:col-span-3">
+                          <label className={UI_CLASSES.label}>Services & Produits vendus par ce client</label>
+                          <div className="flex flex-wrap gap-2 mt-3">
+                              {['LAMal', 'LCA', '3ème Pilier', 'LPP', 'Prévoyance', 'Assurance Vie', 'Hypothèque', 'Fiscalité'].map(prod => {
+                                  const isActive = (editContactData.offeredProducts || []).includes(prod);
+                                  return (
+                                      <button
+                                          key={prod} type="button"
+                                          onClick={() => {
+                                              const current = editContactData.offeredProducts || [];
+                                              setEditContactData({ ...editContactData, offeredProducts: isActive ? current.filter((p: string) => p !== prod) : [...current, prod] });
+                                          }}
+                                          className={`px-4 py-2 rounded-xl text-xs font-bold border-2 transition-all shadow-sm ${isActive ? 'bg-[#01189B] text-white border-[#01189B]' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'}`}
+                                      >
+                                          {isActive ? '✓ ' : '+ '}{prod}
+                                      </button>
+                                  )
+                              })}
+                          </div>
+                      </div>
+
+                   </div>
+                   <div className="flex gap-4 justify-end mt-6 pt-6 border-t border-slate-200">
+                     <button onClick={handleSaveContactEdit} className="px-8 py-3.5 text-white rounded-xl font-bold hover:shadow-lg transition-all text-lg" style={{ backgroundColor: BRAND_COLOR }}><CheckCircle size={20} className="inline mr-2"/> Mettre à jour</button>
+                   </div>
+               </div>
+           )}
+
+           {!isEditingContact && (
+              <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 max-w-7xl mx-auto">
+                  
+                  {/* COLONNE GAUCHE: INFOS & KPIS */}
+                  <div className="lg:col-span-1 space-y-6">
+                      <div className="bg-white p-7 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.03)] relative overflow-hidden">
+                          <div className="absolute top-0 right-0 w-24 h-24 bg-blue-50 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none"></div>
+                          <h4 className="font-extrabold text-slate-800 mb-6 text-sm uppercase tracking-widest flex items-center gap-2 relative z-10"><Info size={16} className="text-[#01189B]"/> Coordonnées</h4>
+                          
+                          <div className="space-y-5 text-sm font-medium text-slate-600 relative z-10">
+                              {selectedContact.email && <div className="flex items-center gap-3"><Mail size={16} className="text-slate-400 shrink-0"/> <span className="truncate">{selectedContact.email}</span></div>}
+                              {selectedContact.phone && <div className="flex items-center gap-3"><Clock size={16} className="text-slate-400 shrink-0"/> <span>{selectedContact.phone}</span></div>}
+                              {selectedContact.address && <div className="flex items-start gap-3"><MapPin size={16} className="text-slate-400 shrink-0 mt-0.5"/> <span className="leading-relaxed">{selectedContact.address}</span></div>}
+                          </div>
+                          
+                          <div className="mt-6 pt-6 border-t border-slate-100 space-y-4 relative z-10">
+                              {selectedContact.source && (
+                                  <div>
+                                      <p className="text-[10px] text-slate-400 uppercase font-bold mb-1">Source d'acquisition</p>
+                                      <p className="text-sm font-bold text-slate-700 flex items-center gap-1.5"><Globe size={14} className="text-slate-400"/> {selectedContact.source} {selectedContact.sourceDetails ? `(${selectedContact.sourceDetails})` : ''}</p>
+                                  </div>
+                              )}
+                              {(selectedContact.offeredProducts || []).length > 0 && (
+                                  <div>
+                                      <p className="text-[10px] text-slate-400 uppercase font-bold mb-2">Expertise / Produits</p>
+                                      <div className="flex flex-wrap gap-2">
+                                          {(selectedContact.offeredProducts || []).map((p: string) => (
+                                              <span key={p} className="bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-bold px-2 py-1 rounded-md">{p}</span>
+                                          ))}
+                                      </div>
+                                  </div>
+                              )}
+                          </div>
+                      </div>
+
+                      {/* KPIS CA / BÉNÉFICE */}
+                      <div className="bg-gradient-to-br from-[#01189B] to-blue-800 p-7 rounded-3xl shadow-lg text-white relative overflow-hidden">
+                          <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none"></div>
+                          
+                          <div className="relative z-10 mb-6">
+                              <p className="text-blue-200 text-[10px] font-bold uppercase tracking-widest mb-1 flex items-center gap-1.5"><Wallet size={14}/> CA Total Encaissé</p>
+                              <p className="text-3xl font-black font-mono">{renderCurrency(caEncaisse)}</p>
+                          </div>
+                          
+                          <div className="bg-black/20 p-4 rounded-2xl backdrop-blur-sm border border-white/10 relative z-10">
+                              <p className="text-emerald-300 text-[10px] font-bold uppercase tracking-widest mb-1 flex items-center gap-1.5"><TrendingUp size={14}/> Bénéfice Net Généré</p>
+                              <p className="text-2xl font-bold font-mono text-emerald-400">{renderCurrency(beneficeTotalClient)}</p>
+                          </div>
+                      </div>
+
+                      <button onClick={() => handleDelete('contacts', selectedContact.id)} className="w-full py-4 bg-white border border-red-100 text-red-500 font-bold rounded-2xl hover:bg-red-50 hover:border-red-200 transition-colors shadow-sm flex items-center justify-center gap-2 text-sm">
+                          <Trash2 size={18}/> Supprimer la fiche client
+                      </button>
                   </div>
-                ) : (
-                  contactInteractions.map(interaction => (
-                    <div key={interaction.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm relative group hover:border-[#01189B] transition-colors">
-                       <button onClick={() => handleDelete('interactions', interaction.id)} className="absolute top-4 right-4 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity bg-red-50 p-1.5 rounded-lg">
-                         <Trash2 size={16}/>
-                       </button>
-                       <div className="flex items-center gap-2 mb-3">
-                           <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center"><Clock size={14} style={{ color: BRAND_COLOR }}/></div>
-                           <p className="text-xs text-slate-400 font-bold uppercase tracking-wide">{formatDateTime(interaction.createdAt)}</p>
-                       </div>
-                       <p className="text-slate-700 whitespace-pre-wrap text-sm leading-relaxed pl-10">{interaction.content}</p>
-                    </div>
-                  ))
-                )}
-             </div>
 
-             <div className="p-6 bg-white border-t border-slate-100 shadow-[0_-10px_30px_rgb(0,0,0,0.02)] relative z-10">
-                <div className="relative">
-                  <textarea 
-                    value={newNoteContent} 
-                    onChange={e => setNewNoteContent(e.target.value)} 
-                    placeholder="Saisissez le compte-rendu du rendez-vous, une info importante..."
-                    className="w-full border-2 border-slate-200 bg-slate-50 rounded-xl p-4 pr-16 h-28 outline-none focus:border-[#01189B] focus:bg-white resize-none text-sm transition-colors shadow-inner"
-                  />
-                  <button onClick={handleAddQuickNote} className="absolute bottom-4 right-4 p-3 text-white rounded-xl hover:shadow-lg hover:-translate-y-0.5 transition-all disabled:opacity-50" style={{ backgroundColor: BRAND_COLOR }} disabled={!newNoteContent.trim()}>
-                    <Send size={18}/>
-                  </button>
-                </div>
-             </div>
-          </div>
+                  {/* COLONNE DROITE: ACTIVITÉ & NOTES */}
+                  <div className="lg:col-span-3 space-y-6 flex flex-col">
+                      
+                      {/* WIDGETS HORIZONTAUX : RAPPEL / FACTURES */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 shrink-0">
+                          <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.03)] hover:border-[#01189B] transition-colors">
+                              <h4 className="font-extrabold text-slate-800 mb-4 font-poppins flex items-center gap-2 text-sm uppercase tracking-widest"><CalendarClock className="text-orange-500" size={18}/> Programmer un Rappel</h4>
+                              <div className="flex gap-3">
+                                  <input type="text" placeholder="Note pour le rappel..." value={reminderNote} onChange={e => setReminderNote(e.target.value)} className="flex-1 text-sm border-2 border-slate-100 bg-slate-50 p-3 rounded-xl outline-none focus:border-orange-400 transition-colors" />
+                                  <button onClick={() => handleSetReminder(7)} className="px-5 bg-orange-50 text-orange-700 font-bold rounded-xl hover:bg-orange-100 border border-orange-100 transition-colors text-sm shrink-0">+ 7J</button>
+                              </div>
+                          </div>
+                          
+                          <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.03)] hover:border-[#01189B] transition-colors">
+                              <div className="flex justify-between items-center mb-4">
+                                  <h4 className="font-extrabold text-slate-800 font-poppins flex items-center gap-2 text-sm uppercase tracking-widest"><FileText className="text-[#01189B]" size={18}/> Factures Liées</h4>
+                                  <span className="bg-blue-50 text-[#01189B] text-xs font-bold px-2 py-0.5 rounded-md">{clientInvoices.length}</span>
+                              </div>
+                              <div className="flex gap-3 overflow-x-auto custom-scrollbar pb-2">
+                                  {clientInvoices.length === 0 ? <p className="text-sm text-slate-400 italic">Aucune facture émise.</p> : clientInvoices.map(inv => (
+                                      <div key={inv.id} onClick={() => { setCurrentInvoice(inv); setShowModal('invoice'); }} className="shrink-0 p-3 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer hover:border-[#01189B] hover:bg-white shadow-sm transition-all min-w-[150px]">
+                                          <p className="font-extrabold text-slate-800 text-sm font-mono">{renderCurrency(inv.amount)}</p>
+                                          <p className={`text-[10px] font-bold uppercase tracking-widest mt-1.5 px-2 py-0.5 rounded inline-block ${INVOICE_STATUSES[inv.status]?.color || 'bg-slate-200 text-slate-600'}`}>{INVOICE_STATUSES[inv.status]?.label}</p>
+                                      </div>
+                                  ))}
+                              </div>
+                          </div>
+                      </div>
 
+                      {/* COMPTE-RENDUS / NOTES */}
+                      <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.03)] flex flex-col flex-1 min-h-[400px]">
+                          <div className="p-6 border-b border-slate-100 flex justify-between items-center shrink-0">
+                              <h4 className="font-extrabold text-slate-800 flex items-center gap-2 font-poppins text-lg">
+                                  <MessageSquare size={22} style={{ color: BRAND_COLOR }} /> Compte-Rendus & Historique
+                              </h4>
+                              <span className="text-xs font-bold text-slate-400 bg-slate-100 px-3 py-1.5 rounded-lg">{contactInteractions.length} notes</span>
+                          </div>
+                          
+                          <div className="flex-1 overflow-auto p-6 space-y-5 bg-slate-50/30 custom-scrollbar">
+                              {contactInteractions.length === 0 ? (
+                                  <div className="text-center text-slate-400 italic mt-16 flex flex-col items-center justify-center">
+                                      <div className="w-16 h-16 bg-white border border-slate-200 rounded-full flex items-center justify-center mb-4 shadow-sm"><MessageSquare size={24} className="text-slate-300"/></div>
+                                      <p className="font-bold text-slate-600 mb-1">Aucune note pour le moment.</p>
+                                      <p className="text-sm">Enregistrez le résumé de votre premier échange !</p>
+                                  </div>
+                              ) : (
+                                  contactInteractions.map(interaction => (
+                                      <div key={interaction.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm relative group hover:border-[#01189B] transition-colors">
+                                          <button onClick={() => handleDelete('interactions', interaction.id)} className="absolute top-4 right-4 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity bg-red-50 p-1.5 rounded-lg">
+                                              <Trash2 size={16}/>
+                                          </button>
+                                          <div className="flex items-center gap-2 mb-3">
+                                              <div className="w-6 h-6 rounded-full bg-blue-50 flex items-center justify-center text-[#01189B]"><Clock size={12}/></div>
+                                              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{formatDateTime(interaction.createdAt)}</p>
+                                          </div>
+                                          <p className="text-slate-700 whitespace-pre-wrap text-sm leading-relaxed pl-8">{interaction.content}</p>
+                                      </div>
+                                  ))
+                              )}
+                          </div>
+
+                          <div className="p-6 bg-white border-t border-slate-100 rounded-b-3xl shrink-0">
+                              <div className="flex gap-4">
+                                  <textarea 
+                                      value={newNoteContent} 
+                                      onChange={e => setNewNoteContent(e.target.value)} 
+                                      placeholder="Saisissez le compte-rendu du rendez-vous..."
+                                      className="flex-1 border-2 border-slate-200 bg-slate-50 rounded-xl p-4 outline-none focus:border-[#01189B] focus:bg-white resize-none text-sm transition-colors h-20 custom-scrollbar"
+                                  />
+                                  <button onClick={handleAddQuickNote} disabled={!newNoteContent.trim()} className="px-8 text-white rounded-xl font-bold hover:shadow-lg transition-all disabled:opacity-50 flex items-center gap-2" style={{ backgroundColor: BRAND_COLOR }}>
+                                      <Send size={18}/> Envoyer
+                                  </button>
+                              </div>
+                          </div>
+                      </div>
+
+                  </div>
+              </div>
+           )}
         </div>
       </div>
     );
@@ -3089,7 +3059,8 @@ export default function App() {
               { id: 'contacts', label: 'CRM', icon: Users },
               { id: 'prospection', label: 'Prospection', icon: Mail },
               { id: 'deliveries', label: 'Suivi Livraisons', icon: Activity },
-              { id: 'calendar', label: 'Cycles Actifs', icon: CalendarIcon },
+              { id: 'calendar', label: 'Campagnes & Objectifs', icon: Target },
+              { id: 'ponderation', label: 'Pondération', icon: PieChart },
               { id: 'invoices', label: 'Facturation', icon: FileText },
               { id: 'products', label: 'Catalogue Offres', icon: Package },
               { id: 'projections', label: 'Production Média', icon: Calculator },
@@ -3161,7 +3132,7 @@ export default function App() {
                   <div className="max-w-6xl mx-auto animate-fade-in space-y-8 pb-12">
                       <div className="flex justify-between items-center mb-2">
                         <h2 className={UI_CLASSES.title}>
-                          <CalendarIcon size={32} style={{ color: BRAND_COLOR }}/> Cycles de Livraison Actifs
+                          <Target size={32} style={{ color: BRAND_COLOR }}/> Campagnes & Objectifs
                         </h2>
                       </div>
                       <p className="text-slate-500 text-lg mb-8">Vue d'ensemble graphique de l'avancement de vos productions média en cours.</p>
@@ -3230,104 +3201,128 @@ export default function App() {
                           })}
                         </div>
                       )}
+                  </div>
+              )}
 
-                      {/* --- NOUVEAU : OUTIL DE PONDERATION ET SCRIPT --- */}
-                      <div className="mt-12 bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
-                          <div className="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => setShowScriptGenerator(!showScriptGenerator)}>
-                              <div>
-                                  <h3 className="text-xl font-extrabold text-slate-800 font-poppins flex items-center gap-3"><Settings style={{ color: BRAND_COLOR }} size={24}/> Outil de Pondération & Script de Distribution</h3>
-                                  <p className="text-slate-500 text-sm mt-1">Générez un script Google Apps Script automatisé pour distribuer les leads selon le poids (volume cible) des cycles actifs.</p>
-                              </div>
-                              <button className="p-2 text-slate-400 hover:text-[#01189B] bg-white rounded-xl shadow-sm border border-slate-200">
-                                  <ChevronLeft size={20} className={showScriptGenerator ? "rotate-90 transition-transform" : "-rotate-90 transition-transform"} />
-                              </button>
-                          </div>
-                          
-                          {showScriptGenerator && (() => {
-                              const activeSimsForScript = simulations.filter(sim => {
-                                  const duration = sim.duration || 30;
-                                  const start = new Date(sim.createdAt);
-                                  const diffDays = Math.max(0, Math.floor((new Date().getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
-                                  if (diffDays >= duration) return false;
-                                  if (scriptProductId && sim.productId !== scriptProductId) return false;
-                                  return true;
-                              });
+              {activeView === 'ponderation' && (() => {
+                  const loadScriptConfig = (id: string) => {
+                      if (!id) {
+                          setCurrentScriptId(null); setScriptName(''); setScriptProductId(''); setManualWeights([]); 
+                          setEnablePacing(true); setPacingTargetSize(20);
+                          setScriptGlobalSheetId(''); setScriptGlobalTabName('Distribution'); setScriptPhoneColIndex(6);
+                          return;
+                      }
+                      const conf = (settings.distributionScripts || []).find((s:any) => s.id === id);
+                      if (conf) {
+                          setCurrentScriptId(conf.id); setScriptName(conf.name); setScriptProductId(conf.productId || ''); setManualWeights(conf.manuals || []);
+                          setEnablePacing(conf.enablePacing !== false); setPacingTargetSize(conf.pacingTargetSize || 20);
+                          setScriptGlobalSheetId(conf.sheetId || ''); setScriptGlobalTabName(conf.tabName || 'Distribution'); setScriptPhoneColIndex(conf.phoneCol || 6);
+                      }
+                  };
 
-                              const loadScriptConfig = (id: string) => {
-                                  if (!id) {
-                                      setCurrentScriptId(null); setScriptName(''); setScriptProductId(''); setScriptGlobalSheetId(''); setScriptGlobalTabName('Distribution'); setScriptPhoneColIndex(6); setWeightOverrides({}); setManualWeights([]);
-                                      return;
-                                  }
-                                  const conf = (settings.distributionScripts || []).find((s:any) => s.id === id);
-                                  if (conf) {
-                                      setCurrentScriptId(conf.id); setScriptName(conf.name); setScriptProductId(conf.productId || ''); setScriptGlobalSheetId(conf.sheetId || ''); setScriptGlobalTabName(conf.tabName || 'Distribution'); setScriptPhoneColIndex(conf.phoneCol || 6); setWeightOverrides(conf.overrides || {}); setManualWeights(conf.manuals || []);
-                                  }
-                              };
+                  const saveScriptConfig = () => {
+                      if (!scriptName) return addNotification('error', 'Veuillez donner un nom à cette configuration.');
+                      const newConf = { id: currentScriptId || Math.random().toString(36).substr(2, 9), name: scriptName, productId: scriptProductId, manuals: manualWeights, enablePacing, pacingTargetSize, sheetId: scriptGlobalSheetId, tabName: scriptGlobalTabName, phoneCol: scriptPhoneColIndex };
+                      let list = [...(settings.distributionScripts || [])];
+                      if (currentScriptId) list = list.map(s => s.id === currentScriptId ? newConf : s);
+                      else list.push(newConf);
+                      handleSaveSettingsDirect({ distributionScripts: list });
+                      setCurrentScriptId(newConf.id);
+                      addNotification('success', 'Configuration sauvegardée !');
+                  };
+                  
+                  const deleteScriptConfig = () => {
+                      if (!currentScriptId) return;
+                      openConfirm('Supprimer cette configuration ?', 'Cette action est irréversible.', () => {
+                          const list = (settings.distributionScripts || []).filter((s:any) => s.id !== currentScriptId);
+                          handleSaveSettingsDirect({ distributionScripts: list });
+                          loadScriptConfig('');
+                      });
+                  };
 
-                              const saveScriptConfig = () => {
-                                  if (!scriptName) return addNotification('error', 'Veuillez donner un nom à ce script.');
-                                  const newConf = { id: currentScriptId || Math.random().toString(36).substr(2, 9), name: scriptName, productId: scriptProductId, sheetId: scriptGlobalSheetId, tabName: scriptGlobalTabName, phoneCol: scriptPhoneColIndex, overrides: weightOverrides, manuals: manualWeights };
-                                  let list = [...(settings.distributionScripts || [])];
-                                  if (currentScriptId) list = list.map(s => s.id === currentScriptId ? newConf : s);
-                                  else list.push(newConf);
-                                  handleSaveSettingsDirect({ distributionScripts: list });
-                                  setCurrentScriptId(newConf.id);
-                                  addNotification('success', 'Configuration du script sauvegardée !');
-                              };
-                              
-                              const deleteScriptConfig = () => {
-                                  if (!currentScriptId) return;
-                                  openConfirm('Supprimer ce script ?', 'Cette configuration sera perdue.', () => {
-                                      const list = (settings.distributionScripts || []).filter((s:any) => s.id !== currentScriptId);
-                                      handleSaveSettingsDirect({ distributionScripts: list });
-                                      loadScriptConfig('');
-                                  });
-                              };
+                  const handleAddManualWeight = () => {
+                      const inputValue = manualWeightClient.trim();
+                      if (!inputValue) return addNotification('error', 'Veuillez saisir le nom d\'un client.');
+                      if(manualWeightBudget <= 0) return addNotification('error', 'Veuillez définir un budget.');
+                      
+                      setManualWeights([...manualWeights, {
+                          id: Math.random().toString(36).substr(2,9),
+                          clientId: inputValue,
+                          name: inputValue,
+                          budget: manualWeightBudget,
+                          maxDaily: manualWeightMaxDaily,
+                          maxTotal: manualWeightMaxTotal,
+                          residentOnly: manualWeightResidentOnly,
+                          sheetId: manualWeightSheetId
+                      }]);
+                      addNotification('success', 'Client ajouté au calcul !');
+                      setManualWeightClient(''); 
+                      setManualWeightMaxDaily(''); 
+                      setManualWeightMaxTotal('');
+                      setManualWeightResidentOnly(false);
+                      setManualWeightSheetId('');
+                  };
 
-                              const handleAddManualWeight = () => {
-                                  const c = contacts.find((x: any) => x.id === manualWeightClient);
-                                  if(!c) return addNotification('error', 'Sélectionnez un client dans la liste.');
-                                  if(!c.googleSheetId) return addNotification('error', "Ce client n'a pas d'ID Google Sheet sur sa fiche CRM.");
-                                  if(manualWeightCpl <= 0) return addNotification('error', 'Le CPL prévu doit être supérieur à 0.');
-                                  
-                                  const weight = Math.floor(manualWeightBudget / manualWeightCpl);
-                                  setManualWeights([...manualWeights, {
-                                      id: Math.random().toString(36).substr(2,9),
-                                      clientId: c.id,
-                                      name: c.company || c.name,
-                                      sheetId: c.googleSheetId,
-                                      budget: manualWeightBudget,
-                                      cpl: manualWeightCpl,
-                                      weight
-                                  }]);
-                                  addNotification('success', 'Client ajouté manuellement au cycle !');
-                              };
+                  // --- CALCUL DE LA PONDÉRATION BASÉE SUR LE BUDGET ---
+                  let totalActiveBudget = manualWeights.reduce((acc, mw) => acc + Number(mw.budget || 0), 0);
+                  let cycleData: any[] = [];
+                  
+                  if (enablePacing && totalActiveBudget > 0) {
+                      cycleData = manualWeights.map(mw => {
+                          const b = Math.round(Number(mw.budget || 0));
+                          let parts = Math.max(1, Math.round((b / totalActiveBudget) * pacingTargetSize));
+                          return { ...mw, parts };
+                      });
+                  } else {
+                      const getGCD = (a: number, b: number): number => b === 0 ? a : getGCD(b, a % b);
+                      let gcdVal = 0;
+                      const validBudgets = manualWeights.map(mw => Math.round(Number(mw.budget || 0))).filter(b => b > 0);
+                      if (validBudgets.length > 0) {
+                          gcdVal = validBudgets[0];
+                          for (let i = 1; i < validBudgets.length; i++) {
+                              gcdVal = getGCD(gcdVal, validBudgets[i]);
+                          }
+                      }
+                      
+                      cycleData = manualWeights.map(mw => {
+                          const b = Math.round(Number(mw.budget || 0));
+                          let parts = gcdVal > 0 ? b / gcdVal : 0;
+                          return { ...mw, parts };
+                      });
+                  }
 
-                              const combinedAgents: any[] = [];
-                              activeSimsForScript.forEach(sim => {
-                                  const client = contacts.find(c => c.id === sim.clientId);
-                                  if (client?.googleSheetId) {
-                                      const autoWeight = sim.stats?.volumeTotal || 0;
-                                      const finalWeight = weightOverrides[sim.id] !== undefined ? weightOverrides[sim.id] : autoWeight;
-                                      combinedAgents.push({ name: sim.clientName, fileId: client.googleSheetId, sheetName: "Feuille 1", weight: finalWeight, isAuto: true, id: sim.id, autoWeight });
-                                  }
-                              });
+                  let totalCycleParts = cycleData.reduce((acc, mw) => acc + mw.parts, 0);
+                  
+                  // Lissage par entrelacement (Weighted Round Robin) pour éviter qu'un client reçoive tout d'un coup
+                  let sequence: string[] = [];
+                  if (totalCycleParts > 0 && totalCycleParts <= 1000) {
+                      let items = cycleData.map(c => ({ name: c.name, weight: c.parts, current: 0 })).filter(c => c.weight > 0);
+                      for (let i = 0; i < totalCycleParts; i++) {
+                          let maxItem = null;
+                          let maxVal = -Infinity;
+                          for (let item of items) {
+                              item.current += item.weight;
+                              if (item.current > maxVal) {
+                                  maxVal = item.current;
+                                  maxItem = item;
+                              }
+                          }
+                          if (maxItem) {
+                              maxItem.current -= totalCycleParts;
+                              sequence.push(maxItem.name);
+                          }
+                      }
+                  }
 
-                              manualWeights.forEach(mw => {
-                                  const finalWeight = weightOverrides[mw.id] !== undefined ? weightOverrides[mw.id] : mw.weight;
-                                  combinedAgents.push({ name: mw.name, fileId: mw.sheetId, sheetName: "Feuille 1", weight: finalWeight, isAuto: false, id: mw.id, autoWeight: mw.weight });
-                              });
-
-                              const totalWeight = combinedAgents.reduce((acc, a) => acc + a.weight, 0);
-
-                              const scriptContent = `// Script de distribution généré par LeadPartner CRM
-// Modèle avec redistribution automatique et gestion de dette (OKK ou équivalent)
-
+                  const scriptContent = `/**
+ * Redistribution automatique des leads (Séquence Lissée)
+ * Généré par LeadPartner CRM
+ */
 function redistributeLeads() {
-  const FILE_ID = "${scriptGlobalSheetId || "VOTRE_FICHIER_SOURCE_ID_ICI"}"; // Remplacer par l'ID du GSheet global de réception
+  const FILE_ID = "${scriptGlobalSheetId || "ID_FICHIER_SOURCE"}";
   const SOURCE_SHEET_NAME = "${scriptGlobalTabName || "Distribution"}";
   const START_ROW = 2;
-  const PHONE_INDEX_IN_LEAD = ${Math.max(0, scriptPhoneColIndex - 1)}; // Index ${Math.max(0, scriptPhoneColIndex - 1)} = Colonne ${String.fromCharCode(64 + scriptPhoneColIndex)} (0-based)
+  const PHONE_INDEX_IN_LEAD = ${Math.max(0, scriptPhoneColIndex - 1)}; // Index 0-based
 
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -3337,23 +3332,23 @@ function redistributeLeads() {
     const feuille = ss.getSheetByName(SOURCE_SHEET_NAME);
     if (!feuille) throw new Error('Onglet "Distribution" introuvable.');
 
-    // === CONFIG AGENTS + PONDÉRATIONS ===
-    const agents = [
-${combinedAgents.map(a => `      { name: "${a.name}", fileId: "${a.fileId}", sheetName: "${a.sheetName}", weight: ${a.weight} }`).join(',\n')}
-    ];
+    // === CONFIG AGENTS ===
+    const agentsMap = {
+${manualWeights.map(mw => `      "${mw.name}": { name: "${mw.name}", fileId: "${mw.sheetId || 'ID_FICHIER_CIBLE'}", sheetName: "Feuille 1", residentOnly: ${mw.residentOnly ? 'true' : 'false'}, maxLeads: ${mw.maxTotal || 'null'} }`).join(',\n')}
+    };
 
-    const cycle = [];
-    agents.forEach(a => {
-      for (let i = 0; i < a.weight; i++) cycle.push(a);
-    });
+    // === CYCLE LISSÉ ===
+    const cycleNames = ${JSON.stringify(sequence)};
+    const cycle = cycleNames.map(name => agentsMap[name]).filter(Boolean);
+
     if (cycle.length === 0) throw new Error("Cycle vide.");
 
     const props = PropertiesService.getScriptProperties();
     let currentIndex = parseInt(props.getProperty("currentAgentIndex") || "0", 10);
     if (isNaN(currentIndex) || currentIndex >= cycle.length) currentIndex = 0;
 
-    let pendingOKK = parseInt(props.getProperty("pendingOKK") || "0", 10);
-    if (isNaN(pendingOKK) || pendingOKK < 0) pendingOKK = 0;
+    let pending = JSON.parse(props.getProperty("pendingDebts") || "{}");
+    let leadsCount = JSON.parse(props.getProperty("leadsCount") || "{}");
 
     const lastRow = feuille.getLastRow();
     if (lastRow < START_ROW) return;
@@ -3361,9 +3356,6 @@ ${combinedAgents.map(a => `      { name: "${a.name}", fileId: "${a.fileId}", she
     const nbRows = lastRow - START_ROW + 1;
     const data = feuille.getRange(START_ROW, 1, nbRows, 7).getValues();
     const status = feuille.getRange(START_ROW, 8, nbRows, 1).getValues();
-
-    // Note : On se base sur le nom qui contient 'OKK' (ou adaptez selon votre besoin réel)
-    const okkAgent = agents.find(a => a.name.includes("OKK"));
 
     let leadsEnvoyes = 0;
 
@@ -3377,27 +3369,49 @@ ${combinedAgents.map(a => `      { name: "${a.name}", fileId: "${a.fileId}", she
       const phoneNorm = normalizePhone(phoneRaw);
       const isPlus41 = phoneNorm.startsWith("+41");
 
-      if (pendingOKK > 0 && isPlus41 && okkAgent) {
-        if (envoyerLead(okkAgent, lead)) {
-          feuille.getRange(rowIndex, 8).setValue(okkAgent.name);
-          feuille.getRange(rowIndex, 10).setValue(\`CYCLE | RATTRAPAGE (reste \${pendingOKK - 1}) | \${okkAgent.name}\`);
-          pendingOKK--;
-          leadsEnvoyes++;
-          continue;
+      // 1. PRIORITÉ : Rattrapage des dettes (Resident Only)
+      let rattrapageFait = false;
+      if (isPlus41) {
+        for (let agentName in pending) {
+          if (pending[agentName] > 0) {
+            const agent = agentsMap[agentName];
+            if (!agent) continue;
+            if (agent.maxLeads && (leadsCount[agent.name] || 0) >= agent.maxLeads) continue;
+
+            if (envoyerLead(agent, lead)) {
+              feuille.getRange(rowIndex, 8).setValue(agent.name);
+              feuille.getRange(rowIndex, 10).setValue(\`CYCLE | RATTRAPAGE (reste \${pending[agentName] - 1}) | \${agent.name}\`);
+              pending[agentName]--;
+              leadsCount[agent.name] = (leadsCount[agent.name] || 0) + 1;
+              leadsEnvoyes++;
+              rattrapageFait = true;
+              break;
+            }
+          }
         }
       }
+      if (rattrapageFait) continue;
 
+      // 2. Assignation normale
       let tries = 0;
       let assigned = false;
-      let okkDeferredThisLead = 0;
+      let deferredLogs = [];
 
       while (tries < cycle.length && !assigned) {
         const agent = cycle[currentIndex];
         const usedIndexForThisLead = currentIndex;
 
-        if (agent.name.includes("OKK") && !isPlus41) {
-          pendingOKK++;
-          okkDeferredThisLead++;
+        // Arbitrage: Quota max atteint ?
+        if (agent.maxLeads && (leadsCount[agent.name] || 0) >= agent.maxLeads) {
+            currentIndex = (currentIndex + 1) % cycle.length;
+            tries++;
+            continue;
+        }
+
+        // Arbitrage: Résident uniquement ?
+        if (agent.residentOnly && !isPlus41) {
+          pending[agent.name] = (pending[agent.name] || 0) + 1;
+          deferredLogs.push(agent.name);
           currentIndex = (currentIndex + 1) % cycle.length;
           tries++;
           continue;
@@ -3406,11 +3420,12 @@ ${combinedAgents.map(a => `      { name: "${a.name}", fileId: "${a.fileId}", she
         if (envoyerLead(agent, lead)) {
           feuille.getRange(rowIndex, 8).setValue(agent.name);
           let log = \`CYCLE | \${usedIndexForThisLead + 1}/\${cycle.length} | \${agent.name}\`;
-          if (okkDeferredThisLead > 0) {
-            log += \` | ATTENTE OKK (+\${okkDeferredThisLead}, dette=\${pendingOKK})\`;
+          if (deferredLogs.length > 0) {
+            log += \` | ATTENTE: \${deferredLogs.join(',')}\`;
           }
           feuille.getRange(rowIndex, 10).setValue(log);
 
+          leadsCount[agent.name] = (leadsCount[agent.name] || 0) + 1;
           leadsEnvoyes++;
           currentIndex = (currentIndex + 1) % cycle.length;
           assigned = true;
@@ -3422,7 +3437,8 @@ ${combinedAgents.map(a => `      { name: "${a.name}", fileId: "${a.fileId}", she
     }
 
     props.setProperty("currentAgentIndex", String(currentIndex));
-    props.setProperty("pendingOKK", String(pendingOKK));
+    props.setProperty("pendingDebts", JSON.stringify(pending));
+    props.setProperty("leadsCount", JSON.stringify(leadsCount));
 
   } catch (e) {
     Logger.log("Erreur : " + e.message);
@@ -3448,126 +3464,229 @@ function envoyerLead(agent, ligne) {
   }
 }`;
 
-                              return (
-                                  <div className="p-6 animate-fade-in border-t border-slate-100">
-                                      <div className="mb-6 bg-slate-50 p-5 rounded-2xl border border-slate-200">
-                                          <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-4 pb-4 border-b border-slate-200">
-                                              <div className="flex items-center gap-3 w-full md:w-auto">
-                                                  <select value={currentScriptId || ''} onChange={e => loadScriptConfig(e.target.value)} className="w-full md:w-64 border-2 border-slate-200 p-2 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-[#01189B]">
-                                                      <option value="">-- Créer un nouveau script --</option>
-                                                      {(settings.distributionScripts || []).map((s:any) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                                                  </select>
-                                                  {currentScriptId && <button onClick={deleteScriptConfig} className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors shrink-0" title="Supprimer ce script"><Trash2 size={16}/></button>}
-                                              </div>
-                                              <div className="flex items-center gap-3 w-full md:w-auto">
-                                                  <input type="text" placeholder="Nom du script (ex: 3P Meta)..." value={scriptName} onChange={e => setScriptName(e.target.value)} className="w-full md:w-auto border-2 border-slate-200 p-2 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-[#01189B]" />
-                                                  <button onClick={saveScriptConfig} className="bg-[#01189B] text-white px-4 py-2 rounded-xl text-sm font-bold shadow-sm flex items-center gap-2 hover:bg-blue-800 transition-colors shrink-0"><Save size={16}/> {currentScriptId ? 'Mettre à jour' : 'Sauvegarder'}</button>
-                                              </div>
-                                          </div>
+                  return (
+                      <div className="max-w-6xl mx-auto animate-fade-in space-y-8 pb-12">
+                          <div className="flex justify-between items-center mb-2">
+                              <div>
+                                  <h2 className={UI_CLASSES.title}><PieChart size={32} style={{ color: BRAND_COLOR }}/> Pondération des Leads</h2>
+                                  <p className="text-slate-500 text-lg">Créez vos cycles de distribution proportionnels au budget alloué par chaque client.</p>
+                              </div>
+                          </div>
 
-                                          <h4 className="font-bold text-slate-800 mb-3 text-sm flex items-center gap-2"><Settings size={16} className="text-[#01189B]"/> Configuration Globale du Script</h4>
-                                          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                              <div>
-                                                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">1. Filtrer par Thématique</label>
-                                                  <select value={scriptProductId} onChange={e => setScriptProductId(e.target.value)} className="w-full border border-slate-200 p-2 rounded-lg text-xs outline-none focus:border-[#01189B] font-bold text-[#01189B]">
-                                                      <option value="">-- Toutes les offres --</option>
-                                                      {products.map((p:any) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                                                  </select>
-                                              </div>
-                                              <div>
-                                                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">2. ID GSheet Réception</label>
-                                                  <input type="text" value={scriptGlobalSheetId} onChange={e => setScriptGlobalSheetId(e.target.value)} className="w-full border border-slate-200 p-2 rounded-lg text-xs outline-none focus:border-[#01189B]" placeholder="Ex: 1J00eOFuCVqiykfK5TeR3qBNZG..." />
-                                              </div>
-                                              <div>
-                                                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">3. Nom de l'onglet</label>
-                                                  <input type="text" value={scriptGlobalTabName} onChange={e => setScriptGlobalTabName(e.target.value)} className="w-full border border-slate-200 p-2 rounded-lg text-xs outline-none focus:border-[#01189B]" placeholder="Ex: Distribution" />
-                                              </div>
-                                              <div>
-                                                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">4. Col. Téléphone</label>
-                                                  <div className="flex items-center gap-2">
-                                                      <input type="number" min="1" value={scriptPhoneColIndex} onChange={e => setScriptPhoneColIndex(Number(e.target.value))} className="w-full border border-slate-200 p-2 rounded-lg text-xs outline-none focus:border-[#01189B]" />
-                                                      <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap">1=A, 6=F...</span>
-                                                  </div>
-                                              </div>
+                          <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
+                              <div className="p-6">
+                                  <div className="mb-6 bg-slate-50 p-5 rounded-2xl border border-slate-200">
+                                      <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-4 pb-4 border-b border-slate-200">
+                                          <div className="flex items-center gap-3 w-full md:w-auto">
+                                              <select value={currentScriptId || ''} onChange={e => loadScriptConfig(e.target.value)} className="w-full md:w-64 border-2 border-slate-200 p-2 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-[#01189B]">
+                                                  <option value="">-- Nouvelle configuration --</option>
+                                                  {(settings.distributionScripts || []).map((s:any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                              </select>
+                                              {currentScriptId && <button onClick={deleteScriptConfig} className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors shrink-0" title="Supprimer"><Trash2 size={16}/></button>}
+                                          </div>
+                                          <div className="flex items-center gap-3 w-full md:w-auto">
+                                              <input type="text" placeholder="Nom de la campagne (ex: 3P Meta)..." value={scriptName} onChange={e => setScriptName(e.target.value)} className="w-full md:w-auto border-2 border-slate-200 p-2 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-[#01189B]" />
+                                              <button onClick={saveScriptConfig} className="bg-[#01189B] text-white px-4 py-2 rounded-xl text-sm font-bold shadow-sm flex items-center gap-2 hover:bg-blue-800 transition-colors shrink-0"><Save size={16}/> {currentScriptId ? 'Mettre à jour' : 'Sauvegarder'}</button>
                                           </div>
                                       </div>
 
-                                      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                                          <div className="md:col-span-1 space-y-4">
-                                              
-                                              <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100">
-                                                  <h4 className="font-bold text-[#01189B] text-sm mb-3">Ajout Manuel au Pool</h4>
-                                                  <div className="space-y-3">
-                                                      <select value={manualWeightClient} onChange={e => setManualWeightClient(e.target.value)} className="w-full border border-slate-200 p-2 rounded-lg text-xs font-medium outline-none">
-                                                          <option value="">-- Choisir Client (ID Requis) --</option>
-                                                          {contacts.filter(c => c.googleSheetId).map(c => <option key={c.id} value={c.id}>{c.company || c.name}</option>)}
-                                                      </select>
-                                                      <div className="flex gap-2">
-                                                          <div className="flex-1"><label className="text-[10px] font-bold text-slate-500 uppercase">Budget</label><input type="number" value={manualWeightBudget} onChange={e => setManualWeightBudget(Number(e.target.value))} className="w-full border border-slate-200 p-2 rounded-lg text-xs font-mono outline-none" /></div>
-                                                          <div className="flex-1"><label className="text-[10px] font-bold text-slate-500 uppercase">CPL Prévu</label><input type="number" value={manualWeightCpl} onChange={e => setManualWeightCpl(Number(e.target.value))} className="w-full border border-slate-200 p-2 rounded-lg text-xs font-mono outline-none" /></div>
-                                                      </div>
-                                                      <button onClick={handleAddManualWeight} className="w-full bg-[#01189B] text-white text-xs font-bold py-2 rounded-lg hover:bg-blue-800 transition-colors shadow-sm flex justify-center items-center gap-1.5"><Plus size={14}/> Ajouter au pool ({Math.floor(manualWeightBudget/manualWeightCpl)} leads)</button>
-                                                  </div>
-                                              </div>
-
-                                              <h4 className="font-bold text-slate-800 flex items-center gap-2 mt-6"><PieChart size={18} className="text-orange-500"/> Pondération Calculée</h4>
-                                              
-                                              <div className="space-y-2 max-h-64 overflow-y-auto custom-scrollbar pr-2">
-                                                  {combinedAgents.map((a, idx) => {
-                                                      const percent = totalWeight > 0 ? ((a.weight / totalWeight) * 100).toFixed(1) : '0.0';
-                                                      
-                                                      return (
-                                                          <div key={idx} className="bg-slate-50 p-3 rounded-xl border border-slate-100 relative group hover:border-[#01189B] transition-colors">
-                                                              {!a.isAuto && (
-                                                                  <button onClick={() => setManualWeights(manualWeights.filter(mw => mw.id !== a.id))} className="absolute top-2 right-2 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity bg-white shadow-sm rounded-md p-1"><X size={12}/></button>
-                                                              )}
-                                                              <div className="flex items-center gap-2 mb-1">
-                                                                  <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded uppercase ${a.isAuto ? 'bg-emerald-100 text-emerald-700' : 'bg-purple-100 text-purple-700'}`}>{a.isAuto ? 'Auto' : 'Manuel'}</span>
-                                                                  <span className="font-bold text-slate-700 text-sm truncate pr-6">{a.name}</span>
-                                                              </div>
-                                                              <div className="flex justify-between text-xs items-center mt-2">
-                                                                  <div className="flex items-center gap-1">
-                                                                      <Target size={12} className="text-[#01189B]"/>
-                                                                      <input 
-                                                                          type="number" 
-                                                                          value={a.weight} 
-                                                                          onChange={e => setWeightOverrides({ ...weightOverrides, [a.id]: Number(e.target.value) })}
-                                                                          className="w-14 border-b border-slate-300 bg-transparent text-[#01189B] font-bold outline-none focus:border-[#01189B] text-center"
-                                                                      />
-                                                                      <span className="text-[10px] text-slate-400">leads</span>
-                                                                      {weightOverrides[a.id] !== undefined && weightOverrides[a.id] !== a.autoWeight && (
-                                                                          <button onClick={() => { const nw = {...weightOverrides}; delete nw[a.id]; setWeightOverrides(nw); }} className="text-[9px] text-orange-500 hover:text-orange-700 ml-1 font-bold" title="Rétablir auto"><RefreshCcw size={10}/></button>
-                                                                      )}
-                                                                  </div>
-                                                                  <span className="text-emerald-600 font-extrabold">{percent}%</span>
-                                                              </div>
-                                                          </div>
-                                                      )
-                                                  })}
-                                                  {combinedAgents.length === 0 && (
-                                                      <div className="text-center p-4 bg-slate-50 rounded-xl border border-slate-100 text-slate-400 text-sm font-medium">Aucun agent dans le cycle.</div>
-                                                  )}
-                                              </div>
+                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                          <div>
+                                              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Thématique / Produit</label>
+                                              <select value={scriptProductId} onChange={e => setScriptProductId(e.target.value)} className="w-full border border-slate-200 p-2 rounded-lg text-xs outline-none focus:border-[#01189B] font-bold text-[#01189B]">
+                                                  <option value="">-- Non définie --</option>
+                                                  {products.map((p:any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                              </select>
                                           </div>
+                                          <div className="bg-white p-3 rounded-xl border border-slate-200 flex flex-col justify-center">
+                                              <div className="flex items-center justify-between mb-2">
+                                                  <label className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1 cursor-pointer" onClick={() => setEnablePacing(!enablePacing)}><Activity size={14} className={enablePacing ? "text-[#01189B]" : "text-slate-400"}/> Lead Pacing (Lissage de la distribution)</label>
+                                                  <input type="checkbox" checked={enablePacing} onChange={e => setEnablePacing(e.target.checked)} className="w-4 h-4 text-[#01189B] cursor-pointer" />
+                                              </div>
+                                              {enablePacing && (
+                                                  <div className="flex items-center gap-2 mt-1">
+                                                      <span className="text-[10px] font-medium text-slate-400">Réduire la boucle à max.</span>
+                                                      <input type="number" min="1" max="1000" value={pacingTargetSize} onChange={e => setPacingTargetSize(Number(e.target.value))} className="w-14 border-b-2 border-slate-200 outline-none text-center font-bold text-[#01189B] text-xs focus:border-[#01189B] bg-transparent" />
+                                                      <span className="text-[10px] font-medium text-slate-400">leads totaux</span>
+                                                  </div>
+                                              )}
+                                          </div>
+                                      </div>
 
-                                          <div className="md:col-span-2 flex flex-col h-full">
-                                               <div className="flex justify-between items-center mb-4">
-                                                  <h4 className="font-bold text-slate-800 flex items-center gap-2"><FileText size={18} className="text-[#01189B]"/> Script (Apps Script)</h4>
-                                                  <button onClick={() => { navigator.clipboard.writeText(scriptContent); addNotification('success', 'Script copié dans le presse-papier !'); }} className="text-xs font-bold text-[#01189B] bg-blue-50 hover:bg-blue-100 px-4 py-2 rounded-xl transition-colors border border-blue-200 shadow-sm flex items-center gap-2"><Copy size={14}/> Copier le script</button>
-                                               </div>
-                                               <textarea 
-                                                  readOnly 
-                                                  value={scriptContent} 
-                                                  className="w-full flex-1 min-h-[500px] bg-[#1e293b] text-blue-300 font-mono text-[11px] leading-relaxed p-5 rounded-2xl outline-none resize-none custom-scrollbar border-4 border-slate-800"
-                                               />
+                                      <h4 className="font-bold text-slate-800 mb-3 text-sm flex items-center gap-2 mt-4 pt-4 border-t border-slate-200"><Settings size={16} className="text-[#01189B]"/> Configuration du Fichier Source (GSheet)</h4>
+                                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                                          <div>
+                                              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">ID GSheet Source</label>
+                                              <input type="text" value={scriptGlobalSheetId} onChange={e => setScriptGlobalSheetId(e.target.value)} className="w-full border border-slate-200 p-2 rounded-lg text-xs outline-none focus:border-[#01189B]" placeholder="Ex: 1J00eOFuCVqiykfK5TeR3qBNZG..." />
+                                          </div>
+                                          <div>
+                                              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Nom de l'onglet</label>
+                                              <input type="text" value={scriptGlobalTabName} onChange={e => setScriptGlobalTabName(e.target.value)} className="w-full border border-slate-200 p-2 rounded-lg text-xs outline-none focus:border-[#01189B]" placeholder="Ex: Distribution" />
+                                          </div>
+                                          <div>
+                                              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Col. Téléphone</label>
+                                              <div className="flex items-center gap-2">
+                                                  <input type="number" min="1" value={scriptPhoneColIndex} onChange={e => setScriptPhoneColIndex(Number(e.target.value))} className="w-full border border-slate-200 p-2 rounded-lg text-xs outline-none focus:border-[#01189B]" />
+                                                  <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap">A=1, F=6</span>
+                                              </div>
                                           </div>
                                       </div>
                                   </div>
-                              );
-                          })()}
+
+                                  <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                                      <div className="md:col-span-1 space-y-4">
+                                          <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100">
+                                              <h4 className="font-bold text-[#01189B] text-sm mb-3">Ajouter un Client</h4>
+                                              <div className="space-y-3">
+                                                  <input 
+                                                      type="text"
+                                                      value={manualWeightClient} 
+                                                      onChange={e => {
+                                                          const val = e.target.value;
+                                                          setManualWeightClient(val);
+                                                          const c = contacts.find(co => co.company === val || co.name === val);
+                                                          if (c && c.googleSheetId) setManualWeightSheetId(c.googleSheetId);
+                                                      }} 
+                                                      list="calc-clients-list"
+                                                      className="w-full border border-slate-200 p-2 rounded-lg text-xs font-bold outline-none focus:border-[#01189B]"
+                                                      placeholder="Écrire un nom ou sélectionner..."
+                                                  />
+                                                  <datalist id="calc-clients-list">
+                                                      {contacts.map(c => <option key={c.id} value={c.company || c.name} />)}
+                                                  </datalist>
+                                                  <div>
+                                                      <label className="text-[10px] font-bold text-slate-500 uppercase">ID GSheet de réception</label>
+                                                      <input type="text" value={manualWeightSheetId} onChange={e => setManualWeightSheetId(e.target.value)} className="w-full border border-slate-200 p-2 rounded-lg text-xs font-mono outline-none mt-1" placeholder="ID du GSheet Client" />
+                                                  </div>
+                                                  <div className="grid grid-cols-2 gap-2">
+                                                      <div>
+                                                          <label className="text-[10px] font-bold text-slate-500 uppercase">Budget (CHF)</label>
+                                                          <input type="number" value={manualWeightBudget} onChange={e => setManualWeightBudget(Number(e.target.value))} className="w-full border border-slate-200 p-2 rounded-lg text-xs font-mono outline-none mt-1" />
+                                                      </div>
+                                                      <div>
+                                                          <label className="text-[10px] font-bold text-slate-500 uppercase flex justify-between"><span>Max Leads</span><span className="text-slate-300 font-medium">Opt.</span></label>
+                                                          <input type="number" placeholder="Illimité" value={manualWeightMaxTotal} onChange={e => setManualWeightMaxTotal(e.target.value ? Number(e.target.value) : '')} className="w-full border border-slate-200 p-2 rounded-lg text-xs font-mono outline-none mt-1 focus:border-[#01189B]" />
+                                                      </div>
+                                                  </div>
+                                                  <label className="flex items-center gap-2 cursor-pointer bg-white p-2.5 rounded-xl border border-slate-200 hover:border-[#01189B] transition-colors mt-1 shadow-sm">
+                                                      <input type="checkbox" checked={manualWeightResidentOnly} onChange={e => setManualWeightResidentOnly(e.target.checked)} className="w-4 h-4 text-[#01189B]" />
+                                                      <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5"><Globe size={14} className="text-[#01189B]"/> Uniquement Résident (+41)</span>
+                                                  </label>
+                                                  <button onClick={handleAddManualWeight} className="w-full bg-[#01189B] text-white text-xs font-bold py-2.5 rounded-lg hover:bg-blue-800 transition-colors shadow-sm flex justify-center items-center gap-1.5 mt-2"><Plus size={14}/> Intégrer au calcul</button>
+                                              </div>
+                                          </div>
+                                      </div>
+
+                                      <div className="md:col-span-2 flex flex-col h-full">
+                                           <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-3">
+                                              <h4 className="font-bold text-slate-800 flex items-center gap-2"><PieChart size={18} className="text-orange-500"/> Distribution du Cycle</h4>
+                                              <div className="text-right">
+                                                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Budget Total du Cycle : <span className="text-[#01189B] font-extrabold text-sm">{renderCurrency(totalActiveBudget)}</span></p>
+                                              </div>
+                                           </div>
+                                           
+                                           {/* NOUVEAU BLOC : APERÇU DU CYCLE ET LISSAGE */}
+                                           {cycleData.length > 0 && (
+                                               <div className="mb-4 p-5 bg-blue-50/80 border border-blue-200 rounded-2xl shadow-sm">
+                                                   <h5 className="font-extrabold text-[#01189B] text-sm mb-3 flex items-center gap-2"><Users size={16}/> Aperçu des parts ({totalCycleParts} leads par boucle)</h5>
+                                                   <div className="flex flex-wrap gap-2.5 mb-4 pb-4 border-b border-blue-200/50">
+                                                       {cycleData.map((mw, idx) => (
+                                                           <span key={idx} className="bg-white px-4 py-2 rounded-xl border border-blue-200 text-sm font-bold text-slate-700 shadow-sm flex items-center gap-2">
+                                                               {mw.name} : <span className="text-[#01189B] font-extrabold bg-blue-50 px-2 py-0.5 rounded-lg">{mw.parts} part(s)</span>
+                                                           </span>
+                                                       ))}
+                                                   </div>
+                                                   
+                                                   <h5 className="font-extrabold text-indigo-700 text-sm mb-3 flex items-center gap-2"><Zap size={16}/> Séquence Entrelacée (Ordre de distribution)</h5>
+                                                   <div className="max-h-64 overflow-y-auto custom-scrollbar border border-indigo-200/60 rounded-xl bg-white shadow-inner">
+                                                       <table className="w-full text-left text-sm">
+                                                           <thead className="bg-indigo-50 text-indigo-800 text-[10px] uppercase font-extrabold tracking-widest sticky top-0 z-10 shadow-sm">
+                                                               <tr>
+                                                                   <th className="px-4 py-3 border-r border-indigo-100">Ordre</th>
+                                                                   <th className="px-4 py-3">Client Bénéficiaire</th>
+                                                                   <th className="px-4 py-3 text-right">Progression Client</th>
+                                                               </tr>
+                                                           </thead>
+                                                           <tbody className="divide-y divide-indigo-50">
+                                                               {(() => {
+                                                                   let counts: any = {};
+                                                                   return sequence.map((name, idx) => {
+                                                                       counts[name] = (counts[name] || 0) + 1;
+                                                                       const totalForClient = cycleData.find(c => c.name === name)?.parts || 0;
+                                                                       return (
+                                                                           <tr key={idx} className="hover:bg-indigo-50/50 transition-colors">
+                                                                               <td className="px-4 py-2.5 font-mono text-indigo-400 text-xs font-bold border-r border-indigo-50 w-24">Lead #{idx + 1}</td>
+                                                                               <td className="px-4 py-2.5 font-bold text-indigo-900 text-xs flex items-center gap-2"><Users size={12} className="text-indigo-300"/> {name}</td>
+                                                                               <td className="px-4 py-2.5 text-right w-40">
+                                                                                   <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50/80 px-2 py-1 rounded border border-indigo-100">
+                                                                                       {counts[name]} / {totalForClient} lead(s)
+                                                                                   </span>
+                                                                               </td>
+                                                                           </tr>
+                                                                       );
+                                                                   });
+                                                               })()}
+                                                           </tbody>
+                                                       </table>
+                                                   </div>
+                                                   <div className="flex items-center justify-between mt-3">
+                                                       <p className="text-[10px] text-indigo-500 font-medium flex items-start gap-1.5 leading-tight"><Info size={12} className="shrink-0 mt-0.5"/> Cet algorithme garantit un pacing équitable et empêche la réception groupée.</p>
+                                                       <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest bg-white px-2 py-1 rounded-md shadow-sm border border-indigo-100">Fin de boucle ↻</span>
+                                                   </div>
+                                               </div>
+                                           )}
+                                           
+                                           <div className="space-y-2 max-h-96 overflow-y-auto custom-scrollbar pr-2">
+                                              {cycleData.map((mw, idx) => {
+                                                  return (
+                                                      <div key={idx} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative group hover:border-[#01189B] transition-colors flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                                                          <button onClick={() => setManualWeights(manualWeights.filter(m => m.id !== mw.id))} className="absolute top-2 right-2 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity bg-red-50 p-1.5 rounded-md"><Trash2 size={14}/></button>
+                                                          
+                                                          <div className="flex-1">
+                                                              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                                                  <span className="font-bold text-slate-800 text-sm truncate">{mw.name}</span>
+                                                                  {mw.residentOnly && <span className="bg-red-100 text-red-700 text-[9px] font-extrabold px-2 py-0.5 rounded-md uppercase tracking-widest flex items-center gap-1"><Globe size={10}/> +41 Only</span>}
+                                                                  {mw.maxTotal ? <span className="bg-orange-100 text-orange-700 text-[9px] font-extrabold px-2 py-0.5 rounded-md uppercase tracking-widest flex items-center gap-1"><Target size={10}/> Max {mw.maxTotal}</span> : null}
+                                                              </div>
+                                                              <div className="text-[10px] text-slate-500 font-mono">Budget alloué: {renderCurrency(mw.budget)}</div>
+                                                          </div>
+                                                          
+                                                          <div className="flex gap-6 items-center w-full md:w-auto mt-2 md:mt-0 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100">
+                                                              <div className="text-center min-w-[60px]">
+                                                                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Part du Cycle</p>
+                                                                  <span className="text-blue-600 font-extrabold bg-blue-50 px-3 py-1.5 rounded-md text-sm">{mw.parts} leads</span>
+                                                              </div>
+                                                          </div>
+                                                      </div>
+                                                  )
+                                              })}
+                                              {cycleData.length === 0 && (
+                                                  <div className="text-center p-8 bg-slate-50 rounded-xl border border-slate-100 text-slate-400 text-sm font-medium">Aucun client ajouté au calcul.</div>
+                                              )}
+                                          </div>
+                                      </div>
+
+                                      <div className="md:col-span-3 mt-8 border-t border-slate-100 pt-8 animate-fade-in">
+                                          <div className="flex justify-between items-center mb-4">
+                                              <div>
+                                                  <h4 className="font-extrabold text-slate-800 flex items-center gap-2 text-lg"><FileText size={20} className="text-[#01189B]"/> Script de Distribution Automatique (Apps Script)</h4>
+                                                  <p className="text-sm text-slate-500 mt-1">Copiez ce code généré sur-mesure et collez-le dans <b>Extensions {'>'} Apps Script</b> sur votre Google Sheet principal.</p>
+                                              </div>
+                                              <button onClick={() => { navigator.clipboard.writeText(scriptContent); addNotification('success', 'Script copié dans le presse-papier !'); }} className="text-sm font-bold text-white bg-[#01189B] hover:bg-blue-800 px-5 py-2.5 rounded-xl transition-colors shadow-sm flex items-center gap-2"><Copy size={16}/> Copier le script</button>
+                                          </div>
+                                          <textarea 
+                                              readOnly 
+                                              value={scriptContent} 
+                                              className="w-full min-h-[400px] bg-[#1e293b] text-blue-300 font-mono text-[11px] leading-relaxed p-6 rounded-2xl outline-none resize-none custom-scrollbar border-4 border-slate-800"
+                                          />
+                                      </div>
+
+                                  </div>
+                              </div>
+                          </div>
                       </div>
-                    </div>
-              )}
+                  );
+              })()}
               {activeView === 'settings' && renderSettings()}
               {activeView === 'projections' && renderProjections()}
               {activeView === 'lmc' && renderLMC()}
@@ -3837,42 +3956,68 @@ function envoyerLead(agent, ligne) {
 
       {showModal === 'bulkContact' && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
-          <div className="bg-white p-8 rounded-3xl w-full max-w-2xl shadow-2xl border border-slate-100 animate-fade-in">
+          <div className="bg-white p-8 rounded-3xl w-full max-w-4xl shadow-2xl border border-slate-100 animate-fade-in">
             <div className="mb-6 border-b border-slate-100 pb-4">
-                <h3 className="text-2xl font-extrabold text-slate-800 font-poppins flex items-center gap-3"><Users style={{ color: BRAND_COLOR }} size={28}/> Ajout Rapide (Copier-Coller)</h3>
-                <p className="text-slate-500 text-sm mt-2">Copiez-collez vos données depuis Excel ou un tableau. Format attendu : <b>Société [TAB] Nom du Contact [TAB] Email [TAB] Téléphone</b>.</p>
+                <h3 className="text-2xl font-extrabold text-slate-800 font-poppins flex items-center gap-3"><Users style={{ color: BRAND_COLOR }} size={28}/> Ajout Rapide (Tableau)</h3>
+                <p className="text-slate-500 text-sm mt-2">Remplissez les lignes ci-dessous. Les lignes vides seront automatiquement ignorées.</p>
             </div>
             <form onSubmit={async (e: any) => {
                 e.preventDefault();
                 if (!user || isOfflineMode) return addNotification('error', 'Mode hors-ligne.');
-                const text = e.target.bulkData.value;
-                if (!text.trim()) return;
-                const lines = text.split('\n').filter((l: string) => l.trim());
+                
+                const validContacts = bulkContacts.filter(c => c.company.trim() || c.name.trim() || c.email.trim() || c.phone.trim());
+                if (validContacts.length === 0) return addNotification('error', 'Aucune donnée à importer.');
+
                 const batch = writeBatch(db);
                 let count = 0;
-                lines.forEach((line: string) => {
-                    const parts = line.split('\t');
-                    if (parts.length < 1) return;
-                    const company = parts[0]?.trim() || 'Inconnu';
-                    const name = parts[1]?.trim() || '';
-                    const email = parts[2]?.trim() || '';
-                    const phone = parts[3]?.trim() || '';
+                validContacts.forEach((c) => {
+                    const company = c.company.trim() || 'Inconnu';
                     const docRef = doc(collection(db, `artifacts/${getAppId()}/users/${user.uid}/contacts`));
-                    batch.set(docRef, { company, name, email, phone, type: 'prospect', status: 'nouveau', createdAt: new Date().toISOString() });
+                    batch.set(docRef, { company, name: c.name.trim(), email: c.email.trim(), phone: c.phone.trim(), type: 'prospect', status: 'nouveau', createdAt: new Date().toISOString() });
                     count++;
                 });
                 try {
                     await batch.commit();
                     addNotification('success', `${count} contacts ajoutés !`);
+                    setBulkContacts([{ company: '', name: '', email: '', phone: '' }, { company: '', name: '', email: '', phone: '' }, { company: '', name: '', email: '', phone: '' }]);
                     setShowModal(null);
                 } catch (err) {
                     addNotification('error', 'Erreur lors de l\'ajout.');
                 }
             }} className="space-y-4">
-                <textarea name="bulkData" className="w-full border-2 border-slate-200 bg-slate-50 p-4 rounded-xl outline-none focus:border-[#01189B] focus:bg-white transition-colors text-sm font-mono h-64 resize-none custom-scrollbar whitespace-pre" placeholder="Société ABC&#9;Jean Dupont&#9;jean@abc.com&#9;079 000 00 00&#10;Société XYZ&#9;Marie Curie&#9;marie@xyz.com&#9;078 000 00 00" required></textarea>
-                <div className="flex justify-end gap-4 pt-4 border-t border-slate-100">
-                    <button type="button" onClick={() => setShowModal(null)} className="px-6 py-2.5 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-xl font-bold transition-colors">Annuler</button>
-                    <button type="submit" className="px-6 py-2.5 text-white rounded-xl font-bold flex items-center gap-2 hover:shadow-lg hover:-translate-y-0.5 transition-all" style={{ backgroundColor: BRAND_COLOR }}><CheckCircle size={18}/> Importer</button>
+                <div className="max-h-96 overflow-y-auto custom-scrollbar border border-slate-200 rounded-xl overflow-hidden">
+                    <table className="w-full text-sm text-left">
+                        <thead className="bg-slate-50 text-slate-500 uppercase font-extrabold text-[10px] tracking-wider sticky top-0 z-10 shadow-sm">
+                            <tr>
+                                <th className="px-4 py-3 border-b border-slate-200">Société</th>
+                                <th className="px-4 py-3 border-b border-slate-200">Contact</th>
+                                <th className="px-4 py-3 border-b border-slate-200">Email</th>
+                                <th className="px-4 py-3 border-b border-slate-200">Téléphone</th>
+                                <th className="px-4 py-3 border-b border-slate-200 w-10"></th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 bg-white">
+                            {bulkContacts.map((c, idx) => (
+                                <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
+                                    <td className="p-2"><input value={c.company} onChange={e => { const newB = [...bulkContacts]; newB[idx].company = e.target.value; setBulkContacts(newB); }} className="w-full bg-transparent outline-none border-2 border-transparent focus:border-blue-100 focus:bg-white rounded-lg p-2 font-bold text-slate-700 transition-colors" placeholder="Nom..." /></td>
+                                    <td className="p-2"><input value={c.name} onChange={e => { const newB = [...bulkContacts]; newB[idx].name = e.target.value; setBulkContacts(newB); }} className="w-full bg-transparent outline-none border-2 border-transparent focus:border-blue-100 focus:bg-white rounded-lg p-2 text-slate-700 transition-colors" placeholder="Prénom Nom..." /></td>
+                                    <td className="p-2"><input value={c.email} onChange={e => { const newB = [...bulkContacts]; newB[idx].email = e.target.value; setBulkContacts(newB); }} className="w-full bg-transparent outline-none border-2 border-transparent focus:border-blue-100 focus:bg-white rounded-lg p-2 text-slate-700 transition-colors" placeholder="@" /></td>
+                                    <td className="p-2"><input value={c.phone} onChange={e => { const newB = [...bulkContacts]; newB[idx].phone = e.target.value; setBulkContacts(newB); }} className="w-full bg-transparent outline-none border-2 border-transparent focus:border-blue-100 focus:bg-white rounded-lg p-2 text-slate-700 transition-colors" placeholder="+41..." /></td>
+                                    <td className="p-2 text-center">
+                                        <button type="button" onClick={() => { const newB = [...bulkContacts]; newB.splice(idx, 1); setBulkContacts(newB); }} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16}/></button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div className="flex justify-between items-center pt-2">
+                    <button type="button" onClick={() => setBulkContacts([...bulkContacts, { company: '', name: '', email: '', phone: '' }])} className="text-sm font-bold text-[#01189B] bg-blue-50 hover:bg-blue-100 px-4 py-2 rounded-xl transition-colors flex items-center gap-2"><Plus size={16}/> Ajouter une ligne</button>
+                    <div className="flex justify-end gap-4">
+                        <button type="button" onClick={() => setShowModal(null)} className="px-6 py-2.5 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-xl font-bold transition-colors">Annuler</button>
+                        <button type="submit" className="px-6 py-2.5 text-white rounded-xl font-bold flex items-center gap-2 hover:shadow-lg hover:-translate-y-0.5 transition-all" style={{ backgroundColor: BRAND_COLOR }}><CheckCircle size={18}/> Importer les lignes</button>
+                    </div>
                 </div>
             </form>
           </div>
