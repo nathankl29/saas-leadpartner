@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   LayoutDashboard, Users, Settings, Plus, Search, ChevronLeft,
@@ -31,7 +32,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '59.0';
+const APP_VERSION = '59.1';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
