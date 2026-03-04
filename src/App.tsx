@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '58.8';
+const APP_VERSION = '58.9';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -2058,6 +2058,7 @@ export default function App() {
     // Nouvelles extractions pour le profil de la société
     const mainContact = companyContacts.find(c => c.type === 'client') || companyContacts.find(c => c.address) || companyContacts[0] || {} as any;
     const allProducts = Array.from(new Set([...(companyInfo.offeredProducts || []), ...companyContacts.flatMap(c => c.offeredProducts || [])]));
+    const allAudiences = Array.from(new Set([companyInfo.targetAudience, ...companyContacts.map(c => c.targetAudience)].filter(Boolean)));
     
     const companyInteractions = interactions.filter(i => companyContacts.some(c => c.id === i.contactId)).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 5);
 
