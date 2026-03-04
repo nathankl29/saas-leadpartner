@@ -32,7 +32,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '59.7';
+const APP_VERSION = '59.8';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -3703,7 +3703,7 @@ export default function App() {
               { id: 'calendar', label: 'Campagnes', icon: Target },
               { id: 'ponderation', label: 'Pondération', icon: PieChart },
               { id: 'invoices', label: 'Facturation', icon: FileText },
-              { id: 'products', label: 'Catalogue Offres', icon: Package },
+              { id: 'products', label: 'Produits', icon: Package },
               { id: 'projections', label: 'Production Média', icon: Calculator },
               { id: 'lmc', label: 'Simulateur LMC', icon: Wand2 },
               { id: 'settings', label: 'Paramètres Agence', icon: Settings },
@@ -4321,7 +4321,7 @@ function envoyerLead(agent, ligne) {
                 <div className="max-w-6xl mx-auto space-y-8 animate-fade-in pb-12">
                   <div className="flex justify-between items-center mb-6">
                     <div>
-                      <h2 className={UI_CLASSES.title}><Package style={{ color: BRAND_COLOR }} size={32}/> Catalogue des Offres</h2>
+                      <h2 className={UI_CLASSES.title}><Package style={{ color: BRAND_COLOR }} size={32}/> Produits</h2>
                       <p className="text-slate-500 mt-2 text-lg">Gérez vos produits de génération de leads et leurs marges cibles.</p>
                     </div>
                   </div>
@@ -5115,8 +5115,9 @@ function envoyerLead(agent, ligne) {
               {currentSimulation.dataSource === 'deliveries' && (
                   <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl animate-fade-in space-y-4">
                       <div>
-                          <label className={UI_CLASSES.label}>Nom du client dans les livraisons (Agent Name)</label>
-                          <input type="text" value={currentSimulation.deliveryMatchName !== undefined ? currentSimulation.deliveryMatchName : (currentSimulation.clientName || '')} onChange={e => setCurrentSimulation({...currentSimulation, deliveryMatchName: e.target.value})} className={UI_CLASSES.input} placeholder="Nom exact dans les livraisons..." />
+                          <label className={UI_CLASSES.label}>Noms des clients dans les livraisons (Séparés par des virgules)</label>
+                          <input type="text" value={currentSimulation.deliveryMatchName !== undefined ? currentSimulation.deliveryMatchName : (currentSimulation.clientName || '')} onChange={e => setCurrentSimulation({...currentSimulation, deliveryMatchName: e.target.value})} className={UI_CLASSES.input} placeholder="Ex: ClientA, ClientB..." />
+                          <p className="text-[10px] text-blue-600 mt-1">Séparez les noms par une virgule pour cumuler plusieurs sources.</p>
                       </div>
                       <div className="pt-2 border-t border-blue-100">
                           <label className={UI_CLASSES.label}>Ajustement manuel (Correctif de Leads)</label>
@@ -5125,16 +5126,78 @@ function envoyerLead(agent, ligne) {
                       </div>
                   </div>
               )}
+              
+              {/* WIDGET CPL */}
+              <div className="p-5 bg-orange-50 border border-orange-100 rounded-xl mt-6 space-y-4">
+                  <h4 className="font-bold text-orange-800 flex items-center gap-2"><TrendingUp size={18}/> Widget CPL & Coût Réel</h4>
+                  <div>
+                      <label className={UI_CLASSES.label}>Budget Quotidien Ads (CHF)</label>
+                      <input type="number" value={currentSimulation.dailyAdsBudget || 0} onChange={e => setCurrentSimulation({...currentSimulation, dailyAdsBudget: Number(e.target.value)})} className={UI_CLASSES.input} placeholder="Ex: 50" />
+                  </div>
+                  {(() => {
+                      const duration = currentSimulation.duration || 30;
+                      const start = new Date(currentSimulation.createdAt);
+                      const diffDays = Math.max(0, Math.floor((new Date().getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+                      const day = Math.min(diffDays, duration);
+                      const spend = day * (currentSimulation.dailyAdsBudget || 0);
+                      
+                      let expectedLeads = 0;
+                      if (currentSimulation.dataSource === 'deliveries') {
+                          const matchNames = (currentSimulation.deliveryMatchName !== undefined ? currentSimulation.deliveryMatchName : (currentSimulation.clientName || '')).split(',').map((n:string)=>n.trim());
+                          expectedLeads = deliveries.filter((d:any) => matchNames.includes(d.agentName)).length + Number(currentSimulation.manualLeadsOffset || 0);
+                      } else if (currentSimulation.dataSource === 'manual') {
+                          expectedLeads = Number(currentSimulation.manualLeads || 0);
+                      } else {
+                          const targetLeads = currentSimulation.stats?.volumeTotal || 0;
+                          expectedLeads = Math.min(Math.floor((targetLeads / duration) * day), targetLeads);
+                      }
+                      
+                      const cpl = expectedLeads > 0 ? (spend / expectedLeads).toFixed(2) : '0.00';
+                      
+                      return (
+                          <div className="space-y-3">
+                              <div className="flex justify-between text-sm font-medium text-orange-800">
+                                  <span>Dépense totale ({day} jours) :</span>
+                                  <span className="font-bold">{renderCurrency(spend)}</span>
+                              </div>
+                              <div className="flex justify-between text-sm font-medium text-orange-800">
+                                  <span>Leads générés :</span>
+                                  <span className="font-bold">{expectedLeads}</span>
+                              </div>
+                              <div className="flex justify-between text-lg font-black text-orange-600 border-t border-orange-200 pt-2">
+                                  <span>CPL Actuel :</span>
+                                  <span>{cpl} CHF</span>
+                              </div>
+                              <button 
+                                  onClick={async () => {
+                                      if(!currentSimulation.productId || expectedLeads === 0 || spend === 0) return addNotification('error', 'CPL invalide ou produit introuvable.');
+                                      await handleUpdate('products', currentSimulation.productId, { cost: Number(cpl) });
+                                      addNotification('success', 'Coût du produit mis à jour avec le CPL réel !');
+                                  }}
+                                  className="w-full mt-2 bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 rounded-lg transition-colors text-sm shadow-sm"
+                              >
+                                  Mettre à jour le coût du produit
+                              </button>
+                          </div>
+                      );
+                  })()}
+              </div>
           </div>
-          <div className="flex justify-end gap-3 mt-8">
-              <button onClick={() => setShowModal(null)} className={UI_CLASSES.btnSecondary}>Annuler</button>
-              <button onClick={async () => {
-                  if (user && !isOfflineMode) {
-                      await handleUpdate('simulations', currentSimulation.id, currentSimulation);
-                      addNotification('success', 'Campagne mise à jour avec succès');
-                  }
+          <div className="flex justify-between items-center mt-8 border-t border-slate-100 pt-6">
+              <button onClick={() => {
+                  handleDelete('simulations', currentSimulation.id);
                   setShowModal(null);
-              }} className={UI_CLASSES.btnPrimary} style={{ backgroundColor: BRAND_COLOR }}><Save size={18}/> Enregistrer</button>
+              }} className="px-4 py-2.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl font-bold transition-colors flex items-center gap-2"><Trash2 size={18}/> Supprimer la campagne</button>
+              <div className="flex gap-3">
+                  <button onClick={() => setShowModal(null)} className={UI_CLASSES.btnSecondary}>Annuler</button>
+                  <button onClick={async () => {
+                      if (user && !isOfflineMode) {
+                          await handleUpdate('simulations', currentSimulation.id, currentSimulation);
+                          addNotification('success', 'Campagne mise à jour avec succès');
+                      }
+                      setShowModal(null);
+                  }} className={UI_CLASSES.btnPrimary} style={{ backgroundColor: BRAND_COLOR }}><Save size={18}/> Enregistrer</button>
+              </div>
           </div>
         </div>
       </div>
@@ -5160,7 +5223,7 @@ function envoyerLead(agent, ligne) {
                   <label className={UI_CLASSES.label}>Client (Agent Name exact)</label>
                   <input name="agentName" list="agentNames-list-add" required className={UI_CLASSES.input} placeholder="Ex: TechCorp" />
                   <datalist id="agentNames-list-add">
-                      {Array.from(new Set(simulations.map((s:any) => s.deliveryMatchName || s.clientName).filter(Boolean))).map((name: any) => <option key={name} value={name} />)}
+                      {Array.from(new Set(simulations.flatMap((s:any) => (s.deliveryMatchName || s.clientName || '').split(',').map((n:string)=>n.trim())).filter(Boolean))).map((name: any) => <option key={name} value={name} />)}
                   </datalist>
                   <p className="text-[10px] text-slate-400 mt-1">Sélectionnez le nom configuré dans votre campagne pour faire le lien.</p>
               </div>
