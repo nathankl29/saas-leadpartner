@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '58.4';
+const APP_VERSION = '58.8';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -443,7 +443,7 @@ export default function App() {
   // Nouveaux états pour le Pacing (Lissage)
   const [enablePacing, setEnablePacing] = useState(true);
   
-  const [bulkContacts, setBulkContacts] = useState([{ company: '', name: '', email: '', phone: '' }, { company: '', name: '', email: '', phone: '' }, { company: '', name: '', email: '', phone: '' }]);
+  const [bulkContacts, setBulkContacts] = useState([{ company: '', name: '', email: '', phone: '', manualCA: '', manualBenefice: '' }, { company: '', name: '', email: '', phone: '', manualCA: '', manualBenefice: '' }, { company: '', name: '', email: '', phone: '', manualCA: '', manualBenefice: '' }]);
 
   // Etats de configuration du Script
   const [scriptGlobalSheetId, setScriptGlobalSheetId] = useState('');
@@ -501,6 +501,11 @@ export default function App() {
   
   // États de rappel (Fiche client)
   const [reminderNote, setReminderNote] = useState('');
+  const [companyReminderNote, setCompanyReminderNote] = useState('');
+  
+  // États pour les rendez-vous
+  const [meetingDate, setMeetingDate] = useState('');
+  const [meetingNote, setMeetingNote] = useState('');
 
   const [showModal, setShowModal] = useState<any>(null);
   const [currentProduct, setCurrentProduct] = useState<any>(null);
@@ -860,6 +865,15 @@ export default function App() {
     } else {
         await handleCreate('companies', { ...editCompanyDataState, name: selectedCompanyName });
     }
+    
+    // Mise à jour en cascade des contacts de la société si le statut a changé
+    if (editCompanyDataState.type && editCompanyDataState.type !== (existingCompany?.type || 'prospect')) {
+        const companyContacts = contacts.filter(c => c.company === selectedCompanyName);
+        companyContacts.forEach(async (c) => {
+            await handleUpdate('contacts', c.id, { type: editCompanyDataState.type, status: editCompanyDataState.type === 'client' ? 'gagne' : 'nouveau' });
+        });
+    }
+
     setIsEditingCompany(false);
     addNotification('success', 'Informations de la société mises à jour');
   };
@@ -887,6 +901,62 @@ export default function App() {
       await handleUpdate('contacts', selectedContactId, {
           nextContactDate: null,
           nextContactNote: ''
+      });
+  };
+
+  const handleSetCompanyReminder = async (days: number) => {
+      if (!selectedCompanyName || !user) return;
+      const targetDate = new Date();
+      targetDate.setDate(targetDate.getDate() + days);
+      const existingCompany = companiesData.find(c => c.name === selectedCompanyName);
+      const data = { nextContactDate: targetDate.toISOString(), nextContactNote: companyReminderNote || `Relance planifiée (J+${days})` };
+      if (existingCompany) {
+          await handleUpdate('companies', existingCompany.id, data);
+      } else {
+          await handleCreate('companies', { name: selectedCompanyName, ...data });
+      }
+      setCompanyReminderNote('');
+      addNotification('success', 'Rappel société programmé');
+  };
+
+  const handleClearCompanyReminder = async () => {
+      if (!selectedCompanyName || !user) return;
+      const existingCompany = companiesData.find(c => c.name === selectedCompanyName);
+      if (existingCompany) await handleUpdate('companies', existingCompany.id, { nextContactDate: null, nextContactNote: '' });
+  };
+
+  const handleSetMeeting = async () => {
+      if (!selectedContactId || !user || !meetingDate) return addNotification('error', 'Sélectionnez une date');
+      await handleUpdate('contacts', selectedContactId, {
+          meetingDate: new Date(meetingDate).toISOString(),
+          meetingNote: meetingNote || 'Rendez-vous programmé'
+      });
+      setMeetingDate('');
+      setMeetingNote('');
+      addNotification('success', 'Rendez-vous programmé');
+  };
+
+  const handleClearMeeting = async () => {
+      if (!selectedContactId || !user) return;
+      await handleUpdate('contacts', selectedContactId, { meetingDate: null, meetingNote: '' });
+  };
+
+  const handleDeleteCompany = async () => {
+      if (!selectedCompanyName || !user) return;
+      openConfirm("Supprimer la société ?", "Attention : les contacts liés ne seront pas supprimés, mais ils perdront leur association.", async () => {
+          const existingCompany = companiesData.find(c => c.name === selectedCompanyName);
+          if (existingCompany) {
+              await deleteDoc(doc(db, `artifacts/${getAppId()}/users/${user.uid}/companies`, existingCompany.id));
+          }
+          
+          // Dissocier les contacts liés pour que la société disparaisse du tableau
+          const linkedContacts = contacts.filter(c => c.company === selectedCompanyName);
+          for (const contact of linkedContacts) {
+              await handleUpdate('contacts', contact.id, { company: '' });
+          }
+
+          setSelectedCompanyName(null);
+          addNotification('success', 'Société supprimée et contacts dissociés');
       });
   };
 
@@ -1588,6 +1658,21 @@ export default function App() {
     return (
       <div className="flex flex-col h-full bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden animate-fade-in border border-slate-100">
         
+        {/* BANNIÈRE DE RDV */}
+        {selectedContact.meetingDate && (
+            <div className="px-8 py-3 flex justify-between items-center text-sm font-bold shrink-0 bg-blue-500 text-white">
+                <div className="flex items-center gap-2">
+                    <CalendarIcon size={18} />
+                    <span>
+                        Rendez-vous planifié le {formatDateTime(selectedContact.meetingDate)} : {selectedContact.meetingNote}
+                    </span>
+                </div>
+                <button onClick={handleClearMeeting} className="px-3 py-1 rounded-lg text-xs transition-colors bg-blue-600 hover:bg-blue-700">
+                    Marquer comme terminé
+                </button>
+            </div>
+        )}
+
         {/* BANNIÈRE DE RAPPEL */}
         {hasReminder && (
             <div className={`px-8 py-3 flex justify-between items-center text-sm font-bold shrink-0 ${isReminderDue ? 'bg-red-500 text-white' : 'bg-orange-100 text-orange-800'}`}>
@@ -1672,7 +1757,7 @@ export default function App() {
             </button>
             <button onClick={() => { 
                 const comp = selectedContact.company || '';
-                setBulkContacts([{ company: comp, name: '', email: '', phone: '' }, { company: comp, name: '', email: '', phone: '' }, { company: comp, name: '', email: '', phone: '' }]); 
+                setBulkContacts([{ company: comp, name: '', email: '', phone: '', manualCA: '', manualBenefice: '' }, { company: comp, name: '', email: '', phone: '', manualCA: '', manualBenefice: '' }, { company: comp, name: '', email: '', phone: '', manualCA: '', manualBenefice: '' }]); 
                 setShowModal('bulkContact'); 
             }} className="px-4 py-2 text-xs bg-white border border-slate-200 shadow-sm rounded-lg font-bold text-[#01189B] hover:bg-blue-50 transition-colors flex items-center justify-start gap-2">
               <Users size={14}/> Ajout Rapide (Bulk)
@@ -1793,6 +1878,30 @@ export default function App() {
           {/* Colonne Gauche: Outils & Stats */}
           <div className="lg:col-span-1 space-y-6">
             
+            {/* WIDGET : PROGRAMMER UN RDV */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
+                <h4 className="font-extrabold text-slate-800 mb-4 font-poppins text-lg flex items-center gap-2"><CalendarIcon className="text-blue-500" size={20}/> Nouveau Rendez-vous</h4>
+                <div className="space-y-4">
+                    <input 
+                        type="datetime-local" 
+                        value={meetingDate}
+                        onChange={e => setMeetingDate(e.target.value)}
+                        className="w-full text-sm border-2 border-slate-100 bg-slate-50 p-3 rounded-xl outline-none focus:border-blue-500 focus:bg-white transition-colors"
+                    />
+                    <input 
+                        type="text" 
+                        placeholder="Motif du rendez-vous..." 
+                        value={meetingNote}
+                        onChange={e => setMeetingNote(e.target.value)}
+                        className="w-full text-sm border-2 border-slate-100 bg-slate-50 p-3 rounded-xl outline-none focus:border-blue-500 focus:bg-white transition-colors"
+                    />
+                    <button onClick={handleSetMeeting} className="w-full py-2.5 text-xs font-bold uppercase tracking-wide bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 border border-blue-100 transition-colors">
+                        Enregistrer le RDV
+                    </button>
+                </div>
+            </div>
+
             {/* WIDGET : PROGRAMMER UN RAPPEL */}
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-1 h-full bg-orange-400"></div>
@@ -1946,31 +2055,31 @@ export default function App() {
     const companyType = companyInfo.type || (companyContacts.some(c => c.type === 'client' || c.status === 'gagne') ? 'client' : 'prospect');
     const isClient = companyType === 'client';
 
-    const handleCompanyTypeChange = async (newType: string) => {
-        if (!user) return;
-        if (companyInfo.id) {
-            await handleUpdate('companies', companyInfo.id, { type: newType });
-        } else {
-            await handleCreate('companies', { name: selectedCompanyName, type: newType });
-        }
-        
-        // Mise à jour en cascade des contacts de la société
-        companyContacts.forEach(async (c) => {
-            await handleUpdate('contacts', c.id, { type: newType, status: newType === 'client' ? 'gagne' : 'nouveau' });
-        });
-        
-        addNotification('success', 'Statut de la société mis à jour');
-    };
-
     // Nouvelles extractions pour le profil de la société
     const mainContact = companyContacts.find(c => c.type === 'client') || companyContacts.find(c => c.address) || companyContacts[0] || {} as any;
     const allProducts = Array.from(new Set([...(companyInfo.offeredProducts || []), ...companyContacts.flatMap(c => c.offeredProducts || [])]));
-    const allAudiences = Array.from(new Set([...(companyInfo.targetAudience ? [companyInfo.targetAudience] : []), ...companyContacts.map(c => c.targetAudience).filter(Boolean)]));
     
     const companyInteractions = interactions.filter(i => companyContacts.some(c => c.id === i.contactId)).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 5);
 
     return (
       <div className="flex flex-col h-full bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden animate-fade-in border border-slate-100">
+        
+        {/* BANNIÈRE DE RAPPEL SOCIÉTÉ */}
+        {companyInfo.nextContactDate && (
+            <div className={`px-8 py-3 flex justify-between items-center text-sm font-bold shrink-0 ${new Date(companyInfo.nextContactDate) <= new Date() ? 'bg-red-500 text-white' : 'bg-orange-100 text-orange-800'}`}>
+                <div className="flex items-center gap-2">
+                    <Bell size={18} className={new Date(companyInfo.nextContactDate) <= new Date() ? 'animate-bounce' : ''} />
+                    <span>
+                        {new Date(companyInfo.nextContactDate) <= new Date() ? 'Rappel Échu : ' : 'Rappel Planifié : '}
+                        {companyInfo.nextContactNote} (Pour le {formatDate(companyInfo.nextContactDate)})
+                    </span>
+                </div>
+                <button onClick={handleClearCompanyReminder} className={`px-3 py-1 rounded-lg text-xs transition-colors ${new Date(companyInfo.nextContactDate) <= new Date() ? 'bg-red-600 hover:bg-red-700' : 'bg-orange-200 hover:bg-orange-300'}`}>
+                    Marquer comme fait
+                </button>
+            </div>
+        )}
+
         {/* Header Société */}
         <div className="p-8 border-b border-slate-100 bg-white/50 backdrop-blur-sm flex justify-between items-start relative shrink-0">
           <div className="absolute top-0 right-0 w-64 h-64 bg-slate-50 rounded-full blur-3xl opacity-50 pointer-events-none -mr-20 -mt-20"></div>
@@ -1981,14 +2090,9 @@ export default function App() {
             <div className="flex-1">
               <div className="flex items-center gap-4 mb-2">
                 <h2 className="text-4xl font-extrabold font-poppins text-slate-800 tracking-tight">{selectedCompanyName}</h2>
-                <select 
-                    value={companyType} 
-                    onChange={(e) => handleCompanyTypeChange(e.target.value)}
-                    className={`px-3 py-1.5 text-xs font-bold rounded-xl border shadow-sm outline-none cursor-pointer ${isClient ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-blue-50 border-blue-200 text-blue-700'}`}
-                >
-                    <option value="prospect">Prospect</option>
-                    <option value="client">Client Actif</option>
-                </select>
+                <span className={`px-3 py-1 text-xs font-bold rounded-xl border shadow-sm ${isClient ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-blue-50 border-blue-200 text-blue-700'}`}>
+                    {isClient ? 'Client Actif' : 'Prospect'}
+                </span>
               </div>
               <div className="flex gap-3 mb-4">
                   <span className="text-sm font-bold text-[#01189B] bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200 shadow-sm flex items-center gap-2"><Wallet size={16}/> CA Global : {renderCurrency(caEncaisse)}</span>
@@ -2026,6 +2130,16 @@ export default function App() {
              <button onClick={() => { setShowModal('contact'); setNewContactSource(''); }} className="px-4 py-2 text-xs text-white rounded-lg font-bold hover:shadow-md hover:-translate-y-0.5 flex items-center justify-start gap-2 transition-all" style={{ backgroundColor: BRAND_COLOR }}>
                <Plus size={14}/> Ajouter un contact
              </button>
+             <button onClick={() => { 
+                const comp = selectedCompanyName || '';
+                setBulkContacts([{ company: comp, name: '', email: '', phone: '', manualCA: '', manualBenefice: '' }, { company: comp, name: '', email: '', phone: '', manualCA: '', manualBenefice: '' }, { company: comp, name: '', email: '', phone: '', manualCA: '', manualBenefice: '' }]); 
+                setShowModal('bulkContact'); 
+             }} className="px-4 py-2 text-xs bg-white border border-slate-200 shadow-sm rounded-lg font-bold text-[#01189B] hover:bg-blue-50 transition-colors flex items-center justify-start gap-2">
+               <Users size={14}/> Ajout Contacts (Bulk)
+             </button>
+             <button onClick={handleDeleteCompany} className="px-4 py-2 text-xs bg-white border border-slate-200 shadow-sm rounded-lg font-bold text-red-500 hover:bg-red-50 transition-colors flex items-center justify-start gap-2 mt-2">
+               <Trash2 size={14}/> Supprimer Société
+             </button>
           </div>
         </div>
 
@@ -2037,6 +2151,13 @@ export default function App() {
                  <button onClick={() => setIsEditingCompany(false)} className="text-slate-400 hover:text-slate-600"><X size={24}/></button>
              </div>
              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+                <div>
+                  <label className={UI_CLASSES.label}>Statut de la Société</label>
+                  <select className={`${UI_CLASSES.input} font-bold ${editCompanyDataState.type === 'client' ? 'text-emerald-600' : 'text-[#01189B]'}`} value={editCompanyDataState.type || companyType} onChange={e => setEditCompanyDataState({...editCompanyDataState, type: e.target.value})}>
+                    <option value="prospect">Prospect</option>
+                    <option value="client">Client Actif</option>
+                  </select>
+                </div>
                 <div>
                   <label className={UI_CLASSES.label}>Forme Juridique</label>
                   <select className={UI_CLASSES.input} value={editCompanyDataState.legalStatus || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, legalStatus: e.target.value})}>
@@ -2061,7 +2182,8 @@ export default function App() {
                 
                 <div className="col-span-1 md:col-span-2 lg:col-span-3 pt-4 border-t border-slate-200">
                     <label className={UI_CLASSES.label}>Notes / Informations complémentaires</label>
-                    <textarea className={`${UI_CLASSES.input} h-20 resize-none`} value={editCompanyDataState.notes || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, notes: e.target.value})} placeholder="Détails spécifiques à l'entreprise..."></textarea>
+                    <textarea className={`${UI_CLASSES.input} h-20 resize-none`} value={editCompanyDataState.notes || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, notes: e.target.value})} placeholder="Détails spécifiques à l'entreprise, notes globales..."></textarea>
+                    <p className="text-[10px] text-slate-400 mt-1 font-medium"><Info size={12} className="inline mr-1"/> Ajouter un contact principal pour cette société est optionnel, vous pouvez gérer la relation uniquement via ces notes si souhaité.</p>
                 </div>
 
                 <div className="col-span-1 md:col-span-2 lg:col-span-3 pt-4 border-t border-slate-200">
@@ -2110,6 +2232,27 @@ export default function App() {
             
             {/* COLONNE GAUCHE : INFOS & CAMPAGNES */}
             <div className="lg:col-span-1 space-y-6">
+               
+               {/* Widget Rappels Société */}
+               <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] relative overflow-hidden">
+                   <div className="absolute top-0 left-0 w-1 h-full bg-orange-400"></div>
+                   <h4 className="font-extrabold text-slate-800 mb-4 font-poppins text-lg flex items-center gap-2"><CalendarClock className="text-orange-500" size={20}/> Programmer un Rappel</h4>
+                   <div className="space-y-4">
+                       <input 
+                           type="text" 
+                           placeholder="Ex: Rappeler la société..." 
+                           value={companyReminderNote}
+                           onChange={e => setCompanyReminderNote(e.target.value)}
+                           className="w-full text-sm border-2 border-slate-100 bg-slate-50 p-3 rounded-xl outline-none focus:border-orange-400 focus:bg-white transition-colors"
+                       />
+                       <div className="grid grid-cols-3 gap-2">
+                           <button onClick={() => handleSetCompanyReminder(7)} className="py-2 text-[10px] font-bold uppercase tracking-wide bg-orange-50 text-orange-700 rounded-lg hover:bg-orange-100 border border-orange-100 transition-colors">+ 1 Sem.</button>
+                           <button onClick={() => handleSetCompanyReminder(30)} className="py-2 text-[10px] font-bold uppercase tracking-wide bg-orange-50 text-orange-700 rounded-lg hover:bg-orange-100 border border-orange-100 transition-colors">+ 1 Mois</button>
+                           <button onClick={() => handleSetCompanyReminder(90)} className="py-2 text-[10px] font-bold uppercase tracking-wide bg-orange-50 text-orange-700 rounded-lg hover:bg-orange-100 border border-orange-100 transition-colors">+ 3 Mois</button>
+                       </div>
+                   </div>
+               </div>
+
                {/* Widget Campagnes en cours */}
                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]">
                  <h4 className="font-extrabold text-slate-800 mb-4 font-poppins text-lg flex items-center gap-2"><PlayCircle size={20} className="text-indigo-500"/> Campagnes Actives</h4>
@@ -2201,11 +2344,11 @@ export default function App() {
               </div>
 
               <div className="bg-white rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] p-6 flex-1 flex flex-col">
-                  <div className="flex justify-between items-center mb-6 shrink-0">
-                    <h3 className="font-extrabold text-slate-800 font-poppins text-xl flex items-center gap-2"><Users size={24} style={{ color: BRAND_COLOR }}/> Équipe & Contacts ({companyContacts.length})</h3>
-                  </div>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 overflow-auto custom-scrollbar p-1">
+                <div className="flex justify-between items-center mb-6 shrink-0">
+                  <h3 className="font-extrabold text-slate-800 font-poppins text-xl flex items-center gap-2"><Users size={24} style={{ color: BRAND_COLOR }}/> Contacts ({companyContacts.length})</h3>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 overflow-auto custom-scrollbar p-1">
                      {companyContacts.map(c => {
                         const cInvoices = invoices.filter(inv => inv.clientId === c.id);
                         const cCaEncaisse = cInvoices.filter(i => i.status === 'payee').reduce((a, b) => a + b.amount, 0) + Number(c.manualCA || 0);
@@ -4144,7 +4287,7 @@ function envoyerLead(agent, ligne) {
                      <div className="flex gap-3">
                          <button onClick={() => setShowModal('bulkIds')} className="bg-white text-slate-600 px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-slate-50 border border-slate-200 shadow-sm transition-all"><Search size={18} /> Liste des IDs</button>
                          <button onClick={() => { 
-                             setBulkContacts([{ company: '', name: '', email: '', phone: '' }, { company: '', name: '', email: '', phone: '' }, { company: '', name: '', email: '', phone: '' }]);
+                             setBulkContacts([{ company: '', name: '', email: '', phone: '', manualCA: '', manualBenefice: '' }, { company: '', name: '', email: '', phone: '', manualCA: '', manualBenefice: '' }, { company: '', name: '', email: '', phone: '', manualCA: '', manualBenefice: '' }]);
                              setShowModal('bulkContact'); 
                          }} className="bg-white text-[#01189B] px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-blue-50 border border-blue-200 shadow-sm transition-all"><Users size={18} /> Ajout Rapide (Bulk)</button>
                          <button onClick={() => { setShowModal('contact'); setNewContactSource(''); }} className={UI_CLASSES.btnPrimary} style={{ backgroundColor: BRAND_COLOR }}><Plus size={18} /> Nouvelle Société</button>
@@ -4152,8 +4295,8 @@ function envoyerLead(agent, ligne) {
                   </div>
                   
                   <div className="flex gap-3 mb-6 border-b border-slate-200 pb-4">
-                     <button onClick={() => setContactFilterType('all')} className={`px-5 py-2.5 text-sm font-bold rounded-xl transition-all ${contactFilterType === 'all' ? 'bg-[#01189B] text-white shadow-md' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>Toutes les entreprises</button>
-                     <button onClick={() => setContactFilterType('client')} className={`px-5 py-2.5 text-sm font-bold rounded-xl transition-all ${contactFilterType === 'client' ? 'bg-[#01189B] text-white shadow-md' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>Clients Actifs</button>
+                     <button onClick={() => setContactFilterType('all')} className={`px-5 py-2.5 text-sm font-bold rounded-xl transition-all ${contactFilterType === 'all' ? 'bg-[#01189B] text-white shadow-md' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>Toutes les sociétés</button>
+                     <button onClick={() => setContactFilterType('client')} className={`px-5 py-2.5 text-sm font-bold rounded-xl transition-all ${contactFilterType === 'client' ? 'bg-[#01189B] text-white shadow-md' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>Client</button>
                      <button onClick={() => setContactFilterType('prospect')} className={`px-5 py-2.5 text-sm font-bold rounded-xl transition-all ${contactFilterType === 'prospect' ? 'bg-[#01189B] text-white shadow-md' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>Prospects</button>
                   </div>
 
@@ -4161,7 +4304,7 @@ function envoyerLead(agent, ligne) {
                      {displayedContacts.length === 0 ? (
                          <div className="p-20 text-center text-slate-400 font-medium">Aucune entreprise trouvée.</div>
                      ) : (
-                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                         <div className="space-y-3">
                             {Object.entries(
                                 displayedContacts.reduce((acc: any, c: any) => {
                                     const comp = c.company || 'Sans Entreprise';
@@ -4176,26 +4319,27 @@ function envoyerLead(agent, ligne) {
                                 const isClient = companyContacts.some((c:any) => c.type === 'client' || c.status === 'gagne');
 
                                 return (
-                                    <div key={companyName} onClick={() => setSelectedCompanyName(companyName)} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.04)] hover:border-[#01189B] hover:shadow-xl cursor-pointer transition-all group flex flex-col h-full">
-                                        <div className="flex items-start justify-between mb-4">
-                                            <div className="flex items-center gap-4">
-                                                <div className="w-14 h-14 rounded-2xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-extrabold text-2xl shadow-inner group-hover:scale-105 transition-transform shrink-0">
-                                                    {companyName.substring(0, 2).toUpperCase()}
-                                                </div>
-                                                <div className="overflow-hidden">
-                                                    <h3 className="font-extrabold text-slate-800 font-poppins text-lg leading-tight truncate" title={companyName}>{companyName}</h3>
-                                                    <span className={`inline-block mt-1 px-2 py-0.5 rounded-md text-[9px] uppercase font-bold tracking-widest ${isClient ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-slate-100 text-slate-600 border border-slate-200'}`}>{isClient ? 'Client Actif' : 'Prospect'}</span>
-                                                </div>
+                                    <div key={companyName} onClick={() => setSelectedCompanyName(companyName)} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm hover:border-[#01189B] hover:shadow-md cursor-pointer transition-all group flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                                        <div className="flex items-center gap-4 w-full md:w-1/3">
+                                            <div className="w-12 h-12 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-extrabold text-xl shadow-inner group-hover:scale-105 transition-transform shrink-0">
+                                                {companyName.substring(0, 2).toUpperCase()}
+                                            </div>
+                                            <div className="overflow-hidden">
+                                                <h3 className="font-extrabold text-slate-800 font-poppins text-base leading-tight truncate" title={companyName}>{companyName}</h3>
+                                                <span className={`inline-block mt-1 px-2 py-0.5 rounded-md text-[9px] uppercase font-bold tracking-widest ${isClient ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-slate-100 text-slate-600 border border-slate-200'}`}>{isClient ? 'Client' : 'Prospect'}</span>
                                             </div>
                                         </div>
-                                        <div className="mt-auto pt-4 border-t border-slate-100 grid grid-cols-2 gap-2">
-                                            <div>
+                                        <div className="flex items-center gap-6 md:gap-8 w-full md:w-auto justify-between md:justify-end pt-3 md:pt-0 border-t md:border-t-0 border-slate-100">
+                                            <div className="text-left md:text-right">
+                                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-0.5">Équipe</p>
+                                                <p className="text-sm font-bold text-slate-700 flex items-center md:justify-end gap-1.5"><Users size={14} className="text-slate-400"/> {companyContacts.length} profil(s)</p>
+                                            </div>
+                                            <div className="text-right w-24 md:w-32 md:border-l md:border-slate-100 md:pl-6">
                                                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-0.5">CA Encaissé</p>
                                                 <p className="text-sm font-extrabold text-[#01189B] font-mono">{renderCurrency(caTotal)}</p>
                                             </div>
-                                            <div>
-                                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-0.5">Équipe</p>
-                                                <p className="text-sm font-bold text-slate-700 flex items-center gap-1.5"><Users size={14} className="text-slate-400"/> {companyContacts.length} profils</p>
+                                            <div className="text-slate-300 group-hover:text-[#01189B] transition-colors hidden md:block ml-2">
+                                                <ArrowRight size={20} />
                                             </div>
                                         </div>
                                     </div>
@@ -4296,7 +4440,7 @@ function envoyerLead(agent, ligne) {
 
       {showModal === 'bulkContact' && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
-          <div className="bg-white p-8 rounded-3xl w-full max-w-4xl shadow-2xl border border-slate-100 animate-fade-in">
+          <div className="bg-white p-8 rounded-3xl w-full max-w-6xl shadow-2xl border border-slate-100 animate-fade-in">
             <div className="mb-6 border-b border-slate-100 pb-4">
                 <h3 className="text-2xl font-extrabold text-slate-800 font-poppins flex items-center gap-3"><Users style={{ color: BRAND_COLOR }} size={28}/> Ajout Rapide (Tableau)</h3>
                 <p className="text-slate-500 text-sm mt-2">Remplissez les lignes ci-dessous. Les lignes vides seront automatiquement ignorées.</p>
@@ -4313,19 +4457,29 @@ function envoyerLead(agent, ligne) {
                 validContacts.forEach((c) => {
                     const company = c.company.trim() || 'Inconnu';
                     const docRef = doc(collection(db, `artifacts/${getAppId()}/users/${user.uid}/contacts`));
-                    batch.set(docRef, { company, name: c.name.trim(), email: c.email.trim(), phone: c.phone.trim(), type: 'prospect', status: 'nouveau', createdAt: new Date().toISOString() });
+                    batch.set(docRef, { 
+                        company, 
+                        name: c.name.trim(), 
+                        email: c.email.trim(), 
+                        phone: c.phone.trim(), 
+                        manualCA: Number(c.manualCA) || 0,
+                        manualBenefice: Number(c.manualBenefice) || 0,
+                        type: 'prospect', 
+                        status: 'nouveau', 
+                        createdAt: new Date().toISOString() 
+                    });
                     count++;
                 });
                 try {
                     await batch.commit();
                     addNotification('success', `${count} contacts ajoutés !`);
-                    setBulkContacts([{ company: '', name: '', email: '', phone: '' }, { company: '', name: '', email: '', phone: '' }, { company: '', name: '', email: '', phone: '' }]);
+                    setBulkContacts([{ company: '', name: '', email: '', phone: '', manualCA: '', manualBenefice: '' }, { company: '', name: '', email: '', phone: '', manualCA: '', manualBenefice: '' }, { company: '', name: '', email: '', phone: '', manualCA: '', manualBenefice: '' }]);
                     setShowModal(null);
                 } catch (err) {
                     addNotification('error', 'Erreur lors de l\'ajout.');
                 }
             }} className="space-y-4">
-                <div className="max-h-96 overflow-y-auto custom-scrollbar border border-slate-200 rounded-xl overflow-hidden">
+                <div className="max-h-[50vh] overflow-y-auto custom-scrollbar border border-slate-200 rounded-xl overflow-hidden">
                     <table className="w-full text-sm text-left">
                         <thead className="bg-slate-50 text-slate-500 uppercase font-extrabold text-[10px] tracking-wider sticky top-0 z-10 shadow-sm">
                             <tr>
@@ -4333,6 +4487,8 @@ function envoyerLead(agent, ligne) {
                                 <th className="px-4 py-3 border-b border-slate-200">Contact</th>
                                 <th className="px-4 py-3 border-b border-slate-200">Email</th>
                                 <th className="px-4 py-3 border-b border-slate-200">Téléphone</th>
+                                <th className="px-4 py-3 border-b border-slate-200">CA Manuel</th>
+                                <th className="px-4 py-3 border-b border-slate-200">Bénéfice Manuel</th>
                                 <th className="px-4 py-3 border-b border-slate-200 w-10"></th>
                             </tr>
                         </thead>
@@ -4343,6 +4499,8 @@ function envoyerLead(agent, ligne) {
                                     <td className="p-2"><input value={c.name} onChange={e => { const newB = [...bulkContacts]; newB[idx].name = e.target.value; setBulkContacts(newB); }} className="w-full bg-transparent outline-none border-2 border-transparent focus:border-blue-100 focus:bg-white rounded-lg p-2 text-slate-700 transition-colors" placeholder="Prénom Nom..." /></td>
                                     <td className="p-2"><input value={c.email} onChange={e => { const newB = [...bulkContacts]; newB[idx].email = e.target.value; setBulkContacts(newB); }} className="w-full bg-transparent outline-none border-2 border-transparent focus:border-blue-100 focus:bg-white rounded-lg p-2 text-slate-700 transition-colors" placeholder="@" /></td>
                                     <td className="p-2"><input value={c.phone} onChange={e => { const newB = [...bulkContacts]; newB[idx].phone = e.target.value; setBulkContacts(newB); }} className="w-full bg-transparent outline-none border-2 border-transparent focus:border-blue-100 focus:bg-white rounded-lg p-2 text-slate-700 transition-colors" placeholder="+41..." /></td>
+                                    <td className="p-2"><input type="number" value={c.manualCA} onChange={e => { const newB = [...bulkContacts]; newB[idx].manualCA = e.target.value; setBulkContacts(newB); }} className="w-full bg-transparent outline-none border-2 border-transparent focus:border-blue-100 focus:bg-white rounded-lg p-2 text-slate-700 transition-colors" placeholder="CA..." /></td>
+                                    <td className="p-2"><input type="number" value={c.manualBenefice} onChange={e => { const newB = [...bulkContacts]; newB[idx].manualBenefice = e.target.value; setBulkContacts(newB); }} className="w-full bg-transparent outline-none border-2 border-transparent focus:border-blue-100 focus:bg-white rounded-lg p-2 text-slate-700 transition-colors" placeholder="Bénéfice..." /></td>
                                     <td className="p-2 text-center">
                                         <button type="button" onClick={() => { const newB = [...bulkContacts]; newB.splice(idx, 1); setBulkContacts(newB); }} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16}/></button>
                                     </td>
@@ -4355,7 +4513,7 @@ function envoyerLead(agent, ligne) {
                 <div className="flex justify-between items-center pt-2">
                     <button type="button" onClick={() => {
                         const lastCompany = bulkContacts.length > 0 ? bulkContacts[bulkContacts.length - 1].company : '';
-                        setBulkContacts([...bulkContacts, { company: lastCompany, name: '', email: '', phone: '' }]);
+                        setBulkContacts([...bulkContacts, { company: lastCompany, name: '', email: '', phone: '', manualCA: '', manualBenefice: '' }]);
                     }} className="text-sm font-bold text-[#01189B] bg-blue-50 hover:bg-blue-100 px-4 py-2 rounded-xl transition-colors flex items-center gap-2"><Plus size={16}/> Ajouter une ligne</button>
                     <div className="flex justify-end gap-4">
                         <button type="button" onClick={() => setShowModal(null)} className="px-6 py-2.5 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-xl font-bold transition-colors">Annuler</button>
