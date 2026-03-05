@@ -32,7 +32,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '59.9';
+const APP_VERSION = '60.2';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -431,7 +431,12 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [isAppAuthenticated, setIsAppAuthenticated] = useState(false);
   const [isOfflineMode, setIsOfflineMode] = useState(false);
-  const [isSecretMode, setIsSecretMode] = useState(false);
+  const [isSecretMode, setIsSecretMode] = useState(() => localStorage.getItem('leadpartner_secret_mode') === 'true');
+
+  useEffect(() => {
+      localStorage.setItem('leadpartner_secret_mode', isSecretMode.toString());
+  }, [isSecretMode]);
+
   const [isEditingContractInInvoice, setIsEditingContractInInvoice] = useState(false);
   const [isEditingLayout, setIsEditingLayout] = useState(false);
   const [dragOverWidget, setDragOverWidget] = useState<string | null>(null);
@@ -555,6 +560,7 @@ export default function App() {
   // --- WRAPPERS MODE SECRET ---
   const renderCurrency = (amount: number) => isSecretMode ? 'CHF ****' : formatCurrency(amount);
   const renderNumber = (num: number | string) => isSecretMode ? '****' : num;
+  const renderName = (name: string | undefined | null) => isSecretMode ? '****' : (name || 'Inconnu');
 
   // --- HELPERS UI ---
   const addNotification = (type: string, message: string) => {
@@ -1678,9 +1684,9 @@ export default function App() {
             <tbody className="divide-y divide-slate-50">
               {prospects.map(p => (
                 <tr key={p.id} className="hover:bg-blue-50/30 transition-colors">
-                  <td className="px-6 py-5 font-extrabold text-slate-800">{p.company}</td>
-                  <td className="px-6 py-5 text-slate-600">{p.name}</td>
-                  <td className="px-6 py-5 text-slate-500">{p.email || <span className="italic text-slate-300">Non renseigné</span>}</td>
+                  <td className="px-6 py-5 font-extrabold text-slate-800">{renderName(p.company)}</td>
+                  <td className="px-6 py-5 text-slate-600">{renderName(p.name)}</td>
+                  <td className="px-6 py-5 text-slate-500">{isSecretMode ? '****@****' : (p.email || <span className="italic text-slate-300">Non renseigné</span>)}</td>
                   <td className="px-6 py-5 text-right">
                     {p.email ? (
                         <button 
@@ -1731,7 +1737,7 @@ export default function App() {
     const isReminderDue = hasReminder && new Date(selectedContact.nextContactDate) <= new Date();
 
     return (
-      <div className="flex flex-col h-full bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden animate-fade-in border border-slate-100">
+      <div className="flex flex-col h-fit bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden animate-fade-in border border-slate-100">
         
         {/* BANNIÈRE DE RDV */}
         {selectedContact.meetingDate && (
@@ -1773,7 +1779,7 @@ export default function App() {
             </button>
             <div>
               <div className="flex items-center gap-3 mb-2">
-                <h2 className="text-3xl font-extrabold font-poppins text-slate-800 tracking-tight">{selectedContact.company}</h2>
+                <h2 className="text-3xl font-extrabold font-poppins text-slate-800 tracking-tight">{renderName(selectedContact.company)}</h2>
                 <span className={`px-3 py-1 text-xs font-bold rounded-xl border shadow-sm ${PIPELINE_STAGES.find(s => s.id === selectedContact.status)?.color}`}>
                   {PIPELINE_STAGES.find(s => s.id === selectedContact.status)?.label}
                 </span>
@@ -1782,8 +1788,8 @@ export default function App() {
                   <span className="text-sm font-bold text-[#01189B] bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200 shadow-sm flex items-center gap-2"><Wallet size={16}/> CA : {renderCurrency(caEncaisse)}</span>
                   <span className="text-sm font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 shadow-sm flex items-center gap-2"><TrendingUp size={16}/> Bénéfice : {renderCurrency(beneficeTotalClient)}</span>
               </div>
-              <p className="text-slate-500 flex items-center gap-2 font-medium text-lg"><Users size={20}/> {selectedContact.name}</p>
-              {selectedContact.address && <p className="text-slate-400 flex items-center gap-2 font-medium mt-1 text-sm"><MapPin size={16}/> {selectedContact.address}</p>}
+              <p className="text-slate-500 flex items-center gap-2 font-medium text-lg"><Users size={20}/> {renderName(selectedContact.name)}</p>
+              {selectedContact.address && <p className="text-slate-400 flex items-center gap-2 font-medium mt-1 text-sm"><MapPin size={16}/> {isSecretMode ? '****' : selectedContact.address}</p>}
 
               <div className="flex flex-wrap gap-2 mt-5">
                   <span className={`px-3 py-1.5 border rounded-lg text-xs font-bold uppercase tracking-wide flex items-center gap-1.5 ${selectedContact.type === 'client' || selectedContact.status === 'gagne' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
@@ -1807,8 +1813,8 @@ export default function App() {
               </div>
               
               <div className="flex items-center gap-6 mt-6 text-sm font-bold text-slate-600">
-                {selectedContact.email && <button onClick={() => handleEmailProspect(selectedContact)} className="flex items-center gap-2 hover:text-[#01189B] transition-colors bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm"><Mail size={16}/> {selectedContact.email}</button>}
-                {selectedContact.phone && <a href={`tel:${selectedContact.phone}`} className="flex items-center gap-2 hover:text-[#01189B] transition-colors bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm">📞 {selectedContact.phone}</a>}
+                {selectedContact.email && <button onClick={() => handleEmailProspect(selectedContact)} className="flex items-center gap-2 hover:text-[#01189B] transition-colors bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm"><Mail size={16}/> {isSecretMode ? '****@****.com' : selectedContact.email}</button>}
+                {selectedContact.phone && <a href={`tel:${selectedContact.phone}`} className="flex items-center gap-2 hover:text-[#01189B] transition-colors bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm">📞 {isSecretMode ? '****' : selectedContact.phone}</a>}
               </div>
             </div>
           </div>
@@ -1851,7 +1857,7 @@ export default function App() {
 
         {/* Panneau d'édition (si actif) */}
         {isEditingContact && (
-          <div className="p-6 bg-slate-50 border-b border-slate-200 shadow-inner animate-fade-in z-20 relative shrink-0 overflow-y-auto max-h-[65vh] custom-scrollbar">
+          <div className="p-6 bg-slate-50 border-b border-slate-200 shadow-inner animate-fade-in z-20 relative shrink-0">
              <div className="flex justify-between items-center mb-5">
                  <h4 className="font-bold text-slate-800 font-poppins text-lg flex items-center gap-2"><Settings size={20}/> Mode Édition</h4>
                  <button onClick={() => setIsEditingContact(false)} className="text-slate-400 hover:text-slate-600"><X size={24}/></button>
@@ -1883,7 +1889,7 @@ export default function App() {
         )}
 
         {/* Contenu principal divisé en deux colonnes */}
-        <div className="flex-1 overflow-auto p-6 grid grid-cols-1 lg:grid-cols-3 gap-6 bg-slate-50/50">
+        <div className="flex-1 p-6 grid grid-cols-1 lg:grid-cols-3 gap-6 bg-slate-50/50">
           
           {/* Colonne Gauche: Outils & Stats */}
           <div className="lg:col-span-1 space-y-5">
@@ -1992,7 +1998,7 @@ export default function App() {
           </div>
 
           {/* Colonne Droite: Notes et Historique */}
-          <div className="lg:col-span-2 flex flex-col h-full bg-white rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] overflow-hidden">
+          <div className="lg:col-span-2 flex flex-col h-fit bg-white rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] overflow-hidden">
              <div className="p-5 border-b border-slate-100 bg-white flex justify-between items-center shrink-0">
                  <h4 className="font-extrabold text-slate-800 flex items-center gap-2 font-poppins text-base">
                     <MessageSquare size={18} style={{ color: BRAND_COLOR }} /> Historique & Compte-Rendus
@@ -2000,7 +2006,7 @@ export default function App() {
                  <span className="text-xs font-bold text-slate-400 bg-slate-100 px-3 py-1 rounded-full">{contactInteractions.length} note(s)</span>
              </div>
              
-             <div className="flex-1 overflow-auto p-5 space-y-5 bg-slate-50/50 custom-scrollbar">
+             <div className="p-5 space-y-5 bg-slate-50/50">
                 {contactInteractions.length === 0 ? (
                   <div className="text-center text-slate-400 italic mt-16 flex flex-col items-center justify-center">
                      <div className="w-20 h-20 bg-white border border-slate-100 shadow-sm rounded-full flex items-center justify-center mb-4"><MessageSquare size={32} className="text-slate-300"/></div>
@@ -2073,7 +2079,7 @@ export default function App() {
     const companyInteractions = interactions.filter(i => companyContacts.some(c => c.id === i.contactId)).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 5);
 
     return (
-      <div className="flex flex-col h-full bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden animate-fade-in border border-slate-100">
+      <div className="flex flex-col h-fit bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden animate-fade-in border border-slate-100">
         
         {/* BANNIÈRE DE RAPPEL SOCIÉTÉ */}
         {companyInfo.nextContactDate && (
@@ -2100,7 +2106,7 @@ export default function App() {
             </button>
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-2">
-                <h2 className="text-3xl font-extrabold font-poppins text-slate-800 tracking-tight">{selectedCompanyName}</h2>
+                <h2 className="text-3xl font-extrabold font-poppins text-slate-800 tracking-tight">{renderName(selectedCompanyName)}</h2>
                 <span className={`px-3 py-1 text-[10px] font-bold uppercase tracking-widest rounded-xl border shadow-sm ${isClient ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-blue-50 border-blue-200 text-blue-700'}`}>
                     {isClient ? 'Client Actif' : 'Prospect'}
                 </span>
@@ -2116,10 +2122,10 @@ export default function App() {
                           <p className="flex items-center gap-1.5"><Briefcase size={14} className="text-slate-400"/> {companyInfo.legalStatus} {companyInfo.cheNumber ? `(IDE: ${companyInfo.cheNumber})` : ''}</p>
                       )}
                       {(mainContact.name || mainContact.email || mainContact.phone) && (
-                          <p className="flex items-center gap-1.5"><Users size={14} className="text-slate-400"/> {mainContact.name || 'Contact Principal'} {mainContact.email ? `• ${mainContact.email}` : ''} {mainContact.phone ? `• ${mainContact.phone}` : ''}</p>
+                          <p className="flex items-center gap-1.5"><Users size={14} className="text-slate-400"/> {renderName(mainContact.name || 'Contact Principal')} {mainContact.email ? `• ${isSecretMode ? '****@****' : mainContact.email}` : ''} {mainContact.phone ? `• ${isSecretMode ? '****' : mainContact.phone}` : ''}</p>
                       )}
                       {(companyInfo.addressLine || mainContact.address) && (
-                          <p className="flex items-center gap-1.5"><MapPin size={14} className="text-slate-400"/> {companyInfo.addressLine ? `${companyInfo.addressLine}, ${companyInfo.zipCode || ''} ${companyInfo.city || ''} ${companyInfo.country || ''}` : mainContact.address}</p>
+                          <p className="flex items-center gap-1.5"><MapPin size={14} className="text-slate-400"/> {isSecretMode ? '****' : (companyInfo.addressLine ? `${companyInfo.addressLine}, ${companyInfo.zipCode || ''} ${companyInfo.city || ''} ${companyInfo.country || ''}` : mainContact.address)}</p>
                       )}
                   </div>
                   {companyInfo.notes && (
@@ -2156,7 +2162,7 @@ export default function App() {
 
         {/* Panneau d'édition Société (si actif) */}
         {isEditingCompany && (
-          <div className="p-6 bg-slate-50 border-b border-slate-200 shadow-inner animate-fade-in z-20 relative shrink-0 overflow-y-auto max-h-[65vh] custom-scrollbar">
+          <div className="p-6 bg-slate-50 border-b border-slate-200 shadow-inner animate-fade-in z-20 relative shrink-0">
              <div className="flex justify-between items-center mb-5">
                  <h4 className="font-bold text-slate-800 font-poppins text-lg flex items-center gap-2"><Settings size={20}/> Modifier la Société</h4>
                  <button onClick={() => setIsEditingCompany(false)} className="text-slate-400 hover:text-slate-600"><X size={24}/></button>
@@ -2205,7 +2211,7 @@ export default function App() {
           </div>
         )}
 
-        <div className="flex-1 overflow-auto p-6 bg-slate-50/50 custom-scrollbar grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="flex-1 p-6 bg-slate-50/50 grid grid-cols-1 lg:grid-cols-3 gap-6">
             
             {/* COLONNE GAUCHE : INFOS & CAMPAGNES */}
             <div className="lg:col-span-1 space-y-5">
@@ -2299,7 +2305,7 @@ export default function App() {
                  {companyInvoices.length === 0 ? (
                      <p className="text-xs text-slate-400 italic text-center py-4">Aucune facture pour cette société.</p>
                  ) : (
-                     <div className="space-y-3 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+                     <div className="space-y-3 pr-1">
                          {companyInvoices.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((inv: any) => (
                              <div key={inv.id} onClick={() => { setCurrentInvoice(inv); setShowModal('invoice'); }} className="flex justify-between items-center p-3 bg-slate-50 border border-slate-100 rounded-xl cursor-pointer hover:border-[#01189B] hover:bg-white shadow-sm transition-all group">
                                  <div>
@@ -2318,7 +2324,7 @@ export default function App() {
             </div>
 
             {/* COLONNE DROITE : EQUIPE & ACTIVITE */}
-            <div className="lg:col-span-2 space-y-5 flex flex-col h-full">
+            <div className="lg:col-span-2 space-y-5 flex flex-col h-fit">
               {/* Widget Activité Globale */}
               <div className="bg-white rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] p-5 shrink-0">
                   <h3 className="font-extrabold text-slate-800 mb-3 font-poppins text-base flex items-center gap-2"><Activity className="text-orange-500" size={18}/> Activité Globale (Notes récentes)</h3>
@@ -2347,7 +2353,7 @@ export default function App() {
                   <h3 className="font-extrabold text-slate-800 font-poppins text-lg flex items-center gap-2"><Users size={20} style={{ color: BRAND_COLOR }}/> Contacts ({companyContacts.length})</h3>
                 </div>
                 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 overflow-auto custom-scrollbar p-1">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-1">
                      {companyContacts.map(c => {
                         const cInvoices = invoices.filter(inv => inv.clientId === c.id);
                         const cCaEncaisse = cInvoices.filter(i => i.status === 'payee').reduce((a, b) => a + b.amount, 0) + Number(c.manualCA || 0);
@@ -2355,10 +2361,10 @@ export default function App() {
                           <div key={c.id} onClick={() => setSelectedContactId(c.id)} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:border-[#01189B] hover:shadow-lg transition-all cursor-pointer group flex flex-col justify-between">
                              <div className="flex justify-between items-start mb-4">
                                 <div className="flex items-center gap-3">
-                                   <div className="w-10 h-10 rounded-full bg-blue-100 text-[#01189B] flex items-center justify-center font-bold text-lg shrink-0">{c.name ? c.name.substring(0,2).toUpperCase() : '?'}</div>
+                                   <div className="w-10 h-10 rounded-full bg-blue-100 text-[#01189B] flex items-center justify-center font-bold text-lg shrink-0">{isSecretMode ? '**' : (c.name ? c.name.substring(0,2).toUpperCase() : '?')}</div>
                                    <div className="overflow-hidden">
-                                     <p className="font-bold text-slate-800 text-sm truncate">{c.name || 'Sans Nom'}</p>
-                                     <p className="text-[10px] text-slate-500 font-medium truncate">{c.email || 'Pas d\'email'}</p>
+                                     <p className="font-bold text-slate-800 text-sm truncate">{renderName(c.name || 'Sans Nom')}</p>
+                                     <p className="text-[10px] text-slate-500 font-medium truncate">{isSecretMode ? '****@****' : (c.email || 'Pas d\'email')}</p>
                                    </div>
                                 </div>
                                 <span className={`px-2 py-1 text-[9px] font-bold uppercase tracking-widest rounded-md border shrink-0 ${c.type === 'client' || c.status === 'gagne' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
@@ -2522,7 +2528,7 @@ export default function App() {
                       return (
                       <tr key={sim.id} className="hover:bg-blue-50/30 transition-colors">
                         <td className="px-6 py-5">
-                          <p className="font-extrabold text-slate-800 font-poppins">{sim.clientName || 'N/A'}</p>
+                          <p className="font-extrabold text-slate-800 font-poppins">{renderName(sim.clientName || 'N/A')}</p>
                           <div className="flex items-center gap-2 mt-1">
                               <p className="font-bold text-xs text-[#01189B] flex items-center gap-1"><Package size={12}/> {sim.productName}</p>
                               <span className={`text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded ${platform.toLowerCase().includes('google') ? 'bg-orange-100 text-orange-700' : platform.toLowerCase().includes('meta') ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-700'}`}>{platform}</span>
@@ -3072,7 +3078,7 @@ export default function App() {
                     <div className="space-y-3 max-h-64 overflow-y-auto custom-scrollbar pr-2">
                         {stats.caDetails.map((client: any, idx: number) => (
                             <div key={idx} className="flex justify-between items-center p-3 bg-slate-50 border border-slate-100 rounded-xl hover:bg-emerald-50 hover:border-emerald-200 transition-colors">
-                                <p className="font-bold text-slate-800 text-sm truncate pr-4">{client.name}</p>
+                                <p className="font-bold text-slate-800 text-sm truncate pr-4">{renderName(client.name)}</p>
                                 <p className="font-mono font-extrabold text-emerald-600 whitespace-nowrap">{renderCurrency(client.total)}</p>
                             </div>
                         ))}
@@ -3096,7 +3102,7 @@ export default function App() {
                             return (
                                 <div key={contact.id} onClick={() => setSelectedContactId(contact.id)} className={`flex flex-col p-3 rounded-xl cursor-pointer hover:shadow-sm transition-all border ${isOverdue ? 'bg-red-50/50 border-red-100 hover:border-red-300' : 'bg-slate-50 border-slate-100 hover:border-[#01189B]'}`}>
                                     <div className="flex justify-between items-center mb-1">
-                                        <p className="font-bold text-slate-800 text-sm">{contact.company}</p>
+                                        <p className="font-bold text-slate-800 text-sm">{renderName(contact.company)}</p>
                                         <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-md ${isOverdue ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>{isOverdue ? 'Échu !' : formatDate(contact.nextContactDate)}</span>
                                     </div>
                                     <p className="text-xs text-slate-500 line-clamp-1">{contact.nextContactNote || 'Relance planifiée'}</p>
@@ -3122,7 +3128,7 @@ export default function App() {
                                 <div className="flex items-center gap-3">
                                     <div className={`w-2 h-2 rounded-full ${inv.status === 'payee' ? 'bg-emerald-500' : inv.status === 'retard' ? 'bg-orange-500' : inv.status === 'archive' || inv.status === 'annulee' ? 'bg-slate-500' : 'bg-blue-400'}`}></div>
                                     <div>
-                                        <p className="font-bold text-slate-800 text-sm">{inv.clientName}</p>
+                                        <p className="font-bold text-slate-800 text-sm">{renderName(inv.clientName)}</p>
                                         <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{formatDate(inv.date)}</p>
                                     </div>
                                 </div>
@@ -3147,7 +3153,7 @@ export default function App() {
                             const contact = contacts.find(c => c.id === act.contactId);
                             return (
                                 <div key={act.id} className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
-                                    <p className="text-xs font-bold text-slate-500 mb-1 flex justify-between"><span>{contact ? contact.company : 'Contact inconnu'}</span> <span className="text-slate-400 font-medium">{formatDate(act.createdAt)}</span></p>
+                                    <p className="text-xs font-bold text-slate-500 mb-1 flex justify-between"><span>{contact ? renderName(contact.company) : 'Contact inconnu'}</span> <span className="text-slate-400 font-medium">{formatDate(act.createdAt)}</span></p>
                                     <p className="text-sm text-slate-700 line-clamp-2">{act.content}</p>
                                 </div>
                             );
@@ -4273,7 +4279,7 @@ function envoyerLead(agent, ligne) {
                           {[...invoices].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((inv) => (
                             <tr key={inv.id} className="hover:bg-blue-50/30 transition-colors group cursor-pointer" onClick={() => { setCurrentInvoice(inv); setShowModal('invoice'); }}>
                               <td className="px-8 py-5 font-bold text-slate-600 font-mono text-xs">{inv.id}</td>
-                              <td className="px-8 py-5 font-extrabold text-slate-800 font-poppins">{inv.clientName}</td>
+                              <td className="px-8 py-5 font-extrabold text-slate-800 font-poppins">{renderName(inv.clientName)}</td>
                               <td className="px-8 py-5 font-medium text-slate-500">{formatDate(inv.date)}</td>
                               <td className="px-8 py-5 font-extrabold font-mono text-lg text-slate-800">{renderCurrency(inv.amount)}</td>
                               <td className="px-8 py-5" onClick={(e) => e.stopPropagation()}>
@@ -4337,25 +4343,19 @@ function envoyerLead(agent, ligne) {
                                     <div key={companyName} onClick={() => setSelectedCompanyName(companyName)} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm hover:border-[#01189B] hover:shadow-md cursor-pointer transition-all group flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                                         <div className="flex items-center gap-4 w-full md:w-1/3">
                                             <div className="w-12 h-12 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-extrabold text-xl shadow-inner group-hover:scale-105 transition-transform shrink-0">
-                                                {companyName.substring(0, 2).toUpperCase()}
+                                                {isSecretMode ? '**' : companyName.substring(0, 2).toUpperCase()}
                                             </div>
                                             <div className="overflow-hidden">
-                                                <h3 className="font-extrabold text-slate-800 font-poppins text-base leading-tight truncate" title={companyName}>{companyName}</h3>
+                                                <h3 className="font-extrabold text-slate-800 font-poppins text-base leading-tight truncate" title={companyName}>{renderName(companyName)}</h3>
                                                 <span className={`inline-block mt-1 px-2 py-0.5 rounded-md text-[9px] uppercase font-bold tracking-widest ${isClient ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-slate-100 text-slate-600 border border-slate-200'}`}>{isClient ? 'Client' : 'Prospect'}</span>
                                             </div>
                                         </div>
-                                        <div className="flex items-center gap-6 md:gap-8 w-full md:w-auto justify-between md:justify-end pt-3 md:pt-0 border-t md:border-t-0 border-slate-100">
-                                            <div className="text-left md:text-right">
-                                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-0.5">Équipe</p>
-                                                <p className="text-sm font-bold text-slate-700 flex items-center md:justify-end gap-1.5"><Users size={14} className="text-slate-400"/> {companyContacts.length} profil(s)</p>
-                                            </div>
-                                            <div className="text-right w-24 md:w-32 md:border-l md:border-slate-100 md:pl-6">
-                                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-0.5">CA Encaissé</p>
-                                                <p className="text-sm font-extrabold text-[#01189B] font-mono">{renderCurrency(caTotal)}</p>
-                                            </div>
-                                            <div className="text-slate-300 group-hover:text-[#01189B] transition-colors hidden md:block ml-2">
-                                                <ArrowRight size={20} />
-                                            </div>
+                                        <div className="text-right w-24 md:w-32 md:border-l md:border-slate-100 md:pl-6">
+                                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-0.5">CA Encaissé</p>
+                                            <p className="text-sm font-extrabold text-[#01189B] font-mono">{renderCurrency(caTotal)}</p>
+                                        </div>
+                                        <div className="text-slate-300 group-hover:text-[#01189B] transition-colors hidden md:block ml-2">
+                                            <ArrowRight size={20} />
                                         </div>
                                     </div>
                                 )
