@@ -32,19 +32,19 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '59.8';
+const APP_VERSION = '59.9';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
 
 // --- OPTIMISATION : DICTIONNAIRE DE CLASSES CSS ---
 const UI_CLASSES = {
-  input: "w-full border-2 border-slate-100 bg-slate-50 p-3.5 rounded-xl outline-none focus:border-[#01189B] focus:bg-white transition-colors font-medium text-slate-800",
-  label: "block text-xs font-bold text-slate-400 uppercase tracking-wide mb-2",
-  btnPrimary: "text-white px-6 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 hover:shadow-lg hover:-translate-y-0.5 transition-all",
-  btnSecondary: "flex-1 py-4 border-2 border-slate-200 text-slate-600 hover:bg-slate-50 rounded-xl font-bold transition-colors",
-  card: "bg-white p-6 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)]",
-  title: "text-2xl font-extrabold mb-6 font-poppins text-slate-800 flex items-center gap-3"
+  input: "w-full border-2 border-slate-100 bg-slate-50 p-2.5 rounded-xl outline-none focus:border-[#01189B] focus:bg-white transition-colors text-sm font-medium text-slate-800",
+  label: "block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1.5",
+  btnPrimary: "text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2 hover:shadow-lg hover:-translate-y-0.5 transition-all",
+  btnSecondary: "flex-1 py-2.5 border-2 border-slate-200 text-slate-600 hover:bg-slate-50 rounded-xl font-bold transition-colors text-sm",
+  card: "bg-white p-5 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)]",
+  title: "text-2xl font-extrabold mb-5 font-poppins text-slate-800 flex items-center gap-3"
 };
 
 // --- CONFIGURATION FIREBASE ---
@@ -1765,16 +1765,16 @@ export default function App() {
         )}
 
         {/* Header Contact */}
-        <div className="p-8 border-b border-slate-100 bg-white/50 backdrop-blur-sm flex justify-between items-start relative shrink-0">
+        <div className="p-6 border-b border-slate-100 bg-white/50 backdrop-blur-sm flex justify-between items-start relative shrink-0">
           <div className="absolute top-0 right-0 w-64 h-64 bg-slate-50 rounded-full blur-3xl opacity-50 pointer-events-none -mr-20 -mt-20"></div>
-          <div className="flex gap-6 relative z-10">
-            <button onClick={() => setSelectedContactId(null)} className="mt-1 p-3 bg-white border border-slate-200 shadow-sm rounded-xl hover:bg-slate-50 transition-colors text-slate-500 h-fit">
+          <div className="flex gap-5 relative z-10">
+            <button onClick={() => setSelectedContactId(null)} className="mt-1 p-2.5 bg-white border border-slate-200 shadow-sm rounded-xl hover:bg-slate-50 transition-colors text-slate-500 h-fit">
               <ChevronLeft size={20} />
             </button>
             <div>
-              <div className="flex items-center gap-4 mb-2">
-                <h2 className="text-4xl font-extrabold font-poppins text-slate-800 tracking-tight">{selectedContact.company}</h2>
-                <span className={`px-4 py-1.5 text-xs font-bold rounded-xl border shadow-sm ${PIPELINE_STAGES.find(s => s.id === selectedContact.status)?.color}`}>
+              <div className="flex items-center gap-3 mb-2">
+                <h2 className="text-3xl font-extrabold font-poppins text-slate-800 tracking-tight">{selectedContact.company}</h2>
+                <span className={`px-3 py-1 text-xs font-bold rounded-xl border shadow-sm ${PIPELINE_STAGES.find(s => s.id === selectedContact.status)?.color}`}>
                   {PIPELINE_STAGES.find(s => s.id === selectedContact.status)?.label}
                 </span>
               </div>
@@ -1851,12 +1851,12 @@ export default function App() {
 
         {/* Panneau d'édition (si actif) */}
         {isEditingContact && (
-          <div className="p-8 bg-slate-50 border-b border-slate-200 shadow-inner animate-fade-in z-20 relative shrink-0 overflow-y-auto max-h-[50vh] custom-scrollbar">
-             <div className="flex justify-between items-center mb-6">
+          <div className="p-6 bg-slate-50 border-b border-slate-200 shadow-inner animate-fade-in z-20 relative shrink-0 overflow-y-auto max-h-[65vh] custom-scrollbar">
+             <div className="flex justify-between items-center mb-5">
                  <h4 className="font-bold text-slate-800 font-poppins text-lg flex items-center gap-2"><Settings size={20}/> Mode Édition</h4>
                  <button onClick={() => setIsEditingContact(false)} className="text-slate-400 hover:text-slate-600"><X size={24}/></button>
              </div>
-             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
                 <div><label className={UI_CLASSES.label}>Société</label><input className={UI_CLASSES.input} value={editContactData.company || ''} onChange={e => setEditContactData({...editContactData, company: e.target.value})} /></div>
                 <div><label className={UI_CLASSES.label}>Contact</label><input className={UI_CLASSES.input} value={editContactData.name || ''} onChange={e => setEditContactData({...editContactData, name: e.target.value})} /></div>
                 <div><label className={UI_CLASSES.label}>Email</label><input className={UI_CLASSES.input} value={editContactData.email || ''} onChange={e => setEditContactData({...editContactData, email: e.target.value})} /></div>
@@ -1864,7 +1864,7 @@ export default function App() {
                 <div><label className={UI_CLASSES.label}>Google Sheet ID (Leads)</label><input className={UI_CLASSES.input} value={editContactData.googleSheetId || ''} onChange={e => setEditContactData({...editContactData, googleSheetId: e.target.value})} placeholder="ID GSheet du client" /></div>
                 <div className="col-span-1 md:col-span-2 lg:col-span-3"><label className={UI_CLASSES.label}>Adresse complète (Facturation)</label><textarea className={`${UI_CLASSES.input} resize-none h-14`} value={editContactData.address || ''} onChange={e => setEditContactData({...editContactData, address: e.target.value})} /></div>
 
-                <div className="col-span-1 md:col-span-2 lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-6 p-4 bg-white rounded-xl border border-slate-200 shadow-sm my-2">
+                <div className="col-span-1 md:col-span-2 lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-white rounded-xl border border-slate-200 shadow-sm my-1">
                     <div><label className={UI_CLASSES.label}>CA Historique (Manuel)</label><input type="number" className={UI_CLASSES.input} value={editContactData.manualCA || ''} onChange={e => setEditContactData({...editContactData, manualCA: e.target.value})} placeholder="Ajouter au CA global..." /></div>
                     <div><label className={UI_CLASSES.label}>Bénéfice Historique (Manuel)</label><input type="number" className={UI_CLASSES.input} value={editContactData.manualBenefice || ''} onChange={e => setEditContactData({...editContactData, manualBenefice: e.target.value})} placeholder="Ajouter au bénéfice..." /></div>
                 </div>
@@ -1875,119 +1875,54 @@ export default function App() {
                     <option value="client">Client</option>
                   </select>
                 </div>
-
-                <div><label className={UI_CLASSES.label}>Provenance / Source</label>
-                  <select className={UI_CLASSES.input} value={editContactData.source || ''} onChange={e => setEditContactData({...editContactData, source: e.target.value})}>
-                    <option value="">-- Non définie --</option>
-                    <option value="Recommandation">Recommandation</option>
-                    <option value="Call froid">Call froid</option>
-                    <option value="Lead site internet">Lead site internet</option>
-                    <option value="LinkedIn">LinkedIn</option>
-                    <option value="Autre">Autre</option>
-                  </select>
-                </div>
-
-                {editContactData.source === 'Recommandation' && (
-                    <div><label className={UI_CLASSES.label}>Nom de la Recommandation</label>
-                        <input className={UI_CLASSES.input} value={editContactData.sourceDetails || ''} onChange={e => setEditContactData({...editContactData, sourceDetails: e.target.value})} placeholder="Recommandé par..." />
-                    </div>
-                )}
-
-                <div><label className={UI_CLASSES.label}>Statut Pipeline</label>
-                  <select className={`${UI_CLASSES.input} text-[#01189B]`} value={editContactData.status || 'nouveau'} onChange={e => setEditContactData({...editContactData, status: e.target.value})}>
-                    {PIPELINE_STAGES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-                  </select>
-                </div>
-                <div><label className={UI_CLASSES.label}>Intérêt Principal (Campagne)</label>
-                  <select className={UI_CLASSES.input} value={editContactData.interestedProductId || ''} onChange={e => setEditContactData({...editContactData, interestedProductId: e.target.value})}>
-                    <option value="">-- Non défini --</option>
-                    {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
-                </div>
-
-                <div className="col-span-1 md:col-span-2 lg:col-span-3 pt-4 border-t border-slate-200">
-                    <label className={UI_CLASSES.label}>Audience Ciblée par ce client</label>
-                    <div className="flex gap-3 mt-3">
-                        {['Résident', 'Frontalier', 'Les deux'].map(aud => (
-                            <button
-                                key={aud} type="button" onClick={() => setEditContactData({...editContactData, targetAudience: aud})}
-                                className={`px-5 py-2.5 rounded-xl text-sm font-bold border-2 transition-all ${editContactData.targetAudience === aud ? 'border-[#01189B] bg-blue-50 text-[#01189B] shadow-sm' : 'border-slate-200 text-slate-500 bg-white hover:border-slate-300'}`}
-                            >
-                                {aud}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-
-                <div className="col-span-1 md:col-span-2 lg:col-span-3">
-                    <label className={UI_CLASSES.label}>Services & Produits vendus par ce client</label>
-                    <div className="flex flex-wrap gap-2 mt-3">
-                        {['LAMal', 'LCA', '3ème Pilier', 'LPP', 'Prévoyance', 'Assurance Vie', 'Hypothèque', 'Fiscalité'].map(prod => {
-                            const isActive = (editContactData.offeredProducts || []).includes(prod);
-                            return (
-                                <button
-                                    key={prod} type="button"
-                                    onClick={() => {
-                                        const current = editContactData.offeredProducts || [];
-                                        setEditContactData({ ...editContactData, offeredProducts: isActive ? current.filter((p: string) => p !== prod) : [...current, prod] });
-                                    }}
-                                    className={`px-4 py-2 rounded-xl text-xs font-bold border-2 transition-all shadow-sm ${isActive ? 'bg-[#01189B] text-white border-[#01189B]' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'}`}
-                                >
-                                    {isActive ? '✓ ' : '+ '}{prod}
-                                </button>
-                            )
-                        })}
-                    </div>
-                </div>
-
              </div>
-             <div className="flex gap-4 justify-end mt-6 pt-6 border-t border-slate-200">
-               <button onClick={handleSaveContactEdit} className="px-8 py-3.5 text-white rounded-xl font-bold hover:opacity-90 shadow-md transition-opacity" style={{ backgroundColor: BRAND_COLOR }}>Mettre à jour la fiche</button>
+             <div className="flex gap-4 justify-end mt-5 pt-5 border-t border-slate-200">
+               <button onClick={handleSaveContactEdit} className="px-6 py-2.5 text-sm text-white rounded-xl font-bold hover:opacity-90 shadow-md transition-opacity" style={{ backgroundColor: BRAND_COLOR }}>Mettre à jour la fiche</button>
              </div>
           </div>
         )}
 
         {/* Contenu principal divisé en deux colonnes */}
-        <div className="flex-1 overflow-auto p-8 grid grid-cols-1 lg:grid-cols-3 gap-8 bg-slate-50/50">
+        <div className="flex-1 overflow-auto p-6 grid grid-cols-1 lg:grid-cols-3 gap-6 bg-slate-50/50">
           
           {/* Colonne Gauche: Outils & Stats */}
-          <div className="lg:col-span-1 space-y-6">
+          <div className="lg:col-span-1 space-y-5">
             
             {/* WIDGET : PROGRAMMER UN RDV */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] relative overflow-hidden">
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
-                <h4 className="font-extrabold text-slate-800 mb-4 font-poppins text-lg flex items-center gap-2"><CalendarIcon className="text-blue-500" size={20}/> Nouveau Rendez-vous</h4>
-                <div className="space-y-4">
+                <h4 className="font-extrabold text-slate-800 mb-3 font-poppins text-base flex items-center gap-2"><CalendarIcon className="text-blue-500" size={18}/> Nouveau Rendez-vous</h4>
+                <div className="space-y-3">
                     <input 
                         type="datetime-local" 
                         value={meetingDate}
                         onChange={e => setMeetingDate(e.target.value)}
-                        className="w-full text-sm border-2 border-slate-100 bg-slate-50 p-3 rounded-xl outline-none focus:border-blue-500 focus:bg-white transition-colors"
+                        className="w-full text-sm border border-slate-200 bg-slate-50 p-2.5 rounded-xl outline-none focus:border-blue-500 focus:bg-white transition-colors"
                     />
                     <input 
                         type="text" 
                         placeholder="Motif du rendez-vous..." 
                         value={meetingNote}
                         onChange={e => setMeetingNote(e.target.value)}
-                        className="w-full text-sm border-2 border-slate-100 bg-slate-50 p-3 rounded-xl outline-none focus:border-blue-500 focus:bg-white transition-colors"
+                        className="w-full text-sm border border-slate-200 bg-slate-50 p-2.5 rounded-xl outline-none focus:border-blue-500 focus:bg-white transition-colors"
                     />
-                    <button onClick={handleSetMeeting} className="w-full py-2.5 text-xs font-bold uppercase tracking-wide bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 border border-blue-100 transition-colors">
+                    <button onClick={handleSetMeeting} className="w-full py-2 text-xs font-bold uppercase tracking-wide bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 border border-blue-100 transition-colors">
                         Enregistrer le RDV
                     </button>
                 </div>
             </div>
 
             {/* WIDGET : PROGRAMMER UN RAPPEL */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] relative overflow-hidden">
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-1 h-full bg-orange-400"></div>
-                <h4 className="font-extrabold text-slate-800 mb-4 font-poppins text-lg flex items-center gap-2"><CalendarClock className="text-orange-500" size={20}/> Programmer un Rappel</h4>
-                <div className="space-y-4">
+                <h4 className="font-extrabold text-slate-800 mb-3 font-poppins text-base flex items-center gap-2"><CalendarClock className="text-orange-500" size={18}/> Programmer un Rappel</h4>
+                <div className="space-y-3">
                     <input 
                         type="text" 
                         placeholder="Ex: Rappeler pour faire le point..." 
                         value={reminderNote}
                         onChange={e => setReminderNote(e.target.value)}
-                        className="w-full text-sm border-2 border-slate-100 bg-slate-50 p-3 rounded-xl outline-none focus:border-orange-400 focus:bg-white transition-colors"
+                        className="w-full text-sm border border-slate-200 bg-slate-50 p-2.5 rounded-xl outline-none focus:border-orange-400 focus:bg-white transition-colors"
                     />
                     <div className="grid grid-cols-3 gap-2">
                         <button onClick={() => handleSetReminder(7)} className="py-2 text-[10px] font-bold uppercase tracking-wide bg-orange-50 text-orange-700 rounded-lg hover:bg-orange-100 border border-orange-100 transition-colors">+ 1 Sem.</button>
@@ -1998,8 +1933,8 @@ export default function App() {
             </div>
 
             {/* WIDGET : CAMPAGNES EN COURS */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]">
-               <h4 className="font-extrabold text-slate-800 mb-4 font-poppins text-lg flex items-center gap-2"><PlayCircle size={20} className="text-indigo-500"/> Campagnes en cours</h4>
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]">
+               <h4 className="font-extrabold text-slate-800 mb-3 font-poppins text-base flex items-center gap-2"><PlayCircle size={18} className="text-indigo-500"/> Campagnes en cours</h4>
                {clientSimulations.length === 0 ? (
                    <p className="text-xs text-slate-400 italic text-center py-4">Aucune campagne active.</p>
                ) : (
@@ -2032,8 +1967,8 @@ export default function App() {
             </div>
 
             {/* WIDGET : HISTORIQUE FACTURES */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]">
-               <h4 className="font-extrabold text-slate-800 mb-4 font-poppins text-lg flex items-center gap-2"><FileText size={18} className="text-slate-400"/> Factures Associées</h4>
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]">
+               <h4 className="font-extrabold text-slate-800 mb-3 font-poppins text-base flex items-center gap-2"><FileText size={18} className="text-slate-400"/> Factures Associées</h4>
                {clientInvoices.length === 0 ? (
                  <p className="text-xs text-slate-400 italic text-center py-4">Aucune facture émise pour ce client.</p>
                ) : (
@@ -2058,14 +1993,14 @@ export default function App() {
 
           {/* Colonne Droite: Notes et Historique */}
           <div className="lg:col-span-2 flex flex-col h-full bg-white rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] overflow-hidden">
-             <div className="p-6 border-b border-slate-100 bg-white flex justify-between items-center">
-                 <h4 className="font-extrabold text-slate-800 flex items-center gap-2 font-poppins text-lg">
-                    <MessageSquare size={20} style={{ color: BRAND_COLOR }} /> Historique & Compte-Rendus
+             <div className="p-5 border-b border-slate-100 bg-white flex justify-between items-center shrink-0">
+                 <h4 className="font-extrabold text-slate-800 flex items-center gap-2 font-poppins text-base">
+                    <MessageSquare size={18} style={{ color: BRAND_COLOR }} /> Historique & Compte-Rendus
                  </h4>
                  <span className="text-xs font-bold text-slate-400 bg-slate-100 px-3 py-1 rounded-full">{contactInteractions.length} note(s)</span>
              </div>
              
-             <div className="flex-1 overflow-auto p-6 space-y-6 bg-slate-50/50 custom-scrollbar">
+             <div className="flex-1 overflow-auto p-5 space-y-5 bg-slate-50/50 custom-scrollbar">
                 {contactInteractions.length === 0 ? (
                   <div className="text-center text-slate-400 italic mt-16 flex flex-col items-center justify-center">
                      <div className="w-20 h-20 bg-white border border-slate-100 shadow-sm rounded-full flex items-center justify-center mb-4"><MessageSquare size={32} className="text-slate-300"/></div>
@@ -2088,16 +2023,16 @@ export default function App() {
                 )}
              </div>
 
-             <div className="p-6 bg-white border-t border-slate-100 shadow-[0_-10px_30px_rgb(0,0,0,0.02)] relative z-10">
+             <div className="p-5 bg-white border-t border-slate-100 shadow-[0_-10px_30px_rgb(0,0,0,0.02)] relative z-10 shrink-0">
                 <div className="relative">
                   <textarea 
                     value={newNoteContent} 
                     onChange={e => setNewNoteContent(e.target.value)} 
                     placeholder="Saisissez le compte-rendu du rendez-vous, une info importante..."
-                    className="w-full border-2 border-slate-200 bg-slate-50 rounded-xl p-4 pr-16 h-28 outline-none focus:border-[#01189B] focus:bg-white resize-none text-sm transition-colors shadow-inner"
+                    className="w-full border-2 border-slate-200 bg-slate-50 rounded-xl p-3 pr-14 h-20 outline-none focus:border-[#01189B] focus:bg-white resize-none text-sm transition-colors shadow-inner custom-scrollbar"
                   />
-                  <button onClick={handleAddQuickNote} className="absolute bottom-4 right-4 p-3 text-white rounded-xl hover:shadow-lg hover:-translate-y-0.5 transition-all disabled:opacity-50" style={{ backgroundColor: BRAND_COLOR }} disabled={!newNoteContent.trim()}>
-                    <Send size={18}/>
+                  <button onClick={handleAddQuickNote} className="absolute bottom-3 right-3 p-2.5 text-white rounded-xl hover:shadow-lg hover:-translate-y-0.5 transition-all disabled:opacity-50" style={{ backgroundColor: BRAND_COLOR }} disabled={!newNoteContent.trim()}>
+                    <Send size={16}/>
                   </button>
                 </div>
              </div>
@@ -2157,16 +2092,16 @@ export default function App() {
         )}
 
         {/* Header Société */}
-        <div className="p-8 border-b border-slate-100 bg-white/50 backdrop-blur-sm flex justify-between items-start relative shrink-0">
+        <div className="p-6 border-b border-slate-100 bg-white/50 backdrop-blur-sm flex justify-between items-start relative shrink-0">
           <div className="absolute top-0 right-0 w-64 h-64 bg-slate-50 rounded-full blur-3xl opacity-50 pointer-events-none -mr-20 -mt-20"></div>
-          <div className="flex gap-6 relative z-10 flex-1">
-            <button onClick={() => setSelectedCompanyName(null)} className="mt-1 p-3 bg-white border border-slate-200 shadow-sm rounded-xl hover:bg-slate-50 transition-colors text-slate-500 h-fit shrink-0">
+          <div className="flex gap-5 relative z-10 flex-1">
+            <button onClick={() => setSelectedCompanyName(null)} className="mt-1 p-2.5 bg-white border border-slate-200 shadow-sm rounded-xl hover:bg-slate-50 transition-colors text-slate-500 h-fit shrink-0">
               <ChevronLeft size={20} />
             </button>
             <div className="flex-1">
-              <div className="flex items-center gap-4 mb-2">
-                <h2 className="text-4xl font-extrabold font-poppins text-slate-800 tracking-tight">{selectedCompanyName}</h2>
-                <span className={`px-3 py-1 text-xs font-bold rounded-xl border shadow-sm ${isClient ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-blue-50 border-blue-200 text-blue-700'}`}>
+              <div className="flex items-center gap-3 mb-2">
+                <h2 className="text-3xl font-extrabold font-poppins text-slate-800 tracking-tight">{selectedCompanyName}</h2>
+                <span className={`px-3 py-1 text-[10px] font-bold uppercase tracking-widest rounded-xl border shadow-sm ${isClient ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-blue-50 border-blue-200 text-blue-700'}`}>
                     {isClient ? 'Client Actif' : 'Prospect'}
                 </span>
               </div>
@@ -2221,12 +2156,12 @@ export default function App() {
 
         {/* Panneau d'édition Société (si actif) */}
         {isEditingCompany && (
-          <div className="p-8 bg-slate-50 border-b border-slate-200 shadow-inner animate-fade-in z-20 relative shrink-0 overflow-y-auto max-h-[50vh] custom-scrollbar">
-             <div className="flex justify-between items-center mb-6">
+          <div className="p-6 bg-slate-50 border-b border-slate-200 shadow-inner animate-fade-in z-20 relative shrink-0 overflow-y-auto max-h-[65vh] custom-scrollbar">
+             <div className="flex justify-between items-center mb-5">
                  <h4 className="font-bold text-slate-800 font-poppins text-lg flex items-center gap-2"><Settings size={20}/> Modifier la Société</h4>
                  <button onClick={() => setIsEditingCompany(false)} className="text-slate-400 hover:text-slate-600"><X size={24}/></button>
              </div>
-             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
                 <div>
                   <label className={UI_CLASSES.label}>Statut de la Société</label>
                   <select className={`${UI_CLASSES.input} font-bold ${editCompanyDataState.type === 'client' ? 'text-emerald-600' : 'text-[#01189B]'}`} value={editCompanyDataState.type || companyType} onChange={e => setEditCompanyDataState({...editCompanyDataState, type: e.target.value})}>
@@ -2248,7 +2183,7 @@ export default function App() {
                 <div><label className={UI_CLASSES.label}>Numéro IDE / CHE</label><input className={UI_CLASSES.input} value={editCompanyDataState.cheNumber || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, cheNumber: e.target.value})} placeholder="Ex: CHE-123.456.789" /></div>
                 <div><label className={UI_CLASSES.label}>Numéro TVA</label><input className={UI_CLASSES.input} value={editCompanyDataState.tvaNumber || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, tvaNumber: e.target.value})} placeholder="Si applicable..." /></div>
                 
-                <div className="col-span-1 md:col-span-2 lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-6 p-4 bg-white rounded-xl border border-slate-200 shadow-sm my-2">
+                <div className="col-span-1 md:col-span-2 lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-white rounded-xl border border-slate-200 shadow-sm my-1">
                     <div><label className={UI_CLASSES.label}>CA Historique (Manuel)</label><input type="number" className={UI_CLASSES.input} value={editCompanyDataState.manualCA || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, manualCA: e.target.value})} placeholder="Ajouter au CA global..." /></div>
                     <div><label className={UI_CLASSES.label}>Bénéfice Historique (Manuel)</label><input type="number" className={UI_CLASSES.input} value={editCompanyDataState.manualBenefice || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, manualBenefice: e.target.value})} placeholder="Ajouter au bénéfice..." /></div>
                 </div>
@@ -2256,75 +2191,36 @@ export default function App() {
                 <div className="col-span-1 md:col-span-2 lg:col-span-3 pt-4 border-t border-slate-200">
                     <h5 className="font-bold text-slate-700 text-sm mb-4">Adresse Officielle</h5>
                 </div>
-                <div className="col-span-1 md:col-span-2 lg:col-span-3"><label className={UI_CLASSES.label}>Rue et numéro</label><input className={UI_CLASSES.input} value={editCompanyDataState.addressLine || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, addressLine: e.target.value})} placeholder="Rue de Genève 1..." /></div>
-                <div><label className={UI_CLASSES.label}>NPA / Code Postal</label><input className={UI_CLASSES.input} value={editCompanyDataState.zipCode || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, zipCode: e.target.value})} placeholder="Ex: 1200" /></div>
-                <div><label className={UI_CLASSES.label}>Ville</label><input className={UI_CLASSES.input} value={editCompanyDataState.city || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, city: e.target.value})} placeholder="Ex: Genève" /></div>
-                <div><label className={UI_CLASSES.label}>Canton / Pays</label><input className={UI_CLASSES.input} value={editCompanyDataState.country || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, country: e.target.value})} placeholder="Ex: Suisse" /></div>
-                
-                <div className="col-span-1 md:col-span-2 lg:col-span-3 pt-4 border-t border-slate-200">
-                    <label className={UI_CLASSES.label}>Notes / Informations complémentaires</label>
-                    <textarea className={`${UI_CLASSES.input} h-20 resize-none`} value={editCompanyDataState.notes || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, notes: e.target.value})} placeholder="Détails spécifiques à l'entreprise, notes globales..."></textarea>
-                    <p className="text-[10px] text-slate-400 mt-1 font-medium"><Info size={12} className="inline mr-1"/> Ajouter un contact principal pour cette société est optionnel, vous pouvez gérer la relation uniquement via ces notes si souhaité.</p>
-                </div>
-
-                <div className="col-span-1 md:col-span-2 lg:col-span-3 pt-4 border-t border-slate-200">
-                    <label className={UI_CLASSES.label}>Audience Ciblée par l'entreprise</label>
-                    <div className="flex gap-3 mt-3">
-                        {['Résident', 'Frontalier', 'Les deux'].map(aud => (
-                            <button
-                                key={aud} type="button" onClick={() => setEditCompanyDataState({...editCompanyDataState, targetAudience: aud})}
-                                className={`px-5 py-2.5 rounded-xl text-sm font-bold border-2 transition-all ${editCompanyDataState.targetAudience === aud ? 'border-[#01189B] bg-blue-50 text-[#01189B] shadow-sm' : 'border-slate-200 text-slate-500 bg-white hover:border-slate-300'}`}
-                            >
-                                {aud}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-
                 <div className="col-span-1 md:col-span-2 lg:col-span-3">
-                    <label className={UI_CLASSES.label}>Services & Produits vendus par l'entreprise</label>
-                    <div className="flex flex-wrap gap-2 mt-3">
-                        {['LAMal', 'LCA', '3ème Pilier', 'LPP', 'Prévoyance', 'Assurance Vie', 'Hypothèque', 'Fiscalité'].map(prod => {
-                            const isActive = (editCompanyDataState.offeredProducts || []).includes(prod);
-                            return (
-                                <button
-                                    key={prod} type="button"
-                                    onClick={() => {
-                                        const current = editCompanyDataState.offeredProducts || [];
-                                        setEditCompanyDataState({ ...editCompanyDataState, offeredProducts: isActive ? current.filter((p: string) => p !== prod) : [...current, prod] });
-                                    }}
-                                    className={`px-4 py-2 rounded-xl text-xs font-bold border-2 transition-all shadow-sm ${isActive ? 'bg-[#01189B] text-white border-[#01189B]' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'}`}
-                                >
-                                    {isActive ? '✓ ' : '+ '}{prod}
-                                </button>
-                            )
-                        })}
-                    </div>
+                    <label className={UI_CLASSES.label}>Adresse Ligne 1</label>
+                    <input className={UI_CLASSES.input} value={editCompanyDataState.addressLine || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, addressLine: e.target.value})} placeholder="Rue, Numéro..." />
                 </div>
-
+                <div><label className={UI_CLASSES.label}>NPA / Code Postal</label><input className={UI_CLASSES.input} value={editCompanyDataState.zipCode || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, zipCode: e.target.value})} /></div>
+                <div><label className={UI_CLASSES.label}>Ville</label><input className={UI_CLASSES.input} value={editCompanyDataState.city || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, city: e.target.value})} /></div>
+                <div><label className={UI_CLASSES.label}>Pays</label><input className={UI_CLASSES.input} value={editCompanyDataState.country || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, country: e.target.value})} /></div>
              </div>
-             <div className="flex gap-4 justify-end mt-6 pt-6 border-t border-slate-200">
-               <button onClick={handleSaveCompanyEdit} className="px-8 py-3.5 text-white rounded-xl font-bold hover:opacity-90 shadow-md transition-opacity" style={{ backgroundColor: BRAND_COLOR }}>Enregistrer les infos</button>
+             <div className="flex gap-4 justify-end mt-5 pt-5 border-t border-slate-200">
+               <button onClick={handleSaveCompanyEdit} className="px-6 py-2.5 text-sm text-white rounded-xl font-bold hover:opacity-90 shadow-md transition-opacity" style={{ backgroundColor: BRAND_COLOR }}>Enregistrer les infos</button>
              </div>
           </div>
         )}
 
-        <div className="flex-1 overflow-auto p-8 bg-slate-50/50 custom-scrollbar grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="flex-1 overflow-auto p-6 bg-slate-50/50 custom-scrollbar grid grid-cols-1 lg:grid-cols-3 gap-6">
             
             {/* COLONNE GAUCHE : INFOS & CAMPAGNES */}
-            <div className="lg:col-span-1 space-y-6">
+            <div className="lg:col-span-1 space-y-5">
                
                {/* Widget Rappels Société */}
-               <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] relative overflow-hidden">
+               <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] relative overflow-hidden">
                    <div className="absolute top-0 left-0 w-1 h-full bg-orange-400"></div>
-                   <h4 className="font-extrabold text-slate-800 mb-4 font-poppins text-lg flex items-center gap-2"><CalendarClock className="text-orange-500" size={20}/> Programmer un Rappel</h4>
-                   <div className="space-y-4">
+                   <h4 className="font-extrabold text-slate-800 mb-3 font-poppins text-base flex items-center gap-2"><CalendarClock className="text-orange-500" size={18}/> Programmer un Rappel</h4>
+                   <div className="space-y-3">
                        <input 
                            type="text" 
                            placeholder="Ex: Rappeler la société..." 
                            value={companyReminderNote}
                            onChange={e => setCompanyReminderNote(e.target.value)}
-                           className="w-full text-sm border-2 border-slate-100 bg-slate-50 p-3 rounded-xl outline-none focus:border-orange-400 focus:bg-white transition-colors"
+                           className="w-full text-sm border border-slate-200 bg-slate-50 p-2.5 rounded-xl outline-none focus:border-orange-400 focus:bg-white transition-colors"
                        />
                        <div className="grid grid-cols-3 gap-2">
                            <button onClick={() => handleSetCompanyReminder(7)} className="py-2 text-[10px] font-bold uppercase tracking-wide bg-orange-50 text-orange-700 rounded-lg hover:bg-orange-100 border border-orange-100 transition-colors">+ 1 Sem.</button>
@@ -2335,8 +2231,8 @@ export default function App() {
                </div>
 
                {/* Widget Campagnes en cours */}
-               <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]">
-                 <h4 className="font-extrabold text-slate-800 mb-4 font-poppins text-lg flex items-center gap-2"><PlayCircle size={20} className="text-indigo-500"/> Campagnes Actives</h4>
+               <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]">
+                 <h4 className="font-extrabold text-slate-800 mb-3 font-poppins text-base flex items-center gap-2"><PlayCircle size={18} className="text-indigo-500"/> Campagnes Actives</h4>
                  {companySimulations.length === 0 ? (
                      <p className="text-xs text-slate-400 italic text-center py-4">Aucune campagne active pour cette société.</p>
                  ) : (
@@ -2398,8 +2294,8 @@ export default function App() {
                </div>
 
                {/* Widget Factures */}
-               <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]">
-                 <h4 className="font-extrabold text-slate-800 mb-4 font-poppins text-lg flex items-center gap-2"><FileText size={20} className="text-slate-400"/> Factures Globales</h4>
+               <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]">
+                 <h4 className="font-extrabold text-slate-800 mb-3 font-poppins text-base flex items-center gap-2"><FileText size={18} className="text-slate-400"/> Factures Globales</h4>
                  {companyInvoices.length === 0 ? (
                      <p className="text-xs text-slate-400 italic text-center py-4">Aucune facture pour cette société.</p>
                  ) : (
@@ -2422,10 +2318,10 @@ export default function App() {
             </div>
 
             {/* COLONNE DROITE : EQUIPE & ACTIVITE */}
-            <div className="lg:col-span-2 space-y-6 flex flex-col h-full">
+            <div className="lg:col-span-2 space-y-5 flex flex-col h-full">
               {/* Widget Activité Globale */}
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] p-6 shrink-0">
-                  <h3 className="font-extrabold text-slate-800 mb-4 font-poppins text-lg flex items-center gap-2"><Activity className="text-orange-500" size={20}/> Activité Globale (Notes récentes)</h3>
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] p-5 shrink-0">
+                  <h3 className="font-extrabold text-slate-800 mb-3 font-poppins text-base flex items-center gap-2"><Activity className="text-orange-500" size={18}/> Activité Globale (Notes récentes)</h3>
                   {companyInteractions.length === 0 ? (
                       <p className="text-xs text-slate-400 italic text-center py-4">Aucune activité enregistrée sur les contacts de cette société.</p>
                   ) : (
@@ -2446,12 +2342,12 @@ export default function App() {
                   )}
               </div>
 
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] p-6 flex-1 flex flex-col">
-                <div className="flex justify-between items-center mb-6 shrink-0">
-                  <h3 className="font-extrabold text-slate-800 font-poppins text-xl flex items-center gap-2"><Users size={24} style={{ color: BRAND_COLOR }}/> Contacts ({companyContacts.length})</h3>
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] p-5 flex-1 flex flex-col">
+                <div className="flex justify-between items-center mb-5 shrink-0">
+                  <h3 className="font-extrabold text-slate-800 font-poppins text-lg flex items-center gap-2"><Users size={20} style={{ color: BRAND_COLOR }}/> Contacts ({companyContacts.length})</h3>
                 </div>
                 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 overflow-auto custom-scrollbar p-1">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 overflow-auto custom-scrollbar p-1">
                      {companyContacts.map(c => {
                         const cInvoices = invoices.filter(inv => inv.clientId === c.id);
                         const cCaEncaisse = cInvoices.filter(i => i.status === 'payee').reduce((a, b) => a + b.amount, 0) + Number(c.manualCA || 0);
@@ -3703,7 +3599,7 @@ export default function App() {
               { id: 'calendar', label: 'Campagnes', icon: Target },
               { id: 'ponderation', label: 'Pondération', icon: PieChart },
               { id: 'invoices', label: 'Facturation', icon: FileText },
-              { id: 'products', label: 'Produits', icon: Package },
+              { id: 'products', label: 'Catalogue Offres', icon: Package },
               { id: 'projections', label: 'Production Média', icon: Calculator },
               { id: 'lmc', label: 'Simulateur LMC', icon: Wand2 },
               { id: 'settings', label: 'Paramètres Agence', icon: Settings },
@@ -4321,7 +4217,7 @@ function envoyerLead(agent, ligne) {
                 <div className="max-w-6xl mx-auto space-y-8 animate-fade-in pb-12">
                   <div className="flex justify-between items-center mb-6">
                     <div>
-                      <h2 className={UI_CLASSES.title}><Package style={{ color: BRAND_COLOR }} size={32}/> Produits</h2>
+                      <h2 className={UI_CLASSES.title}><Package style={{ color: BRAND_COLOR }} size={32}/> Catalogue des Offres</h2>
                       <p className="text-slate-500 mt-2 text-lg">Gérez vos produits de génération de leads et leurs marges cibles.</p>
                     </div>
                   </div>
@@ -5115,9 +5011,8 @@ function envoyerLead(agent, ligne) {
               {currentSimulation.dataSource === 'deliveries' && (
                   <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl animate-fade-in space-y-4">
                       <div>
-                          <label className={UI_CLASSES.label}>Noms des clients dans les livraisons (Séparés par des virgules)</label>
-                          <input type="text" value={currentSimulation.deliveryMatchName !== undefined ? currentSimulation.deliveryMatchName : (currentSimulation.clientName || '')} onChange={e => setCurrentSimulation({...currentSimulation, deliveryMatchName: e.target.value})} className={UI_CLASSES.input} placeholder="Ex: ClientA, ClientB..." />
-                          <p className="text-[10px] text-blue-600 mt-1">Séparez les noms par une virgule pour cumuler plusieurs sources.</p>
+                          <label className={UI_CLASSES.label}>Nom du client dans les livraisons (Agent Name)</label>
+                          <input type="text" value={currentSimulation.deliveryMatchName !== undefined ? currentSimulation.deliveryMatchName : (currentSimulation.clientName || '')} onChange={e => setCurrentSimulation({...currentSimulation, deliveryMatchName: e.target.value})} className={UI_CLASSES.input} placeholder="Nom exact dans les livraisons..." />
                       </div>
                       <div className="pt-2 border-t border-blue-100">
                           <label className={UI_CLASSES.label}>Ajustement manuel (Correctif de Leads)</label>
@@ -5126,78 +5021,16 @@ function envoyerLead(agent, ligne) {
                       </div>
                   </div>
               )}
-              
-              {/* WIDGET CPL */}
-              <div className="p-5 bg-orange-50 border border-orange-100 rounded-xl mt-6 space-y-4">
-                  <h4 className="font-bold text-orange-800 flex items-center gap-2"><TrendingUp size={18}/> Widget CPL & Coût Réel</h4>
-                  <div>
-                      <label className={UI_CLASSES.label}>Budget Quotidien Ads (CHF)</label>
-                      <input type="number" value={currentSimulation.dailyAdsBudget || 0} onChange={e => setCurrentSimulation({...currentSimulation, dailyAdsBudget: Number(e.target.value)})} className={UI_CLASSES.input} placeholder="Ex: 50" />
-                  </div>
-                  {(() => {
-                      const duration = currentSimulation.duration || 30;
-                      const start = new Date(currentSimulation.createdAt);
-                      const diffDays = Math.max(0, Math.floor((new Date().getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
-                      const day = Math.min(diffDays, duration);
-                      const spend = day * (currentSimulation.dailyAdsBudget || 0);
-                      
-                      let expectedLeads = 0;
-                      if (currentSimulation.dataSource === 'deliveries') {
-                          const matchNames = (currentSimulation.deliveryMatchName !== undefined ? currentSimulation.deliveryMatchName : (currentSimulation.clientName || '')).split(',').map((n:string)=>n.trim());
-                          expectedLeads = deliveries.filter((d:any) => matchNames.includes(d.agentName)).length + Number(currentSimulation.manualLeadsOffset || 0);
-                      } else if (currentSimulation.dataSource === 'manual') {
-                          expectedLeads = Number(currentSimulation.manualLeads || 0);
-                      } else {
-                          const targetLeads = currentSimulation.stats?.volumeTotal || 0;
-                          expectedLeads = Math.min(Math.floor((targetLeads / duration) * day), targetLeads);
-                      }
-                      
-                      const cpl = expectedLeads > 0 ? (spend / expectedLeads).toFixed(2) : '0.00';
-                      
-                      return (
-                          <div className="space-y-3">
-                              <div className="flex justify-between text-sm font-medium text-orange-800">
-                                  <span>Dépense totale ({day} jours) :</span>
-                                  <span className="font-bold">{renderCurrency(spend)}</span>
-                              </div>
-                              <div className="flex justify-between text-sm font-medium text-orange-800">
-                                  <span>Leads générés :</span>
-                                  <span className="font-bold">{expectedLeads}</span>
-                              </div>
-                              <div className="flex justify-between text-lg font-black text-orange-600 border-t border-orange-200 pt-2">
-                                  <span>CPL Actuel :</span>
-                                  <span>{cpl} CHF</span>
-                              </div>
-                              <button 
-                                  onClick={async () => {
-                                      if(!currentSimulation.productId || expectedLeads === 0 || spend === 0) return addNotification('error', 'CPL invalide ou produit introuvable.');
-                                      await handleUpdate('products', currentSimulation.productId, { cost: Number(cpl) });
-                                      addNotification('success', 'Coût du produit mis à jour avec le CPL réel !');
-                                  }}
-                                  className="w-full mt-2 bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 rounded-lg transition-colors text-sm shadow-sm"
-                              >
-                                  Mettre à jour le coût du produit
-                              </button>
-                          </div>
-                      );
-                  })()}
-              </div>
           </div>
-          <div className="flex justify-between items-center mt-8 border-t border-slate-100 pt-6">
-              <button onClick={() => {
-                  handleDelete('simulations', currentSimulation.id);
+          <div className="flex justify-end gap-3 mt-8">
+              <button onClick={() => setShowModal(null)} className={UI_CLASSES.btnSecondary}>Annuler</button>
+              <button onClick={async () => {
+                  if (user && !isOfflineMode) {
+                      await handleUpdate('simulations', currentSimulation.id, currentSimulation);
+                      addNotification('success', 'Campagne mise à jour avec succès');
+                  }
                   setShowModal(null);
-              }} className="px-4 py-2.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl font-bold transition-colors flex items-center gap-2"><Trash2 size={18}/> Supprimer la campagne</button>
-              <div className="flex gap-3">
-                  <button onClick={() => setShowModal(null)} className={UI_CLASSES.btnSecondary}>Annuler</button>
-                  <button onClick={async () => {
-                      if (user && !isOfflineMode) {
-                          await handleUpdate('simulations', currentSimulation.id, currentSimulation);
-                          addNotification('success', 'Campagne mise à jour avec succès');
-                      }
-                      setShowModal(null);
-                  }} className={UI_CLASSES.btnPrimary} style={{ backgroundColor: BRAND_COLOR }}><Save size={18}/> Enregistrer</button>
-              </div>
+              }} className={UI_CLASSES.btnPrimary} style={{ backgroundColor: BRAND_COLOR }}><Save size={18}/> Enregistrer</button>
           </div>
         </div>
       </div>
@@ -5221,18 +5054,12 @@ function envoyerLead(agent, ligne) {
           }} className="space-y-4">
               <div>
                   <label className={UI_CLASSES.label}>Client (Agent Name exact)</label>
-                  <input name="agentName" list="agentNames-list-add" required className={UI_CLASSES.input} placeholder="Ex: TechCorp" />
-                  <datalist id="agentNames-list-add">
-                      {Array.from(new Set(simulations.flatMap((s:any) => (s.deliveryMatchName || s.clientName || '').split(',').map((n:string)=>n.trim())).filter(Boolean))).map((name: any) => <option key={name} value={name} />)}
-                  </datalist>
-                  <p className="text-[10px] text-slate-400 mt-1">Sélectionnez le nom configuré dans votre campagne pour faire le lien.</p>
+                  <input name="agentName" required className={UI_CLASSES.input} placeholder="Ex: TechCorp" />
+                  <p className="text-[10px] text-slate-400 mt-1">Doit correspondre exactement au nom surveillé par la campagne pour être comptabilisé.</p>
               </div>
               <div>
                   <label className={UI_CLASSES.label}>Nom de la campagne</label>
-                  <input name="campagne" list="campagnes-list-add" className={UI_CLASSES.input} placeholder="Ex: Meta Ads 3P" />
-                  <datalist id="campagnes-list-add">
-                      {Array.from(new Set(simulations.map((s:any) => s.deliveryMatchCampaign || s.productName).filter(Boolean))).map((camp: any) => <option key={camp} value={camp} />)}
-                  </datalist>
+                  <input name="campagne" className={UI_CLASSES.input} placeholder="Ex: Meta Ads 3P" />
               </div>
               <div className="flex gap-4 pt-4 mt-4 border-t border-slate-100">
                   <button type="button" onClick={() => setShowModal(null)} className={UI_CLASSES.btnSecondary}>Annuler</button>
