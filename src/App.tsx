@@ -58,9 +58,8 @@ const fallbackFirebaseConfig = {
   measurementId: "G-6QM0LM69Z1"
 };
 
-// 💡 CORRECTION APPLIQUÉE : J'ai forcé ici l'utilisation de la version "v42".
-// Si vos données n'apparaissent toujours pas, changez "v42" par "v41" ou "v40" juste en dessous.
-const FORCED_APP_ID = 'leadpartner-crm-v42-prod';
+// 💡 CORRECTION APPLIQUÉE : Connexion forcée sur l'ID de votre ancienne version (v43)
+const FORCED_APP_ID = 'leadpartner-crm-v43-prod';
 
 let app: any, db: any, auth: any;
 try {
