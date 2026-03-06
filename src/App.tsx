@@ -32,19 +32,19 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '59.7';
+const APP_VERSION = '60.2';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
 
 // --- OPTIMISATION : DICTIONNAIRE DE CLASSES CSS ---
 const UI_CLASSES = {
-  input: "w-full border-2 border-slate-100 bg-slate-50 p-3.5 rounded-xl outline-none focus:border-[#01189B] focus:bg-white transition-colors font-medium text-slate-800",
-  label: "block text-xs font-bold text-slate-400 uppercase tracking-wide mb-2",
-  btnPrimary: "text-white px-6 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 hover:shadow-lg hover:-translate-y-0.5 transition-all",
-  btnSecondary: "flex-1 py-4 border-2 border-slate-200 text-slate-600 hover:bg-slate-50 rounded-xl font-bold transition-colors",
-  card: "bg-white p-6 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)]",
-  title: "text-2xl font-extrabold mb-6 font-poppins text-slate-800 flex items-center gap-3"
+  input: "w-full border-2 border-slate-100 bg-slate-50 p-2.5 rounded-xl outline-none focus:border-[#01189B] focus:bg-white transition-colors text-sm font-medium text-slate-800",
+  label: "block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1.5",
+  btnPrimary: "text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2 hover:shadow-lg hover:-translate-y-0.5 transition-all",
+  btnSecondary: "flex-1 py-2.5 border-2 border-slate-200 text-slate-600 hover:bg-slate-50 rounded-xl font-bold transition-colors text-sm",
+  card: "bg-white p-5 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)]",
+  title: "text-2xl font-extrabold mb-5 font-poppins text-slate-800 flex items-center gap-3"
 };
 
 // --- CONFIGURATION FIREBASE ---
@@ -58,7 +58,8 @@ const fallbackFirebaseConfig = {
   measurementId: "G-6QM0LM69Z1"
 };
 
-const DEFAULT_APP_ID = 'leadpartner-crm-v43-prod';
+// 💡 CORRECTION APPLIQUÉE : Connexion forcée sur l'ID de votre ancienne version (v43)
+const FORCED_APP_ID = 'leadpartner-crm-v43-prod';
 
 let app: any, db: any, auth: any;
 try {
@@ -76,7 +77,8 @@ try {
   console.error('Erreur init Firebase:', e);
 }
 
-const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : DEFAULT_APP_ID;
+// On force l'application à lire le dossier de l'ancienne version, en ignorant le nouvel identifiant du système
+const getAppId = () => FORCED_APP_ID;
 
 // --- CONSTANTES ---
 const PIPELINE_STAGES = [
@@ -431,7 +433,12 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [isAppAuthenticated, setIsAppAuthenticated] = useState(false);
   const [isOfflineMode, setIsOfflineMode] = useState(false);
-  const [isSecretMode, setIsSecretMode] = useState(false);
+  const [isSecretMode, setIsSecretMode] = useState(() => localStorage.getItem('leadpartner_secret_mode') === 'true');
+
+  useEffect(() => {
+      localStorage.setItem('leadpartner_secret_mode', isSecretMode.toString());
+  }, [isSecretMode]);
+
   const [isEditingContractInInvoice, setIsEditingContractInInvoice] = useState(false);
   const [isEditingLayout, setIsEditingLayout] = useState(false);
   const [dragOverWidget, setDragOverWidget] = useState<string | null>(null);
@@ -555,6 +562,7 @@ export default function App() {
   // --- WRAPPERS MODE SECRET ---
   const renderCurrency = (amount: number) => isSecretMode ? 'CHF ****' : formatCurrency(amount);
   const renderNumber = (num: number | string) => isSecretMode ? '****' : num;
+  const renderName = (name: string | undefined | null) => isSecretMode ? '****' : (name || 'Inconnu');
 
   // --- HELPERS UI ---
   const addNotification = (type: string, message: string) => {
@@ -610,7 +618,8 @@ export default function App() {
   // --- SYNC DB & AUTO-SEED PRODUCTS/CONTACTS ---
   useEffect(() => {
     if (!user || isOfflineMode || !db) return;
-    const basePath = `artifacts/${getAppId()}/users/${user.uid}`;
+    // ... modification cible dans le code existant ...
+    const basePath = `${getAppId()}/users/${user.uid}`;
     try {
       const unsubs = [
         onSnapshot(collection(db, `${basePath}/contacts`), (s) => {
@@ -1678,9 +1687,9 @@ export default function App() {
             <tbody className="divide-y divide-slate-50">
               {prospects.map(p => (
                 <tr key={p.id} className="hover:bg-blue-50/30 transition-colors">
-                  <td className="px-6 py-5 font-extrabold text-slate-800">{p.company}</td>
-                  <td className="px-6 py-5 text-slate-600">{p.name}</td>
-                  <td className="px-6 py-5 text-slate-500">{p.email || <span className="italic text-slate-300">Non renseigné</span>}</td>
+                  <td className="px-6 py-5 font-extrabold text-slate-800">{renderName(p.company)}</td>
+                  <td className="px-6 py-5 text-slate-600">{renderName(p.name)}</td>
+                  <td className="px-6 py-5 text-slate-500">{isSecretMode ? '****@****' : (p.email || <span className="italic text-slate-300">Non renseigné</span>)}</td>
                   <td className="px-6 py-5 text-right">
                     {p.email ? (
                         <button 
@@ -1731,7 +1740,7 @@ export default function App() {
     const isReminderDue = hasReminder && new Date(selectedContact.nextContactDate) <= new Date();
 
     return (
-      <div className="flex flex-col h-full bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden animate-fade-in border border-slate-100">
+      <div className="flex flex-col h-fit bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden animate-fade-in border border-slate-100">
         
         {/* BANNIÈRE DE RDV */}
         {selectedContact.meetingDate && (
@@ -1765,16 +1774,16 @@ export default function App() {
         )}
 
         {/* Header Contact */}
-        <div className="p-8 border-b border-slate-100 bg-white/50 backdrop-blur-sm flex justify-between items-start relative shrink-0">
+        <div className="p-6 border-b border-slate-100 bg-white/50 backdrop-blur-sm flex justify-between items-start relative shrink-0">
           <div className="absolute top-0 right-0 w-64 h-64 bg-slate-50 rounded-full blur-3xl opacity-50 pointer-events-none -mr-20 -mt-20"></div>
-          <div className="flex gap-6 relative z-10">
-            <button onClick={() => setSelectedContactId(null)} className="mt-1 p-3 bg-white border border-slate-200 shadow-sm rounded-xl hover:bg-slate-50 transition-colors text-slate-500 h-fit">
+          <div className="flex gap-5 relative z-10">
+            <button onClick={() => setSelectedContactId(null)} className="mt-1 p-2.5 bg-white border border-slate-200 shadow-sm rounded-xl hover:bg-slate-50 transition-colors text-slate-500 h-fit">
               <ChevronLeft size={20} />
             </button>
             <div>
-              <div className="flex items-center gap-4 mb-2">
-                <h2 className="text-4xl font-extrabold font-poppins text-slate-800 tracking-tight">{selectedContact.company}</h2>
-                <span className={`px-4 py-1.5 text-xs font-bold rounded-xl border shadow-sm ${PIPELINE_STAGES.find(s => s.id === selectedContact.status)?.color}`}>
+              <div className="flex items-center gap-3 mb-2">
+                <h2 className="text-3xl font-extrabold font-poppins text-slate-800 tracking-tight">{renderName(selectedContact.company)}</h2>
+                <span className={`px-3 py-1 text-xs font-bold rounded-xl border shadow-sm ${PIPELINE_STAGES.find(s => s.id === selectedContact.status)?.color}`}>
                   {PIPELINE_STAGES.find(s => s.id === selectedContact.status)?.label}
                 </span>
               </div>
@@ -1782,8 +1791,8 @@ export default function App() {
                   <span className="text-sm font-bold text-[#01189B] bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200 shadow-sm flex items-center gap-2"><Wallet size={16}/> CA : {renderCurrency(caEncaisse)}</span>
                   <span className="text-sm font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 shadow-sm flex items-center gap-2"><TrendingUp size={16}/> Bénéfice : {renderCurrency(beneficeTotalClient)}</span>
               </div>
-              <p className="text-slate-500 flex items-center gap-2 font-medium text-lg"><Users size={20}/> {selectedContact.name}</p>
-              {selectedContact.address && <p className="text-slate-400 flex items-center gap-2 font-medium mt-1 text-sm"><MapPin size={16}/> {selectedContact.address}</p>}
+              <p className="text-slate-500 flex items-center gap-2 font-medium text-lg"><Users size={20}/> {renderName(selectedContact.name)}</p>
+              {selectedContact.address && <p className="text-slate-400 flex items-center gap-2 font-medium mt-1 text-sm"><MapPin size={16}/> {isSecretMode ? '****' : selectedContact.address}</p>}
 
               <div className="flex flex-wrap gap-2 mt-5">
                   <span className={`px-3 py-1.5 border rounded-lg text-xs font-bold uppercase tracking-wide flex items-center gap-1.5 ${selectedContact.type === 'client' || selectedContact.status === 'gagne' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
@@ -1807,8 +1816,8 @@ export default function App() {
               </div>
               
               <div className="flex items-center gap-6 mt-6 text-sm font-bold text-slate-600">
-                {selectedContact.email && <button onClick={() => handleEmailProspect(selectedContact)} className="flex items-center gap-2 hover:text-[#01189B] transition-colors bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm"><Mail size={16}/> {selectedContact.email}</button>}
-                {selectedContact.phone && <a href={`tel:${selectedContact.phone}`} className="flex items-center gap-2 hover:text-[#01189B] transition-colors bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm">📞 {selectedContact.phone}</a>}
+                {selectedContact.email && <button onClick={() => handleEmailProspect(selectedContact)} className="flex items-center gap-2 hover:text-[#01189B] transition-colors bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm"><Mail size={16}/> {isSecretMode ? '****@****.com' : selectedContact.email}</button>}
+                {selectedContact.phone && <a href={`tel:${selectedContact.phone}`} className="flex items-center gap-2 hover:text-[#01189B] transition-colors bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm">📞 {isSecretMode ? '****' : selectedContact.phone}</a>}
               </div>
             </div>
           </div>
@@ -1851,12 +1860,12 @@ export default function App() {
 
         {/* Panneau d'édition (si actif) */}
         {isEditingContact && (
-          <div className="p-8 bg-slate-50 border-b border-slate-200 shadow-inner animate-fade-in z-20 relative shrink-0 overflow-y-auto max-h-[50vh] custom-scrollbar">
-             <div className="flex justify-between items-center mb-6">
+          <div className="p-6 bg-slate-50 border-b border-slate-200 shadow-inner animate-fade-in z-20 relative shrink-0">
+             <div className="flex justify-between items-center mb-5">
                  <h4 className="font-bold text-slate-800 font-poppins text-lg flex items-center gap-2"><Settings size={20}/> Mode Édition</h4>
                  <button onClick={() => setIsEditingContact(false)} className="text-slate-400 hover:text-slate-600"><X size={24}/></button>
              </div>
-             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
                 <div><label className={UI_CLASSES.label}>Société</label><input className={UI_CLASSES.input} value={editContactData.company || ''} onChange={e => setEditContactData({...editContactData, company: e.target.value})} /></div>
                 <div><label className={UI_CLASSES.label}>Contact</label><input className={UI_CLASSES.input} value={editContactData.name || ''} onChange={e => setEditContactData({...editContactData, name: e.target.value})} /></div>
                 <div><label className={UI_CLASSES.label}>Email</label><input className={UI_CLASSES.input} value={editContactData.email || ''} onChange={e => setEditContactData({...editContactData, email: e.target.value})} /></div>
@@ -1864,7 +1873,7 @@ export default function App() {
                 <div><label className={UI_CLASSES.label}>Google Sheet ID (Leads)</label><input className={UI_CLASSES.input} value={editContactData.googleSheetId || ''} onChange={e => setEditContactData({...editContactData, googleSheetId: e.target.value})} placeholder="ID GSheet du client" /></div>
                 <div className="col-span-1 md:col-span-2 lg:col-span-3"><label className={UI_CLASSES.label}>Adresse complète (Facturation)</label><textarea className={`${UI_CLASSES.input} resize-none h-14`} value={editContactData.address || ''} onChange={e => setEditContactData({...editContactData, address: e.target.value})} /></div>
 
-                <div className="col-span-1 md:col-span-2 lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-6 p-4 bg-white rounded-xl border border-slate-200 shadow-sm my-2">
+                <div className="col-span-1 md:col-span-2 lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-white rounded-xl border border-slate-200 shadow-sm my-1">
                     <div><label className={UI_CLASSES.label}>CA Historique (Manuel)</label><input type="number" className={UI_CLASSES.input} value={editContactData.manualCA || ''} onChange={e => setEditContactData({...editContactData, manualCA: e.target.value})} placeholder="Ajouter au CA global..." /></div>
                     <div><label className={UI_CLASSES.label}>Bénéfice Historique (Manuel)</label><input type="number" className={UI_CLASSES.input} value={editContactData.manualBenefice || ''} onChange={e => setEditContactData({...editContactData, manualBenefice: e.target.value})} placeholder="Ajouter au bénéfice..." /></div>
                 </div>
@@ -1875,119 +1884,54 @@ export default function App() {
                     <option value="client">Client</option>
                   </select>
                 </div>
-
-                <div><label className={UI_CLASSES.label}>Provenance / Source</label>
-                  <select className={UI_CLASSES.input} value={editContactData.source || ''} onChange={e => setEditContactData({...editContactData, source: e.target.value})}>
-                    <option value="">-- Non définie --</option>
-                    <option value="Recommandation">Recommandation</option>
-                    <option value="Call froid">Call froid</option>
-                    <option value="Lead site internet">Lead site internet</option>
-                    <option value="LinkedIn">LinkedIn</option>
-                    <option value="Autre">Autre</option>
-                  </select>
-                </div>
-
-                {editContactData.source === 'Recommandation' && (
-                    <div><label className={UI_CLASSES.label}>Nom de la Recommandation</label>
-                        <input className={UI_CLASSES.input} value={editContactData.sourceDetails || ''} onChange={e => setEditContactData({...editContactData, sourceDetails: e.target.value})} placeholder="Recommandé par..." />
-                    </div>
-                )}
-
-                <div><label className={UI_CLASSES.label}>Statut Pipeline</label>
-                  <select className={`${UI_CLASSES.input} text-[#01189B]`} value={editContactData.status || 'nouveau'} onChange={e => setEditContactData({...editContactData, status: e.target.value})}>
-                    {PIPELINE_STAGES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-                  </select>
-                </div>
-                <div><label className={UI_CLASSES.label}>Intérêt Principal (Campagne)</label>
-                  <select className={UI_CLASSES.input} value={editContactData.interestedProductId || ''} onChange={e => setEditContactData({...editContactData, interestedProductId: e.target.value})}>
-                    <option value="">-- Non défini --</option>
-                    {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
-                </div>
-
-                <div className="col-span-1 md:col-span-2 lg:col-span-3 pt-4 border-t border-slate-200">
-                    <label className={UI_CLASSES.label}>Audience Ciblée par ce client</label>
-                    <div className="flex gap-3 mt-3">
-                        {['Résident', 'Frontalier', 'Les deux'].map(aud => (
-                            <button
-                                key={aud} type="button" onClick={() => setEditContactData({...editContactData, targetAudience: aud})}
-                                className={`px-5 py-2.5 rounded-xl text-sm font-bold border-2 transition-all ${editContactData.targetAudience === aud ? 'border-[#01189B] bg-blue-50 text-[#01189B] shadow-sm' : 'border-slate-200 text-slate-500 bg-white hover:border-slate-300'}`}
-                            >
-                                {aud}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-
-                <div className="col-span-1 md:col-span-2 lg:col-span-3">
-                    <label className={UI_CLASSES.label}>Services & Produits vendus par ce client</label>
-                    <div className="flex flex-wrap gap-2 mt-3">
-                        {['LAMal', 'LCA', '3ème Pilier', 'LPP', 'Prévoyance', 'Assurance Vie', 'Hypothèque', 'Fiscalité'].map(prod => {
-                            const isActive = (editContactData.offeredProducts || []).includes(prod);
-                            return (
-                                <button
-                                    key={prod} type="button"
-                                    onClick={() => {
-                                        const current = editContactData.offeredProducts || [];
-                                        setEditContactData({ ...editContactData, offeredProducts: isActive ? current.filter((p: string) => p !== prod) : [...current, prod] });
-                                    }}
-                                    className={`px-4 py-2 rounded-xl text-xs font-bold border-2 transition-all shadow-sm ${isActive ? 'bg-[#01189B] text-white border-[#01189B]' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'}`}
-                                >
-                                    {isActive ? '✓ ' : '+ '}{prod}
-                                </button>
-                            )
-                        })}
-                    </div>
-                </div>
-
              </div>
-             <div className="flex gap-4 justify-end mt-6 pt-6 border-t border-slate-200">
-               <button onClick={handleSaveContactEdit} className="px-8 py-3.5 text-white rounded-xl font-bold hover:opacity-90 shadow-md transition-opacity" style={{ backgroundColor: BRAND_COLOR }}>Mettre à jour la fiche</button>
+             <div className="flex gap-4 justify-end mt-5 pt-5 border-t border-slate-200">
+               <button onClick={handleSaveContactEdit} className="px-6 py-2.5 text-sm text-white rounded-xl font-bold hover:opacity-90 shadow-md transition-opacity" style={{ backgroundColor: BRAND_COLOR }}>Mettre à jour la fiche</button>
              </div>
           </div>
         )}
 
         {/* Contenu principal divisé en deux colonnes */}
-        <div className="flex-1 overflow-auto p-8 grid grid-cols-1 lg:grid-cols-3 gap-8 bg-slate-50/50">
+        <div className="flex-1 p-6 grid grid-cols-1 lg:grid-cols-3 gap-6 bg-slate-50/50">
           
           {/* Colonne Gauche: Outils & Stats */}
-          <div className="lg:col-span-1 space-y-6">
+          <div className="lg:col-span-1 space-y-5">
             
             {/* WIDGET : PROGRAMMER UN RDV */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] relative overflow-hidden">
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
-                <h4 className="font-extrabold text-slate-800 mb-4 font-poppins text-lg flex items-center gap-2"><CalendarIcon className="text-blue-500" size={20}/> Nouveau Rendez-vous</h4>
-                <div className="space-y-4">
+                <h4 className="font-extrabold text-slate-800 mb-3 font-poppins text-base flex items-center gap-2"><CalendarIcon className="text-blue-500" size={18}/> Nouveau Rendez-vous</h4>
+                <div className="space-y-3">
                     <input 
                         type="datetime-local" 
                         value={meetingDate}
                         onChange={e => setMeetingDate(e.target.value)}
-                        className="w-full text-sm border-2 border-slate-100 bg-slate-50 p-3 rounded-xl outline-none focus:border-blue-500 focus:bg-white transition-colors"
+                        className="w-full text-sm border border-slate-200 bg-slate-50 p-2.5 rounded-xl outline-none focus:border-blue-500 focus:bg-white transition-colors"
                     />
                     <input 
                         type="text" 
                         placeholder="Motif du rendez-vous..." 
                         value={meetingNote}
                         onChange={e => setMeetingNote(e.target.value)}
-                        className="w-full text-sm border-2 border-slate-100 bg-slate-50 p-3 rounded-xl outline-none focus:border-blue-500 focus:bg-white transition-colors"
+                        className="w-full text-sm border border-slate-200 bg-slate-50 p-2.5 rounded-xl outline-none focus:border-blue-500 focus:bg-white transition-colors"
                     />
-                    <button onClick={handleSetMeeting} className="w-full py-2.5 text-xs font-bold uppercase tracking-wide bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 border border-blue-100 transition-colors">
+                    <button onClick={handleSetMeeting} className="w-full py-2 text-xs font-bold uppercase tracking-wide bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 border border-blue-100 transition-colors">
                         Enregistrer le RDV
                     </button>
                 </div>
             </div>
 
             {/* WIDGET : PROGRAMMER UN RAPPEL */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] relative overflow-hidden">
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-1 h-full bg-orange-400"></div>
-                <h4 className="font-extrabold text-slate-800 mb-4 font-poppins text-lg flex items-center gap-2"><CalendarClock className="text-orange-500" size={20}/> Programmer un Rappel</h4>
-                <div className="space-y-4">
+                <h4 className="font-extrabold text-slate-800 mb-3 font-poppins text-base flex items-center gap-2"><CalendarClock className="text-orange-500" size={18}/> Programmer un Rappel</h4>
+                <div className="space-y-3">
                     <input 
                         type="text" 
                         placeholder="Ex: Rappeler pour faire le point..." 
                         value={reminderNote}
                         onChange={e => setReminderNote(e.target.value)}
-                        className="w-full text-sm border-2 border-slate-100 bg-slate-50 p-3 rounded-xl outline-none focus:border-orange-400 focus:bg-white transition-colors"
+                        className="w-full text-sm border border-slate-200 bg-slate-50 p-2.5 rounded-xl outline-none focus:border-orange-400 focus:bg-white transition-colors"
                     />
                     <div className="grid grid-cols-3 gap-2">
                         <button onClick={() => handleSetReminder(7)} className="py-2 text-[10px] font-bold uppercase tracking-wide bg-orange-50 text-orange-700 rounded-lg hover:bg-orange-100 border border-orange-100 transition-colors">+ 1 Sem.</button>
@@ -1998,8 +1942,8 @@ export default function App() {
             </div>
 
             {/* WIDGET : CAMPAGNES EN COURS */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]">
-               <h4 className="font-extrabold text-slate-800 mb-4 font-poppins text-lg flex items-center gap-2"><PlayCircle size={20} className="text-indigo-500"/> Campagnes en cours</h4>
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]">
+               <h4 className="font-extrabold text-slate-800 mb-3 font-poppins text-base flex items-center gap-2"><PlayCircle size={18} className="text-indigo-500"/> Campagnes en cours</h4>
                {clientSimulations.length === 0 ? (
                    <p className="text-xs text-slate-400 italic text-center py-4">Aucune campagne active.</p>
                ) : (
@@ -2032,8 +1976,8 @@ export default function App() {
             </div>
 
             {/* WIDGET : HISTORIQUE FACTURES */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]">
-               <h4 className="font-extrabold text-slate-800 mb-4 font-poppins text-lg flex items-center gap-2"><FileText size={18} className="text-slate-400"/> Factures Associées</h4>
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]">
+               <h4 className="font-extrabold text-slate-800 mb-3 font-poppins text-base flex items-center gap-2"><FileText size={18} className="text-slate-400"/> Factures Associées</h4>
                {clientInvoices.length === 0 ? (
                  <p className="text-xs text-slate-400 italic text-center py-4">Aucune facture émise pour ce client.</p>
                ) : (
@@ -2057,15 +2001,15 @@ export default function App() {
           </div>
 
           {/* Colonne Droite: Notes et Historique */}
-          <div className="lg:col-span-2 flex flex-col h-full bg-white rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] overflow-hidden">
-             <div className="p-6 border-b border-slate-100 bg-white flex justify-between items-center">
-                 <h4 className="font-extrabold text-slate-800 flex items-center gap-2 font-poppins text-lg">
-                    <MessageSquare size={20} style={{ color: BRAND_COLOR }} /> Historique & Compte-Rendus
+          <div className="lg:col-span-2 flex flex-col h-fit bg-white rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] overflow-hidden">
+             <div className="p-5 border-b border-slate-100 bg-white flex justify-between items-center shrink-0">
+                 <h4 className="font-extrabold text-slate-800 flex items-center gap-2 font-poppins text-base">
+                    <MessageSquare size={18} style={{ color: BRAND_COLOR }} /> Historique & Compte-Rendus
                  </h4>
                  <span className="text-xs font-bold text-slate-400 bg-slate-100 px-3 py-1 rounded-full">{contactInteractions.length} note(s)</span>
              </div>
              
-             <div className="flex-1 overflow-auto p-6 space-y-6 bg-slate-50/50 custom-scrollbar">
+             <div className="p-5 space-y-5 bg-slate-50/50">
                 {contactInteractions.length === 0 ? (
                   <div className="text-center text-slate-400 italic mt-16 flex flex-col items-center justify-center">
                      <div className="w-20 h-20 bg-white border border-slate-100 shadow-sm rounded-full flex items-center justify-center mb-4"><MessageSquare size={32} className="text-slate-300"/></div>
@@ -2088,16 +2032,16 @@ export default function App() {
                 )}
              </div>
 
-             <div className="p-6 bg-white border-t border-slate-100 shadow-[0_-10px_30px_rgb(0,0,0,0.02)] relative z-10">
+             <div className="p-5 bg-white border-t border-slate-100 shadow-[0_-10px_30px_rgb(0,0,0,0.02)] relative z-10 shrink-0">
                 <div className="relative">
                   <textarea 
                     value={newNoteContent} 
                     onChange={e => setNewNoteContent(e.target.value)} 
                     placeholder="Saisissez le compte-rendu du rendez-vous, une info importante..."
-                    className="w-full border-2 border-slate-200 bg-slate-50 rounded-xl p-4 pr-16 h-28 outline-none focus:border-[#01189B] focus:bg-white resize-none text-sm transition-colors shadow-inner"
+                    className="w-full border-2 border-slate-200 bg-slate-50 rounded-xl p-3 pr-14 h-20 outline-none focus:border-[#01189B] focus:bg-white resize-none text-sm transition-colors shadow-inner custom-scrollbar"
                   />
-                  <button onClick={handleAddQuickNote} className="absolute bottom-4 right-4 p-3 text-white rounded-xl hover:shadow-lg hover:-translate-y-0.5 transition-all disabled:opacity-50" style={{ backgroundColor: BRAND_COLOR }} disabled={!newNoteContent.trim()}>
-                    <Send size={18}/>
+                  <button onClick={handleAddQuickNote} className="absolute bottom-3 right-3 p-2.5 text-white rounded-xl hover:shadow-lg hover:-translate-y-0.5 transition-all disabled:opacity-50" style={{ backgroundColor: BRAND_COLOR }} disabled={!newNoteContent.trim()}>
+                    <Send size={16}/>
                   </button>
                 </div>
              </div>
@@ -2138,7 +2082,7 @@ export default function App() {
     const companyInteractions = interactions.filter(i => companyContacts.some(c => c.id === i.contactId)).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 5);
 
     return (
-      <div className="flex flex-col h-full bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden animate-fade-in border border-slate-100">
+      <div className="flex flex-col h-fit bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden animate-fade-in border border-slate-100">
         
         {/* BANNIÈRE DE RAPPEL SOCIÉTÉ */}
         {companyInfo.nextContactDate && (
@@ -2157,16 +2101,16 @@ export default function App() {
         )}
 
         {/* Header Société */}
-        <div className="p-8 border-b border-slate-100 bg-white/50 backdrop-blur-sm flex justify-between items-start relative shrink-0">
+        <div className="p-6 border-b border-slate-100 bg-white/50 backdrop-blur-sm flex justify-between items-start relative shrink-0">
           <div className="absolute top-0 right-0 w-64 h-64 bg-slate-50 rounded-full blur-3xl opacity-50 pointer-events-none -mr-20 -mt-20"></div>
-          <div className="flex gap-6 relative z-10 flex-1">
-            <button onClick={() => setSelectedCompanyName(null)} className="mt-1 p-3 bg-white border border-slate-200 shadow-sm rounded-xl hover:bg-slate-50 transition-colors text-slate-500 h-fit shrink-0">
+          <div className="flex gap-5 relative z-10 flex-1">
+            <button onClick={() => setSelectedCompanyName(null)} className="mt-1 p-2.5 bg-white border border-slate-200 shadow-sm rounded-xl hover:bg-slate-50 transition-colors text-slate-500 h-fit shrink-0">
               <ChevronLeft size={20} />
             </button>
             <div className="flex-1">
-              <div className="flex items-center gap-4 mb-2">
-                <h2 className="text-4xl font-extrabold font-poppins text-slate-800 tracking-tight">{selectedCompanyName}</h2>
-                <span className={`px-3 py-1 text-xs font-bold rounded-xl border shadow-sm ${isClient ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-blue-50 border-blue-200 text-blue-700'}`}>
+              <div className="flex items-center gap-3 mb-2">
+                <h2 className="text-3xl font-extrabold font-poppins text-slate-800 tracking-tight">{renderName(selectedCompanyName)}</h2>
+                <span className={`px-3 py-1 text-[10px] font-bold uppercase tracking-widest rounded-xl border shadow-sm ${isClient ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-blue-50 border-blue-200 text-blue-700'}`}>
                     {isClient ? 'Client Actif' : 'Prospect'}
                 </span>
               </div>
@@ -2181,10 +2125,10 @@ export default function App() {
                           <p className="flex items-center gap-1.5"><Briefcase size={14} className="text-slate-400"/> {companyInfo.legalStatus} {companyInfo.cheNumber ? `(IDE: ${companyInfo.cheNumber})` : ''}</p>
                       )}
                       {(mainContact.name || mainContact.email || mainContact.phone) && (
-                          <p className="flex items-center gap-1.5"><Users size={14} className="text-slate-400"/> {mainContact.name || 'Contact Principal'} {mainContact.email ? `• ${mainContact.email}` : ''} {mainContact.phone ? `• ${mainContact.phone}` : ''}</p>
+                          <p className="flex items-center gap-1.5"><Users size={14} className="text-slate-400"/> {renderName(mainContact.name || 'Contact Principal')} {mainContact.email ? `• ${isSecretMode ? '****@****' : mainContact.email}` : ''} {mainContact.phone ? `• ${isSecretMode ? '****' : mainContact.phone}` : ''}</p>
                       )}
                       {(companyInfo.addressLine || mainContact.address) && (
-                          <p className="flex items-center gap-1.5"><MapPin size={14} className="text-slate-400"/> {companyInfo.addressLine ? `${companyInfo.addressLine}, ${companyInfo.zipCode || ''} ${companyInfo.city || ''} ${companyInfo.country || ''}` : mainContact.address}</p>
+                          <p className="flex items-center gap-1.5"><MapPin size={14} className="text-slate-400"/> {isSecretMode ? '****' : (companyInfo.addressLine ? `${companyInfo.addressLine}, ${companyInfo.zipCode || ''} ${companyInfo.city || ''} ${companyInfo.country || ''}` : mainContact.address)}</p>
                       )}
                   </div>
                   {companyInfo.notes && (
@@ -2221,12 +2165,12 @@ export default function App() {
 
         {/* Panneau d'édition Société (si actif) */}
         {isEditingCompany && (
-          <div className="p-8 bg-slate-50 border-b border-slate-200 shadow-inner animate-fade-in z-20 relative shrink-0 overflow-y-auto max-h-[50vh] custom-scrollbar">
-             <div className="flex justify-between items-center mb-6">
+          <div className="p-6 bg-slate-50 border-b border-slate-200 shadow-inner animate-fade-in z-20 relative shrink-0">
+             <div className="flex justify-between items-center mb-5">
                  <h4 className="font-bold text-slate-800 font-poppins text-lg flex items-center gap-2"><Settings size={20}/> Modifier la Société</h4>
                  <button onClick={() => setIsEditingCompany(false)} className="text-slate-400 hover:text-slate-600"><X size={24}/></button>
              </div>
-             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
                 <div>
                   <label className={UI_CLASSES.label}>Statut de la Société</label>
                   <select className={`${UI_CLASSES.input} font-bold ${editCompanyDataState.type === 'client' ? 'text-emerald-600' : 'text-[#01189B]'}`} value={editCompanyDataState.type || companyType} onChange={e => setEditCompanyDataState({...editCompanyDataState, type: e.target.value})}>
@@ -2248,7 +2192,7 @@ export default function App() {
                 <div><label className={UI_CLASSES.label}>Numéro IDE / CHE</label><input className={UI_CLASSES.input} value={editCompanyDataState.cheNumber || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, cheNumber: e.target.value})} placeholder="Ex: CHE-123.456.789" /></div>
                 <div><label className={UI_CLASSES.label}>Numéro TVA</label><input className={UI_CLASSES.input} value={editCompanyDataState.tvaNumber || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, tvaNumber: e.target.value})} placeholder="Si applicable..." /></div>
                 
-                <div className="col-span-1 md:col-span-2 lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-6 p-4 bg-white rounded-xl border border-slate-200 shadow-sm my-2">
+                <div className="col-span-1 md:col-span-2 lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-white rounded-xl border border-slate-200 shadow-sm my-1">
                     <div><label className={UI_CLASSES.label}>CA Historique (Manuel)</label><input type="number" className={UI_CLASSES.input} value={editCompanyDataState.manualCA || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, manualCA: e.target.value})} placeholder="Ajouter au CA global..." /></div>
                     <div><label className={UI_CLASSES.label}>Bénéfice Historique (Manuel)</label><input type="number" className={UI_CLASSES.input} value={editCompanyDataState.manualBenefice || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, manualBenefice: e.target.value})} placeholder="Ajouter au bénéfice..." /></div>
                 </div>
@@ -2256,75 +2200,36 @@ export default function App() {
                 <div className="col-span-1 md:col-span-2 lg:col-span-3 pt-4 border-t border-slate-200">
                     <h5 className="font-bold text-slate-700 text-sm mb-4">Adresse Officielle</h5>
                 </div>
-                <div className="col-span-1 md:col-span-2 lg:col-span-3"><label className={UI_CLASSES.label}>Rue et numéro</label><input className={UI_CLASSES.input} value={editCompanyDataState.addressLine || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, addressLine: e.target.value})} placeholder="Rue de Genève 1..." /></div>
-                <div><label className={UI_CLASSES.label}>NPA / Code Postal</label><input className={UI_CLASSES.input} value={editCompanyDataState.zipCode || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, zipCode: e.target.value})} placeholder="Ex: 1200" /></div>
-                <div><label className={UI_CLASSES.label}>Ville</label><input className={UI_CLASSES.input} value={editCompanyDataState.city || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, city: e.target.value})} placeholder="Ex: Genève" /></div>
-                <div><label className={UI_CLASSES.label}>Canton / Pays</label><input className={UI_CLASSES.input} value={editCompanyDataState.country || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, country: e.target.value})} placeholder="Ex: Suisse" /></div>
-                
-                <div className="col-span-1 md:col-span-2 lg:col-span-3 pt-4 border-t border-slate-200">
-                    <label className={UI_CLASSES.label}>Notes / Informations complémentaires</label>
-                    <textarea className={`${UI_CLASSES.input} h-20 resize-none`} value={editCompanyDataState.notes || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, notes: e.target.value})} placeholder="Détails spécifiques à l'entreprise, notes globales..."></textarea>
-                    <p className="text-[10px] text-slate-400 mt-1 font-medium"><Info size={12} className="inline mr-1"/> Ajouter un contact principal pour cette société est optionnel, vous pouvez gérer la relation uniquement via ces notes si souhaité.</p>
-                </div>
-
-                <div className="col-span-1 md:col-span-2 lg:col-span-3 pt-4 border-t border-slate-200">
-                    <label className={UI_CLASSES.label}>Audience Ciblée par l'entreprise</label>
-                    <div className="flex gap-3 mt-3">
-                        {['Résident', 'Frontalier', 'Les deux'].map(aud => (
-                            <button
-                                key={aud} type="button" onClick={() => setEditCompanyDataState({...editCompanyDataState, targetAudience: aud})}
-                                className={`px-5 py-2.5 rounded-xl text-sm font-bold border-2 transition-all ${editCompanyDataState.targetAudience === aud ? 'border-[#01189B] bg-blue-50 text-[#01189B] shadow-sm' : 'border-slate-200 text-slate-500 bg-white hover:border-slate-300'}`}
-                            >
-                                {aud}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-
                 <div className="col-span-1 md:col-span-2 lg:col-span-3">
-                    <label className={UI_CLASSES.label}>Services & Produits vendus par l'entreprise</label>
-                    <div className="flex flex-wrap gap-2 mt-3">
-                        {['LAMal', 'LCA', '3ème Pilier', 'LPP', 'Prévoyance', 'Assurance Vie', 'Hypothèque', 'Fiscalité'].map(prod => {
-                            const isActive = (editCompanyDataState.offeredProducts || []).includes(prod);
-                            return (
-                                <button
-                                    key={prod} type="button"
-                                    onClick={() => {
-                                        const current = editCompanyDataState.offeredProducts || [];
-                                        setEditCompanyDataState({ ...editCompanyDataState, offeredProducts: isActive ? current.filter((p: string) => p !== prod) : [...current, prod] });
-                                    }}
-                                    className={`px-4 py-2 rounded-xl text-xs font-bold border-2 transition-all shadow-sm ${isActive ? 'bg-[#01189B] text-white border-[#01189B]' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'}`}
-                                >
-                                    {isActive ? '✓ ' : '+ '}{prod}
-                                </button>
-                            )
-                        })}
-                    </div>
+                    <label className={UI_CLASSES.label}>Adresse Ligne 1</label>
+                    <input className={UI_CLASSES.input} value={editCompanyDataState.addressLine || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, addressLine: e.target.value})} placeholder="Rue, Numéro..." />
                 </div>
-
+                <div><label className={UI_CLASSES.label}>NPA / Code Postal</label><input className={UI_CLASSES.input} value={editCompanyDataState.zipCode || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, zipCode: e.target.value})} /></div>
+                <div><label className={UI_CLASSES.label}>Ville</label><input className={UI_CLASSES.input} value={editCompanyDataState.city || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, city: e.target.value})} /></div>
+                <div><label className={UI_CLASSES.label}>Pays</label><input className={UI_CLASSES.input} value={editCompanyDataState.country || ''} onChange={e => setEditCompanyDataState({...editCompanyDataState, country: e.target.value})} /></div>
              </div>
-             <div className="flex gap-4 justify-end mt-6 pt-6 border-t border-slate-200">
-               <button onClick={handleSaveCompanyEdit} className="px-8 py-3.5 text-white rounded-xl font-bold hover:opacity-90 shadow-md transition-opacity" style={{ backgroundColor: BRAND_COLOR }}>Enregistrer les infos</button>
+             <div className="flex gap-4 justify-end mt-5 pt-5 border-t border-slate-200">
+               <button onClick={handleSaveCompanyEdit} className="px-6 py-2.5 text-sm text-white rounded-xl font-bold hover:opacity-90 shadow-md transition-opacity" style={{ backgroundColor: BRAND_COLOR }}>Enregistrer les infos</button>
              </div>
           </div>
         )}
 
-        <div className="flex-1 overflow-auto p-8 bg-slate-50/50 custom-scrollbar grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="flex-1 p-6 bg-slate-50/50 grid grid-cols-1 lg:grid-cols-3 gap-6">
             
             {/* COLONNE GAUCHE : INFOS & CAMPAGNES */}
-            <div className="lg:col-span-1 space-y-6">
+            <div className="lg:col-span-1 space-y-5">
                
                {/* Widget Rappels Société */}
-               <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] relative overflow-hidden">
+               <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] relative overflow-hidden">
                    <div className="absolute top-0 left-0 w-1 h-full bg-orange-400"></div>
-                   <h4 className="font-extrabold text-slate-800 mb-4 font-poppins text-lg flex items-center gap-2"><CalendarClock className="text-orange-500" size={20}/> Programmer un Rappel</h4>
-                   <div className="space-y-4">
+                   <h4 className="font-extrabold text-slate-800 mb-3 font-poppins text-base flex items-center gap-2"><CalendarClock className="text-orange-500" size={18}/> Programmer un Rappel</h4>
+                   <div className="space-y-3">
                        <input 
                            type="text" 
                            placeholder="Ex: Rappeler la société..." 
                            value={companyReminderNote}
                            onChange={e => setCompanyReminderNote(e.target.value)}
-                           className="w-full text-sm border-2 border-slate-100 bg-slate-50 p-3 rounded-xl outline-none focus:border-orange-400 focus:bg-white transition-colors"
+                           className="w-full text-sm border border-slate-200 bg-slate-50 p-2.5 rounded-xl outline-none focus:border-orange-400 focus:bg-white transition-colors"
                        />
                        <div className="grid grid-cols-3 gap-2">
                            <button onClick={() => handleSetCompanyReminder(7)} className="py-2 text-[10px] font-bold uppercase tracking-wide bg-orange-50 text-orange-700 rounded-lg hover:bg-orange-100 border border-orange-100 transition-colors">+ 1 Sem.</button>
@@ -2335,8 +2240,8 @@ export default function App() {
                </div>
 
                {/* Widget Campagnes en cours */}
-               <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]">
-                 <h4 className="font-extrabold text-slate-800 mb-4 font-poppins text-lg flex items-center gap-2"><PlayCircle size={20} className="text-indigo-500"/> Campagnes Actives</h4>
+               <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]">
+                 <h4 className="font-extrabold text-slate-800 mb-3 font-poppins text-base flex items-center gap-2"><PlayCircle size={18} className="text-indigo-500"/> Campagnes Actives</h4>
                  {companySimulations.length === 0 ? (
                      <p className="text-xs text-slate-400 italic text-center py-4">Aucune campagne active pour cette société.</p>
                  ) : (
@@ -2398,12 +2303,12 @@ export default function App() {
                </div>
 
                {/* Widget Factures */}
-               <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]">
-                 <h4 className="font-extrabold text-slate-800 mb-4 font-poppins text-lg flex items-center gap-2"><FileText size={20} className="text-slate-400"/> Factures Globales</h4>
+               <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]">
+                 <h4 className="font-extrabold text-slate-800 mb-3 font-poppins text-base flex items-center gap-2"><FileText size={18} className="text-slate-400"/> Factures Globales</h4>
                  {companyInvoices.length === 0 ? (
                      <p className="text-xs text-slate-400 italic text-center py-4">Aucune facture pour cette société.</p>
                  ) : (
-                     <div className="space-y-3 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+                     <div className="space-y-3 pr-1">
                          {companyInvoices.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((inv: any) => (
                              <div key={inv.id} onClick={() => { setCurrentInvoice(inv); setShowModal('invoice'); }} className="flex justify-between items-center p-3 bg-slate-50 border border-slate-100 rounded-xl cursor-pointer hover:border-[#01189B] hover:bg-white shadow-sm transition-all group">
                                  <div>
@@ -2422,10 +2327,10 @@ export default function App() {
             </div>
 
             {/* COLONNE DROITE : EQUIPE & ACTIVITE */}
-            <div className="lg:col-span-2 space-y-6 flex flex-col h-full">
+            <div className="lg:col-span-2 space-y-5 flex flex-col h-fit">
               {/* Widget Activité Globale */}
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] p-6 shrink-0">
-                  <h3 className="font-extrabold text-slate-800 mb-4 font-poppins text-lg flex items-center gap-2"><Activity className="text-orange-500" size={20}/> Activité Globale (Notes récentes)</h3>
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] p-5 shrink-0">
+                  <h3 className="font-extrabold text-slate-800 mb-3 font-poppins text-base flex items-center gap-2"><Activity className="text-orange-500" size={18}/> Activité Globale (Notes récentes)</h3>
                   {companyInteractions.length === 0 ? (
                       <p className="text-xs text-slate-400 italic text-center py-4">Aucune activité enregistrée sur les contacts de cette société.</p>
                   ) : (
@@ -2446,12 +2351,12 @@ export default function App() {
                   )}
               </div>
 
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] p-6 flex-1 flex flex-col">
-                <div className="flex justify-between items-center mb-6 shrink-0">
-                  <h3 className="font-extrabold text-slate-800 font-poppins text-xl flex items-center gap-2"><Users size={24} style={{ color: BRAND_COLOR }}/> Contacts ({companyContacts.length})</h3>
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] p-5 flex-1 flex flex-col">
+                <div className="flex justify-between items-center mb-5 shrink-0">
+                  <h3 className="font-extrabold text-slate-800 font-poppins text-lg flex items-center gap-2"><Users size={20} style={{ color: BRAND_COLOR }}/> Contacts ({companyContacts.length})</h3>
                 </div>
                 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 overflow-auto custom-scrollbar p-1">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-1">
                      {companyContacts.map(c => {
                         const cInvoices = invoices.filter(inv => inv.clientId === c.id);
                         const cCaEncaisse = cInvoices.filter(i => i.status === 'payee').reduce((a, b) => a + b.amount, 0) + Number(c.manualCA || 0);
@@ -2459,10 +2364,10 @@ export default function App() {
                           <div key={c.id} onClick={() => setSelectedContactId(c.id)} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:border-[#01189B] hover:shadow-lg transition-all cursor-pointer group flex flex-col justify-between">
                              <div className="flex justify-between items-start mb-4">
                                 <div className="flex items-center gap-3">
-                                   <div className="w-10 h-10 rounded-full bg-blue-100 text-[#01189B] flex items-center justify-center font-bold text-lg shrink-0">{c.name ? c.name.substring(0,2).toUpperCase() : '?'}</div>
+                                   <div className="w-10 h-10 rounded-full bg-blue-100 text-[#01189B] flex items-center justify-center font-bold text-lg shrink-0">{isSecretMode ? '**' : (c.name ? c.name.substring(0,2).toUpperCase() : '?')}</div>
                                    <div className="overflow-hidden">
-                                     <p className="font-bold text-slate-800 text-sm truncate">{c.name || 'Sans Nom'}</p>
-                                     <p className="text-[10px] text-slate-500 font-medium truncate">{c.email || 'Pas d\'email'}</p>
+                                     <p className="font-bold text-slate-800 text-sm truncate">{renderName(c.name || 'Sans Nom')}</p>
+                                     <p className="text-[10px] text-slate-500 font-medium truncate">{isSecretMode ? '****@****' : (c.email || 'Pas d\'email')}</p>
                                    </div>
                                 </div>
                                 <span className={`px-2 py-1 text-[9px] font-bold uppercase tracking-widest rounded-md border shrink-0 ${c.type === 'client' || c.status === 'gagne' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
@@ -2626,7 +2531,7 @@ export default function App() {
                       return (
                       <tr key={sim.id} className="hover:bg-blue-50/30 transition-colors">
                         <td className="px-6 py-5">
-                          <p className="font-extrabold text-slate-800 font-poppins">{sim.clientName || 'N/A'}</p>
+                          <p className="font-extrabold text-slate-800 font-poppins">{renderName(sim.clientName || 'N/A')}</p>
                           <div className="flex items-center gap-2 mt-1">
                               <p className="font-bold text-xs text-[#01189B] flex items-center gap-1"><Package size={12}/> {sim.productName}</p>
                               <span className={`text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded ${platform.toLowerCase().includes('google') ? 'bg-orange-100 text-orange-700' : platform.toLowerCase().includes('meta') ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-700'}`}>{platform}</span>
@@ -3176,7 +3081,7 @@ export default function App() {
                     <div className="space-y-3 max-h-64 overflow-y-auto custom-scrollbar pr-2">
                         {stats.caDetails.map((client: any, idx: number) => (
                             <div key={idx} className="flex justify-between items-center p-3 bg-slate-50 border border-slate-100 rounded-xl hover:bg-emerald-50 hover:border-emerald-200 transition-colors">
-                                <p className="font-bold text-slate-800 text-sm truncate pr-4">{client.name}</p>
+                                <p className="font-bold text-slate-800 text-sm truncate pr-4">{renderName(client.name)}</p>
                                 <p className="font-mono font-extrabold text-emerald-600 whitespace-nowrap">{renderCurrency(client.total)}</p>
                             </div>
                         ))}
@@ -3200,7 +3105,7 @@ export default function App() {
                             return (
                                 <div key={contact.id} onClick={() => setSelectedContactId(contact.id)} className={`flex flex-col p-3 rounded-xl cursor-pointer hover:shadow-sm transition-all border ${isOverdue ? 'bg-red-50/50 border-red-100 hover:border-red-300' : 'bg-slate-50 border-slate-100 hover:border-[#01189B]'}`}>
                                     <div className="flex justify-between items-center mb-1">
-                                        <p className="font-bold text-slate-800 text-sm">{contact.company}</p>
+                                        <p className="font-bold text-slate-800 text-sm">{renderName(contact.company)}</p>
                                         <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-md ${isOverdue ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>{isOverdue ? 'Échu !' : formatDate(contact.nextContactDate)}</span>
                                     </div>
                                     <p className="text-xs text-slate-500 line-clamp-1">{contact.nextContactNote || 'Relance planifiée'}</p>
@@ -3226,7 +3131,7 @@ export default function App() {
                                 <div className="flex items-center gap-3">
                                     <div className={`w-2 h-2 rounded-full ${inv.status === 'payee' ? 'bg-emerald-500' : inv.status === 'retard' ? 'bg-orange-500' : inv.status === 'archive' || inv.status === 'annulee' ? 'bg-slate-500' : 'bg-blue-400'}`}></div>
                                     <div>
-                                        <p className="font-bold text-slate-800 text-sm">{inv.clientName}</p>
+                                        <p className="font-bold text-slate-800 text-sm">{renderName(inv.clientName)}</p>
                                         <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{formatDate(inv.date)}</p>
                                     </div>
                                 </div>
@@ -3251,7 +3156,7 @@ export default function App() {
                             const contact = contacts.find(c => c.id === act.contactId);
                             return (
                                 <div key={act.id} className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
-                                    <p className="text-xs font-bold text-slate-500 mb-1 flex justify-between"><span>{contact ? contact.company : 'Contact inconnu'}</span> <span className="text-slate-400 font-medium">{formatDate(act.createdAt)}</span></p>
+                                    <p className="text-xs font-bold text-slate-500 mb-1 flex justify-between"><span>{contact ? renderName(contact.company) : 'Contact inconnu'}</span> <span className="text-slate-400 font-medium">{formatDate(act.createdAt)}</span></p>
                                     <p className="text-sm text-slate-700 line-clamp-2">{act.content}</p>
                                 </div>
                             );
@@ -4377,7 +4282,7 @@ function envoyerLead(agent, ligne) {
                           {[...invoices].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((inv) => (
                             <tr key={inv.id} className="hover:bg-blue-50/30 transition-colors group cursor-pointer" onClick={() => { setCurrentInvoice(inv); setShowModal('invoice'); }}>
                               <td className="px-8 py-5 font-bold text-slate-600 font-mono text-xs">{inv.id}</td>
-                              <td className="px-8 py-5 font-extrabold text-slate-800 font-poppins">{inv.clientName}</td>
+                              <td className="px-8 py-5 font-extrabold text-slate-800 font-poppins">{renderName(inv.clientName)}</td>
                               <td className="px-8 py-5 font-medium text-slate-500">{formatDate(inv.date)}</td>
                               <td className="px-8 py-5 font-extrabold font-mono text-lg text-slate-800">{renderCurrency(inv.amount)}</td>
                               <td className="px-8 py-5" onClick={(e) => e.stopPropagation()}>
@@ -4441,25 +4346,19 @@ function envoyerLead(agent, ligne) {
                                     <div key={companyName} onClick={() => setSelectedCompanyName(companyName)} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm hover:border-[#01189B] hover:shadow-md cursor-pointer transition-all group flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                                         <div className="flex items-center gap-4 w-full md:w-1/3">
                                             <div className="w-12 h-12 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-extrabold text-xl shadow-inner group-hover:scale-105 transition-transform shrink-0">
-                                                {companyName.substring(0, 2).toUpperCase()}
+                                                {isSecretMode ? '**' : companyName.substring(0, 2).toUpperCase()}
                                             </div>
                                             <div className="overflow-hidden">
-                                                <h3 className="font-extrabold text-slate-800 font-poppins text-base leading-tight truncate" title={companyName}>{companyName}</h3>
+                                                <h3 className="font-extrabold text-slate-800 font-poppins text-base leading-tight truncate" title={companyName}>{renderName(companyName)}</h3>
                                                 <span className={`inline-block mt-1 px-2 py-0.5 rounded-md text-[9px] uppercase font-bold tracking-widest ${isClient ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-slate-100 text-slate-600 border border-slate-200'}`}>{isClient ? 'Client' : 'Prospect'}</span>
                                             </div>
                                         </div>
-                                        <div className="flex items-center gap-6 md:gap-8 w-full md:w-auto justify-between md:justify-end pt-3 md:pt-0 border-t md:border-t-0 border-slate-100">
-                                            <div className="text-left md:text-right">
-                                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-0.5">Équipe</p>
-                                                <p className="text-sm font-bold text-slate-700 flex items-center md:justify-end gap-1.5"><Users size={14} className="text-slate-400"/> {companyContacts.length} profil(s)</p>
-                                            </div>
-                                            <div className="text-right w-24 md:w-32 md:border-l md:border-slate-100 md:pl-6">
-                                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-0.5">CA Encaissé</p>
-                                                <p className="text-sm font-extrabold text-[#01189B] font-mono">{renderCurrency(caTotal)}</p>
-                                            </div>
-                                            <div className="text-slate-300 group-hover:text-[#01189B] transition-colors hidden md:block ml-2">
-                                                <ArrowRight size={20} />
-                                            </div>
+                                        <div className="text-right w-24 md:w-32 md:border-l md:border-slate-100 md:pl-6">
+                                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-0.5">CA Encaissé</p>
+                                            <p className="text-sm font-extrabold text-[#01189B] font-mono">{renderCurrency(caTotal)}</p>
+                                        </div>
+                                        <div className="text-slate-300 group-hover:text-[#01189B] transition-colors hidden md:block ml-2">
+                                            <ArrowRight size={20} />
                                         </div>
                                     </div>
                                 )
