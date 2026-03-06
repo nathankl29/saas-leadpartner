@@ -58,7 +58,9 @@ const fallbackFirebaseConfig = {
   measurementId: "G-6QM0LM69Z1"
 };
 
-const DEFAULT_APP_ID = 'leadpartner-crm-v43-prod';
+// 💡 CORRECTION APPLIQUÉE : J'ai forcé ici l'utilisation de la version "v42".
+// Si vos données n'apparaissent toujours pas, changez "v42" par "v41" ou "v40" juste en dessous.
+const FORCED_APP_ID = 'leadpartner-crm-v42-prod';
 
 let app: any, db: any, auth: any;
 try {
@@ -76,7 +78,8 @@ try {
   console.error('Erreur init Firebase:', e);
 }
 
-const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : DEFAULT_APP_ID;
+// On force l'application à lire le dossier de l'ancienne version, en ignorant le nouvel identifiant du système
+const getAppId = () => FORCED_APP_ID;
 
 // --- CONSTANTES ---
 const PIPELINE_STAGES = [
