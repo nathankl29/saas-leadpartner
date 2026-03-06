@@ -3332,12 +3332,13 @@ export default function App() {
                   { id: 'general', label: 'Infos Générales', icon: Briefcase },
                   { id: 'billing', label: 'Facturation', icon: FileText },
                   { id: 'contract', label: 'Contrat', icon: FileText },
-                  { id: 'emails', label: 'Modèles d\'Emails', icon: Mail },
-                  { id: 'integrations', label: 'Intégrations', icon: Link },
-                  { id: 'emailHistory', label: 'Historique Mails', icon: Clock },
-                  { id: 'data', label: 'Données & Export', icon: Download },
-              ].map(tab => (
-                  <button 
+              { id: 'emails', label: 'Modèles d\'Emails', icon: Mail },
+              { id: 'integrations', label: 'Intégrations', icon: Link },
+              { id: 'emailHistory', label: 'Historique Mails', icon: Clock },
+              { id: 'data', label: 'Données & Export', icon: Download },
+              { id: 'diagnostic', label: 'Diagnostic Système', icon: Activity },
+          ].map(tab => (
+              <button 
                     key={tab.id} 
                     onClick={() => setSettingsActiveTab(tab.id)}
                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all ${settingsActiveTab === tab.id ? 'bg-[#01189B] text-white shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}
@@ -3618,6 +3619,51 @@ export default function App() {
                               </button>
                           </div>
                           <p className="text-[10px] font-bold text-slate-400 mt-3 bg-slate-50 p-2 rounded-lg inline-block">ID Actuel utilisé par ce document : <span className="font-mono text-[#01189B] select-all">{getAppId()}</span></p>
+                      </div>
+                  </div>
+              )}
+
+              {settingsActiveTab === 'diagnostic' && (
+                  <div className="space-y-8 animate-fade-in">
+                      <div>
+                          <h3 className="font-extrabold text-xl mb-6 font-poppins border-b border-slate-100 pb-4 text-slate-800 flex items-center gap-2"><Activity size={22} className="text-orange-500"/> Diagnostic Système</h3>
+                          <p className="text-sm text-slate-500 mb-6">Utilisez ces informations pour identifier les problèmes de connexion à la base de données ou transmettre ces infos au support technique.</p>
+                          
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200">
+                                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">ID Utilisateur (UID Firebase)</p>
+                                  <p className="font-mono text-sm font-bold text-slate-800 break-all">{user?.uid || 'Non connecté'}</p>
+                              </div>
+                              <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200">
+                                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">ID Application (App ID cible)</p>
+                                  <p className="font-mono text-sm font-bold text-slate-800 break-all">{getAppId()}</p>
+                              </div>
+                              <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200">
+                                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Stockage Local (Forçage ID)</p>
+                                  <p className="font-mono text-sm font-bold text-slate-800 break-all">{localStorage.getItem('leadpartner_custom_app_id') || 'Aucun forçage (Défaut utilisé)'}</p>
+                              </div>
+                              <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200">
+                                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">État Firebase & Firestore</p>
+                                  <p className="font-mono text-sm font-bold text-slate-800">{db ? 'Initialisé ✅' : 'Erreur ❌'}</p>
+                              </div>
+                              <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200 md:col-span-2">
+                                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Données actuellement chargées en mémoire</p>
+                                  <div className="flex flex-wrap gap-4 mt-3">
+                                      <span className="bg-white px-4 py-2 rounded-xl border border-slate-200 text-sm font-bold shadow-sm">Contacts : <span className="text-[#01189B]">{contacts.length}</span></span>
+                                      <span className="bg-white px-4 py-2 rounded-xl border border-slate-200 text-sm font-bold shadow-sm">Factures : <span className="text-[#01189B]">{invoices.length}</span></span>
+                                      <span className="bg-white px-4 py-2 rounded-xl border border-slate-200 text-sm font-bold shadow-sm">Simulations : <span className="text-[#01189B]">{simulations.length}</span></span>
+                                      <span className="bg-white px-4 py-2 rounded-xl border border-slate-200 text-sm font-bold shadow-sm">Produits : <span className="text-[#01189B]">{products.length}</span></span>
+                                  </div>
+                              </div>
+                              <div className="p-5 bg-blue-50 rounded-2xl border border-blue-200 md:col-span-2">
+                                  <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mb-2">Chemins de base de données testés</p>
+                                  <ul className="font-mono text-[11px] text-blue-800 space-y-2 list-decimal pl-5">
+                                      <li>artifacts/{getAppId()}/users/{user?.uid || '{uid}'}</li>
+                                      <li>artifacts/{getAppId()}/public/data</li>
+                                      <li>{getAppId()}/users/{user?.uid || '{uid}'}</li>
+                                  </ul>
+                              </div>
+                          </div>
                       </div>
                   </div>
               )}
