@@ -13,7 +13,7 @@ import {
 import { initializeApp } from 'firebase/app';
 import {
   getFirestore, collection, addDoc, updateDoc, deleteDoc, doc,
-  onSnapshot, setDoc, writeBatch,
+  onSnapshot, setDoc, writeBatch, getDocs, query, limit
 } from 'firebase/firestore';
 import {
   getAuth, onAuthStateChanged,
@@ -622,58 +622,106 @@ export default function App() {
   // --- SYNC DB & AUTO-SEED PRODUCTS/CONTACTS ---
   useEffect(() => {
     if (!user || isOfflineMode || !db) return;
-    const basePath = `artifacts/${getAppId()}/users/${user.uid}`;
-    try {
-      const unsubs = [
-        onSnapshot(collection(db, `${basePath}/contacts`), (s) => {
-          const loadedContacts = s.docs.map((d) => ({ id: d.id, ...d.data() }));
-          setContacts(loadedContacts);
-        }),
+    
+    // NOUVELLE LOGIQUE DE RECHERCHE DE DONNEES
+    const findDataPath = async () => {
+      try {
+        // Essai 1 : Dossier avec l'UID de l'utilisateur (cas standard récent)
+        const userSpecificPath = `artifacts/${getAppId()}/users/${user.uid}`;
+        const userContactsQuery = query(collection(db, `${userSpecificPath}/contacts`), limit(1));
+        const userContactsSnap = await getDocs(userContactsQuery);
         
-        onSnapshot(collection(db, `${basePath}/products`), (s) => {
-          const loadedProducts = s.docs.map((d) => ({ id: d.id, ...d.data() }));
-          if (s.empty && !hasCheckedDefaults.current) {
-            hasCheckedDefaults.current = true;
-            const batch = writeBatch(db);
-            const defaultProds = [
-              { name: '3P Meta', price: 80, cost: 30, platform: 'meta', description: 'Leads 3ème Pilier générés via Facebook/Instagram Ads.' },
-              { name: 'LPP Meta', price: 90, cost: 35, platform: 'meta', description: 'Leads LPP générés via Facebook/Instagram Ads.' },
-              { name: 'CMU LAMal Meta', price: 70, cost: 25, platform: 'meta', description: 'Leads Frontaliers CMU/LAMal via Meta Ads.' },
-              { name: 'LPP Google', price: 120, cost: 50, platform: 'google', description: 'Leads LPP ultra-qualifiés générés via Google Search.' }
-            ];
-            defaultProds.forEach(p => {
-              const docRef = doc(collection(db, `${basePath}/products`));
-              batch.set(docRef, p);
-            });
-            batch.commit().then(() => console.log('Produits par défaut créés.'));
-          } else {
-            setProducts(loadedProducts);
-            hasCheckedDefaults.current = true;
-          }
-        }),
+        if (!userContactsSnap.empty) {
+            console.log("Données trouvées dans le dossier utilisateur.");
+            return userSpecificPath;
+        }
 
-        onSnapshot(collection(db, `${basePath}/invoices`), (s) => setInvoices(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
-        onSnapshot(collection(db, `${basePath}/interactions`), (s) => setInteractions(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
-        onSnapshot(collection(db, `${basePath}/simulations`), (s) => setSimulations(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
-        onSnapshot(collection(db, `${basePath}/target_scenarios`), (s) => setScenarios(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
-        onSnapshot(collection(db, `${basePath}/lead_deliveries`), (s) => setDeliveries(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
-        onSnapshot(collection(db, `${basePath}/email_logs`), (s) => setEmailHistory(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
-        onSnapshot(collection(db, `${basePath}/companies`), (s) => setCompaniesData(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
-        onSnapshot(doc(db, `${basePath}/config`, 'general'), (s) => { 
-            if (s.exists()) {
-                const data = s.data();
-                if (!data.emailTemplates || data.emailTemplates.length === 0) {
-                    data.emailTemplates = DEFAULT_EMAIL_TEMPLATES;
+        // Essai 2 : Dossier public / commun (si les données étaient globales dans votre version 59.9)
+        const publicPath = `artifacts/${getAppId()}/public/data`;
+        const publicContactsQuery = query(collection(db, `${publicPath}/contacts`), limit(1));
+        const publicContactsSnap = await getDocs(publicContactsQuery);
+
+        if (!publicContactsSnap.empty) {
+             console.log("Données trouvées dans le dossier public.");
+             return publicPath;
+        }
+
+        // Essai 3 : Sans le préfixe artifacts/ (très anciennes versions)
+        const rootPath = `${getAppId()}/users/${user.uid}`;
+        const rootContactsQuery = query(collection(db, `${rootPath}/contacts`), limit(1));
+        const rootContactsSnap = await getDocs(rootContactsQuery);
+
+        if (!rootContactsSnap.empty) {
+             console.log("Données trouvées à la racine.");
+             return rootPath;
+        }
+
+        // Par défaut, on continue avec le dossier utilisateur même s'il est vide pour l'instant
+        console.log("Aucune donnée existante trouvée, utilisation du chemin par défaut.");
+        return userSpecificPath;
+
+      } catch (err) {
+          console.error("Erreur lors de la recherche des données:", err);
+          return `artifacts/${getAppId()}/users/${user.uid}`; // Fallback par défaut
+      }
+    };
+
+    let unsubs: any[] = [];
+    
+    findDataPath().then(basePath => {
+        try {
+          unsubs = [
+            onSnapshot(collection(db, `${basePath}/contacts`), (s) => {
+              const loadedContacts = s.docs.map((d) => ({ id: d.id, ...d.data() }));
+              setContacts(loadedContacts);
+            }),
+            
+            onSnapshot(collection(db, `${basePath}/products`), (s) => {
+              const loadedProducts = s.docs.map((d) => ({ id: d.id, ...d.data() }));
+              if (s.empty && !hasCheckedDefaults.current) {
+                hasCheckedDefaults.current = true;
+                const batch = writeBatch(db);
+                const defaultProds = [
+                  { name: '3P Meta', price: 80, cost: 30, platform: 'meta', description: 'Leads 3ème Pilier générés via Facebook/Instagram Ads.' },
+                  { name: 'LPP Meta', price: 90, cost: 35, platform: 'meta', description: 'Leads LPP générés via Facebook/Instagram Ads.' },
+                  { name: 'CMU LAMal Meta', price: 70, cost: 25, platform: 'meta', description: 'Leads Frontaliers CMU/LAMal via Meta Ads.' },
+                  { name: 'LPP Google', price: 120, cost: 50, platform: 'google', description: 'Leads LPP ultra-qualifiés générés via Google Search.' }
+                ];
+                defaultProds.forEach(p => {
+                  const docRef = doc(collection(db, `${basePath}/products`));
+                  batch.set(docRef, p);
+                });
+                batch.commit().then(() => console.log('Produits par défaut créés.'));
+              } else {
+                setProducts(loadedProducts);
+                hasCheckedDefaults.current = true;
+              }
+            }),
+
+            onSnapshot(collection(db, `${basePath}/invoices`), (s) => setInvoices(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
+            onSnapshot(collection(db, `${basePath}/interactions`), (s) => setInteractions(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
+            onSnapshot(collection(db, `${basePath}/simulations`), (s) => setSimulations(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
+            onSnapshot(collection(db, `${basePath}/target_scenarios`), (s) => setScenarios(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
+            onSnapshot(collection(db, `${basePath}/lead_deliveries`), (s) => setDeliveries(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
+            onSnapshot(collection(db, `${basePath}/email_logs`), (s) => setEmailHistory(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
+            onSnapshot(collection(db, `${basePath}/companies`), (s) => setCompaniesData(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
+            onSnapshot(doc(db, `${basePath}/config`, 'general'), (s) => { 
+                if (s.exists()) {
+                    const data = s.data();
+                    if (!data.emailTemplates || data.emailTemplates.length === 0) {
+                        data.emailTemplates = DEFAULT_EMAIL_TEMPLATES;
+                    }
+                    if (!data.prospectEmailTemplates || data.prospectEmailTemplates.length === 0) {
+                        data.prospectEmailTemplates = DEFAULT_PROSPECT_EMAIL_TEMPLATES;
+                    }
+                    setSettings((prev: any) => ({ ...prev, ...data })); 
                 }
-                if (!data.prospectEmailTemplates || data.prospectEmailTemplates.length === 0) {
-                    data.prospectEmailTemplates = DEFAULT_PROSPECT_EMAIL_TEMPLATES;
-                }
-                setSettings((prev: any) => ({ ...prev, ...data })); 
-            }
-        }),
-      ];
-      return () => unsubs.forEach((u) => u());
-    } catch (e) { setIsOfflineMode(true); }
+            }),
+          ];
+        } catch (e) { setIsOfflineMode(true); }
+    });
+
+    return () => unsubs.forEach((u) => u && u());
   }, [user, isOfflineMode]);
 
   // --- FILTRES & STATS ---
