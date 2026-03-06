@@ -58,8 +58,15 @@ const fallbackFirebaseConfig = {
   measurementId: "G-6QM0LM69Z1"
 };
 
-// 💡 CORRECTION APPLIQUÉE : Connexion forcée sur l'ID de votre ancienne version (v43)
+// 💡 NOUVEAU SYSTEME DE RECONNEXION MANUELLE ET FORÇAGE V43
 const FORCED_APP_ID = 'leadpartner-crm-v43-prod';
+
+const getAppId = () => {
+  const storedId = localStorage.getItem('leadpartner_custom_app_id');
+  if (storedId) return storedId;
+  // On force l'application à lire le dossier de l'ancienne version, en ignorant le nouvel identifiant du système
+  return FORCED_APP_ID;
+};
 
 let app: any, db: any, auth: any;
 try {
@@ -76,9 +83,6 @@ try {
 } catch (e) {
   console.error('Erreur init Firebase:', e);
 }
-
-// On force l'application à lire le dossier de l'ancienne version, en ignorant le nouvel identifiant du système
-const getAppId = () => FORCED_APP_ID;
 
 // --- CONSTANTES ---
 const PIPELINE_STAGES = [
@@ -618,8 +622,7 @@ export default function App() {
   // --- SYNC DB & AUTO-SEED PRODUCTS/CONTACTS ---
   useEffect(() => {
     if (!user || isOfflineMode || !db) return;
-    // ... modification cible dans le code existant ...
-    const basePath = `${getAppId()}/users/${user.uid}`;
+    const basePath = `artifacts/${getAppId()}/users/${user.uid}`;
     try {
       const unsubs = [
         onSnapshot(collection(db, `${basePath}/contacts`), (s) => {
@@ -3539,6 +3542,34 @@ export default function App() {
                               <button onClick={handleExportContactsCSV} className="flex-1 bg-white text-slate-600 px-4 py-4 rounded-xl text-sm font-bold flex items-center justify-center gap-2 hover:bg-slate-50 border border-slate-200 shadow-sm transition-all"><Download size={18} /> Exporter le modèle CSV</button>
                               <button onClick={() => setShowImportModal('contacts')} className="flex-1 bg-slate-100 text-[#01189B] px-4 py-4 rounded-xl text-sm font-bold flex items-center justify-center gap-2 hover:bg-blue-50 border border-blue-100 shadow-sm transition-all"><Upload size={18} /> Importer des Contacts (CSV)</button>
                           </div>
+                      </div>
+
+                      <div className="pt-8 border-t border-slate-100 mt-8">
+                          <h3 className="font-extrabold text-xl mb-6 font-poppins border-b border-slate-100 pb-4 text-slate-800 flex items-center gap-2"><Link size={22} className="text-red-500"/> Forcer la Reconnexion DB</h3>
+                          <p className="text-sm text-slate-500 mb-6">Si vous avez changé de document et perdu vos données, entrez l'ID de votre ancienne base de données ici.</p>
+                          <div className="flex gap-4 items-end flex-wrap md:flex-nowrap">
+                              <div className="flex-1 w-full">
+                                  <label className={UI_CLASSES.label}>ID Base de données / Document</label>
+                                  <input 
+                                    id="customDbInput"
+                                    defaultValue={localStorage.getItem('leadpartner_custom_app_id') || ''} 
+                                    className={UI_CLASSES.input} 
+                                    placeholder="Ex: leadpartner-crm-v43-prod ou ID invisible..." 
+                                  />
+                              </div>
+                              <button onClick={() => {
+                                  const val = (document.getElementById('customDbInput') as HTMLInputElement).value;
+                                  if (val) {
+                                      localStorage.setItem('leadpartner_custom_app_id', val);
+                                  } else {
+                                      localStorage.removeItem('leadpartner_custom_app_id');
+                                  }
+                                  window.location.reload();
+                              }} className="bg-red-50 text-red-600 px-6 py-2.5 rounded-xl font-bold hover:bg-red-100 transition-colors h-[42px] border border-red-100 w-full md:w-auto shrink-0">
+                                  Recharger les données
+                              </button>
+                          </div>
+                          <p className="text-[10px] font-bold text-slate-400 mt-3 bg-slate-50 p-2 rounded-lg inline-block">ID Actuel utilisé par ce document : <span className="font-mono text-[#01189B] select-all">{getAppId()}</span></p>
                       </div>
                   </div>
               )}
