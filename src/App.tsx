@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '60.7';
+const APP_VERSION = '60.8';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -1612,6 +1612,63 @@ export default function App() {
                                                             <span key={c} className="text-[9px] font-bold bg-slate-100 text-slate-600 px-2 py-1 rounded-md border border-slate-200 uppercase tracking-wide truncate max-w-[120px]" title={c}>{c} <span className="text-blue-500">({cnt})</span></span>
                                                         ))}
                                                     </div>
+                                                </td>
+                                            </tr>
+                                        )
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden mt-8">
+                        <div className="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                            <h3 className="font-bold text-slate-800 flex items-center gap-2 text-lg"><Package size={20} className="text-[#01189B]"/> Performances par Campagne</h3>
+                        </div>
+                        <div className="overflow-x-auto custom-scrollbar">
+                            <table className="w-full text-left text-sm">
+                                <thead className="bg-white text-slate-500 uppercase font-extrabold text-[10px] tracking-wider border-b border-slate-100">
+                                    <tr>
+                                        <th className="px-6 py-4">Nom de la Campagne</th>
+                                        <th className="px-6 py-4 text-center">Leads Générés (CRM)</th>
+                                        <th className="px-6 py-4">Dépense Média (Budget)</th>
+                                        <th className="px-6 py-4">Coût par Lead (CPL)</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-50">
+                                    {Object.entries(detailedCampaigns).sort((a:any, b:any) => b[1].total - a[1].total).map(([campName, stats]: any) => {
+                                        const sheetKpi = campaignKpis.find((k:any) => k.name === campName);
+                                        const exactSpend = sheetKpi ? Number(sheetKpi.spend) : null;
+                                        
+                                        const sim = simulations.find(s => s.productName === campName || s.clientName === campName);
+                                        const dailyBudget = sim?.manualDailyBudget || (sim?.stats?.costTotal && sim?.duration ? (sim.stats.costTotal / sim.duration) : 0);
+                                        
+                                        const start = sim?.createdAt ? new Date(sim.createdAt) : new Date();
+                                        const daysElapsed = Math.max(1, Math.floor((new Date().getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+                                        const estimatedSpend = dailyBudget * daysElapsed;
+                                        
+                                        const displaySpend = exactSpend !== null ? exactSpend : estimatedSpend;
+                                        const cpl = stats.total > 0 ? (displaySpend / stats.total) : 0;
+
+                                        return (
+                                            <tr key={campName} className="hover:bg-slate-50/50 transition-colors">
+                                                <td className="px-6 py-4 font-bold text-slate-800 flex items-center gap-3">
+                                                    <div className="w-8 h-8 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center shrink-0"><Target size={14}/></div>
+                                                    <span className="truncate max-w-[200px]" title={campName}>{campName}</span>
+                                                </td>
+                                                <td className="px-6 py-4 text-center"><span className="bg-blue-50 text-[#01189B] px-3 py-1 rounded-lg font-black">{stats.total}</span></td>
+                                                <td className="px-6 py-4">
+                                                    <div className="flex flex-col">
+                                                        <span className="font-mono font-bold text-orange-600">{renderCurrency(displaySpend)}</span>
+                                                        {exactSpend !== null ? (
+                                                            <span className="text-[9px] text-purple-500 font-bold uppercase tracking-widest mt-0.5">Via Sheet</span>
+                                                        ) : (
+                                                            <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Estimé</span>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <span className={`font-mono font-bold ${cpl > 40 ? 'text-red-500' : 'text-emerald-600'}`}>{renderCurrency(cpl)}</span>
                                                 </td>
                                             </tr>
                                         )
