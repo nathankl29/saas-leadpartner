@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '60.5';
+const APP_VERSION = '60.4';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -550,12 +550,6 @@ export default function App() {
   const [lmcPeriod, setLmcPeriod] = useState<'month'|'year'>('month');
   const [lmcCustomBudget, setLmcCustomBudget] = useState<number>(3000);
   const [lmcCustomProduct, setLmcCustomProduct] = useState<string>('');
-
-  // --- NOUVEAUX ETATS FILTRES & GROUPES LIVRAISONS ---
-  const [selectedDetailedAgent, setSelectedDetailedAgent] = useState<string | null>(null);
-  const [tempHiddenAgents, setTempHiddenAgents] = useState<string[]>([]);
-  const [tempAgentGroups, setTempAgentGroups] = useState<any[]>([]);
-  const [newGroupName, setNewGroupName] = useState('');
 
   // Modale d'envoi d'email
   const [showEmailModal, setShowEmailModal] = useState(false);
@@ -1391,37 +1385,14 @@ export default function App() {
   };
 
   const renderDeliveries = () => {
-      // GESTION DES GROUPES ET FILTRES
-      const hiddenAgents = settings.hiddenAgents || [];
-      const agentGroups = settings.agentGroups || [];
-
-      const getGroupName = (rawName: string) => {
-          for (const g of agentGroups) {
-              if (g.agents && g.agents.includes(rawName)) return g.name;
-          }
-          return rawName;
-      };
-
-      const processedDeliveries = deliveries.filter((d: any) => {
-          const rawName = d.agentName || 'Inconnu';
-          const mappedName = getGroupName(rawName);
-          // On masque si le nom brut ou le nom du groupe est caché
-          if (hiddenAgents.includes(mappedName) || hiddenAgents.includes(rawName)) return false;
-          return true;
-      }).map((d: any) => ({
-          ...d,
-          originalAgentName: d.agentName || 'Inconnu',
-          agentName: getGroupName(d.agentName || 'Inconnu')
-      }));
-
-      // Groupement des données sur la base des données traitées
-      const byCampaign = processedDeliveries.reduce((acc: any, d: any) => {
+      // Groupement des données
+      const byCampaign = deliveries.reduce((acc: any, d: any) => {
           const camp = d.campagne || 'Inconnue';
           acc[camp] = (acc[camp] || 0) + 1;
           return acc;
       }, {});
       
-      const byAgent = processedDeliveries.reduce((acc: any, d: any) => {
+      const byAgent = deliveries.reduce((acc: any, d: any) => {
           const agent = d.agentName || 'Inconnu';
           acc[agent] = (acc[agent] || 0) + 1;
           return acc;
@@ -1431,7 +1402,7 @@ export default function App() {
       const byDayOfWeek = [0, 0, 0, 0, 0, 0, 0]; // Dim, Lun, Mar, Mer, Jeu, Ven, Sam
 
       // Groupement par campagne ET client (Détail croisé)
-      const deliveriesByCampaignAndClient = processedDeliveries.reduce((acc: any, d: any) => {
+      const deliveriesByCampaignAndClient = deliveries.reduce((acc: any, d: any) => {
           const camp = d.campagne || 'Inconnue';
           const agent = d.agentName || 'Inconnu';
           if (!acc[camp]) acc[camp] = {};
@@ -1441,7 +1412,30 @@ export default function App() {
       }, {});
 
       // Groupement par date pour l'évolution
-      const byDate = processedDeliveries.reduce((acc: any, d: any) => {
+      const byDate = deliveries.reduce((acc: any, d: any) => {
+          const dateStr = d.date || d.createdAt;
+          if (!dateStr) return acc;
+          const dateObj = new Date(dateStr);
+          if (isNaN(dateObj.getTime())) return acc;
+          
+          // Ajout au jour de la semaine
+          byDayOfWeek[dateObj.getDay()]++;
+
+          const key = `${dateObj.getDate().toString().padStart(2, '0')}/${(dateObj.getMonth() + 1).toString().padStart(2, '0')}`;
+          acc[key] = (acc[key] || 0) + 1;
+          return acc;
+      }, {});
+
+      const sortedCampaigns = Object.entries(byCampaign).sort((a: any, b: any) => b[1] - a[1]);
+      const sortedAgents = Object.entries(byAgent).sort((a: any, b: any) => b[1] - a[1]);
+      const maxCampaign = sortedCampaigns.length > 0 ? (sortedCampaigns[0][1] as number) : 1;
+      const maxAgent = sortedAgents.length > 0 ? (sortedAgents[0][1] as number) : 1;
+
+      // Tri des dates (les 30 derniers jours actifs)
+      const sortedDates = Object.entries(byDate).sort((a: any, b: any) => {
+          const [d1, m1] = a[0].split('/');
+          const [d2, m2] = b[0].split('/');
+          const year = new Date().getFullYear();
           return new Date(year, Number(m1)-1, Number(d1)).getTime() - new Date(year, Number(m2)-1, Number(d2)).getTime();
       }).slice(-30);
       const maxDate = sortedDates.length > 0 ? Math.max(...sortedDates.map((d: any) => d[1] as number)) : 1;
@@ -1465,7 +1459,7 @@ export default function App() {
       const maxDayOfWeek = Math.max(...byDayOfWeek, 1);
 
       // NOUVEAU: Données détaillées pour les onglets Campagnes et Clients
-      const detailedCampaigns = processedDeliveries.reduce((acc: any, d: any) => {
+      const detailedCampaigns = deliveries.reduce((acc: any, d: any) => {
           const camp = d.campagne || 'Inconnue';
           if(!acc[camp]) acc[camp] = { total: 0, today: 0, thisMonth: 0, clients: {} };
           acc[camp].total++;
@@ -1514,17 +1508,6 @@ export default function App() {
                     </h2>
                     <p className="text-slate-500 text-lg mt-1">Surveillez et analysez les volumes de leads distribués en temps réel.</p>
                 </div>
-                <button 
-                    onClick={() => {
-                        setTempHiddenAgents(settings.hiddenAgents || []);
-                        setTempAgentGroups(settings.agentGroups || []);
-                        setNewGroupName('');
-                        setShowModal('delivery_filters');
-                    }} 
-                    className="bg-white border-2 border-slate-200 text-slate-700 px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-slate-50 transition-all flex items-center gap-2 shadow-sm"
-                >
-                    <Settings size={18}/> Filtres & Groupes
-                </button>
             </div>
 
             <div className="flex gap-3 mb-6 border-b border-slate-200 pb-4">
@@ -1569,12 +1552,8 @@ export default function App() {
                         <div className="col-span-full text-center py-12 bg-white rounded-3xl border border-slate-100 shadow-sm text-slate-400 font-medium">Aucun client trouvé dans les livraisons.</div>
                     ) : (
                         Object.entries(detailedClients).sort((a:any,b:any) => b[1].total - a[1].total).map(([clientName, stats]: any) => (
-                            <div 
-                                key={clientName} 
-                                onClick={() => { setSelectedDetailedAgent(clientName); setShowModal('agent_details'); }}
-                                className="bg-white rounded-3xl border border-slate-100 p-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:border-emerald-200 transition-all flex flex-col cursor-pointer group"
-                            >
-                               <h3 className="font-extrabold text-lg text-slate-800 mb-6 flex items-center gap-2 font-poppins group-hover:text-emerald-600 transition-colors"><Users className="text-emerald-500" size={20}/> <span className="truncate">{clientName}</span></h3>
+                            <div key={clientName} className="bg-white rounded-3xl border border-slate-100 p-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:border-emerald-200 transition-colors flex flex-col">
+                               <h3 className="font-extrabold text-lg text-slate-800 mb-6 flex items-center gap-2 font-poppins"><Users className="text-emerald-500" size={20}/> <span className="truncate">{clientName}</span></h3>
                                <div className="grid grid-cols-2 gap-3 mb-6 flex-1">
                                    <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100"><p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1">Total</p><p className="text-2xl font-black text-[#01189B] font-poppins">{stats.total}</p></div>
                                    <div className="bg-emerald-50 p-3 rounded-2xl border border-emerald-100"><p className="text-[10px] text-emerald-600 font-bold uppercase tracking-widest mb-1">Mois</p><p className="text-2xl font-black text-emerald-700 font-poppins">{stats.thisMonth}</p></div>
@@ -5397,229 +5376,6 @@ function envoyerLead(agent, ligne) {
         </div>
       </div>
     )}
-
-    {/* NOUVELLE MODALE: FILTRES & GROUPES LIVRAISONS */}
-    {showModal === 'delivery_filters' && (
-      <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-[2000] p-4">
-        <div className="bg-white p-8 rounded-3xl w-full max-w-2xl shadow-2xl border border-slate-100 animate-fade-in max-h-[90vh] flex flex-col">
-          <div className="flex justify-between items-center mb-6 shrink-0">
-              <h3 className="text-2xl font-extrabold text-slate-800 font-poppins flex items-center gap-3"><Settings style={{ color: BRAND_COLOR }} size={24}/> Filtres & Groupes (Livraisons)</h3>
-              <button onClick={() => setShowModal(null)} className="text-slate-400 hover:text-slate-600"><X size={24}/></button>
-          </div>
-          
-          <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-8">
-              {/* Section Groupes */}
-              <div>
-                  <h4 className="font-bold text-slate-800 mb-3 text-sm flex items-center gap-2"><Users size={18} className="text-blue-500"/> Créer des Groupes d'Agents</h4>
-                  <p className="text-xs text-slate-500 mb-4">Regroupez plusieurs agents (ex: commerciaux d'une même agence) sous un seul nom pour consolider leurs statistiques.</p>
-                  
-                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-4">
-                      <div className="flex gap-3 mb-3">
-                          <input value={newGroupName} onChange={e => setNewGroupName(e.target.value)} placeholder="Nom du groupe (ex: Agence WS)..." className="flex-1 border-2 border-white p-2.5 rounded-lg outline-none text-sm font-bold" />
-                          <button onClick={() => {
-                              if(!newGroupName.trim()) return;
-                              setTempAgentGroups([...tempAgentGroups, { id: Date.now().toString(), name: newGroupName.trim(), agents: [] }]);
-                              setNewGroupName('');
-                          }} className="bg-blue-500 text-white px-4 py-2 rounded-lg font-bold text-sm">Ajouter</button>
-                      </div>
-                      
-                      <div className="space-y-3">
-                          {tempAgentGroups.map(group => (
-                              <div key={group.id} className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
-                                  <div className="flex justify-between items-center mb-2">
-                                      <span className="font-bold text-slate-800 text-sm">{group.name}</span>
-                                      <button onClick={() => setTempAgentGroups(tempAgentGroups.filter(g => g.id !== group.id))} className="text-red-500 hover:bg-red-50 p-1 rounded"><Trash2 size={14}/></button>
-                                  </div>
-                                  <div className="flex flex-wrap gap-2">
-                                      {group.agents.map((ag:string) => (
-                                          <span key={ag} className="bg-blue-50 text-blue-700 border border-blue-200 px-2 py-1 rounded text-xs flex items-center gap-1">
-                                              {ag}
-                                              <button onClick={() => {
-                                                  const updated = tempAgentGroups.map(g => g.id === group.id ? {...g, agents: g.agents.filter((a:string)=>a!==ag)} : g);
-                                                  setTempAgentGroups(updated);
-                                              }}><X size={12}/></button>
-                                          </span>
-                                      ))}
-                                      <select onChange={e => {
-                                          if(!e.target.value) return;
-                                          const updated = tempAgentGroups.map(g => g.id === group.id && !g.agents.includes(e.target.value) ? {...g, agents: [...g.agents, e.target.value]} : g);
-                                          setTempAgentGroups(updated);
-                                          e.target.value = '';
-                                      }} className="text-xs bg-slate-100 border-none outline-none rounded px-2 py-1 max-w-[150px] cursor-pointer">
-                                          <option value="">+ Ajouter agent...</option>
-                                          {Array.from(new Set(deliveries.map((d:any) => d.agentName || 'Inconnu'))).map((rawName:any) => (
-                                              <option key={rawName} value={rawName}>{rawName}</option>
-                                          ))}
-                                      </select>
-                                  </div>
-                              </div>
-                          ))}
-                          {tempAgentGroups.length === 0 && <p className="text-xs text-slate-400 italic">Aucun groupe créé.</p>}
-                      </div>
-                  </div>
-              </div>
-
-              {/* Section Visibilité */}
-              <div>
-                  <h4 className="font-bold text-slate-800 mb-3 text-sm flex items-center gap-2"><EyeOff size={18} className="text-orange-500"/> Masquer des Agents / Groupes</h4>
-                  <p className="text-xs text-slate-500 mb-4">Sélectionnez les entités que vous souhaitez exclure des graphiques et des statistiques globales (ex: tests, leads internes).</p>
-                  
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                      {Array.from(new Set([...deliveries.map((d:any) => d.agentName || 'Inconnu'), ...tempAgentGroups.map(g=>g.name)])).map((name: any) => {
-                          const isHidden = tempHiddenAgents.includes(name);
-                          return (
-                              <label key={name} className={`flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer transition-all ${isHidden ? 'bg-orange-50 border-orange-200' : 'bg-slate-50 border-slate-200 hover:border-blue-300'}`}>
-                                  <input 
-                                      type="checkbox" 
-                                      checked={isHidden}
-                                      onChange={e => {
-                                          if (e.target.checked) setTempHiddenAgents([...tempHiddenAgents, name]);
-                                          else setTempHiddenAgents(tempHiddenAgents.filter(n => n !== name));
-                                      }}
-                                      className="w-4 h-4 text-orange-500 rounded cursor-pointer"
-                                  />
-                                  <span className={`text-xs font-bold truncate ${isHidden ? 'text-orange-700' : 'text-slate-700'}`}>{name}</span>
-                              </label>
-                          )
-                      })}
-                  </div>
-              </div>
-          </div>
-          
-          <div className="flex gap-4 pt-6 mt-4 border-t border-slate-100 shrink-0">
-              <button type="button" onClick={() => setShowModal(null)} className={UI_CLASSES.btnSecondary}>Annuler</button>
-              <button onClick={() => {
-                  handleSaveSettingsDirect({ hiddenAgents: tempHiddenAgents, agentGroups: tempAgentGroups });
-                  setShowModal(null);
-              }} className={UI_CLASSES.btnPrimary} style={{ backgroundColor: BRAND_COLOR }}><Save size={18}/> Enregistrer les Filtres</button>
-          </div>
-        </div>
-      </div>
-    )}
-
-    {/* NOUVELLE MODALE: VUE DÉTAILLÉE PAR CLIENT (LIVRAISONS) */}
-    {showModal === 'agent_details' && selectedDetailedAgent && (() => {
-        
-        // Calculs spécifiques à cet agent/groupe
-        const agentGroupDef = (settings.agentGroups || []).find((g:any) => g.name === selectedDetailedAgent);
-        const agentNamesToMatch = agentGroupDef ? agentGroupDef.agents : [selectedDetailedAgent];
-
-        const agentDeliveriesRaw = deliveries.filter((d:any) => agentNamesToMatch.includes(d.agentName || 'Inconnu')).sort((a,b) => new Date(b.date||b.createdAt).getTime() - new Date(a.date||a.createdAt).getTime());
-        
-        // Trouver simulation(s) associée(s)
-        const linkedSims = simulations.filter(s => s.dataSource === 'deliveries' && (agentNamesToMatch.includes(s.deliveryMatchName) || agentNamesToMatch.includes(s.clientName) || s.deliveryMatchName === selectedDetailedAgent));
-        const targetLeads = linkedSims.reduce((sum, sim) => sum + (sim.stats?.volumeTotal || 0), 0);
-        
-        // Projections
-        const totalLeads = agentDeliveriesRaw.length;
-        const firstDelivery = agentDeliveriesRaw[agentDeliveriesRaw.length - 1];
-        let daysActive = 1;
-        if (firstDelivery) {
-             daysActive = Math.max(1, Math.ceil((new Date().getTime() - new Date(firstDelivery.date||firstDelivery.createdAt).getTime()) / (1000 * 60 * 60 * 24)));
-        }
-        const avgPerDay = parseFloat((totalLeads / daysActive).toFixed(1));
-        const projected30 = Math.round(totalLeads + (avgPerDay * 30));
-
-        // Stats 14 derniers jours
-        const last14Days = Array.from({length: 14}, (_, i) => {
-            const d = new Date();
-            d.setDate(d.getDate() - (13 - i));
-            return `${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')}`;
-        });
-        const stats14d: any = {};
-        last14Days.forEach(day => stats14d[day] = 0);
-        
-        agentDeliveriesRaw.forEach(d => {
-            const dateObj = new Date(d.date || d.createdAt);
-            const dayStr = `${dateObj.getDate().toString().padStart(2,'0')}/${(dateObj.getMonth()+1).toString().padStart(2,'0')}`;
-            if (stats14d[dayStr] !== undefined) stats14d[dayStr]++;
-        });
-        const max14d = Math.max(...Object.values(stats14d) as number[], 1);
-
-        return (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-[2000] p-4">
-            <div className="bg-white p-8 rounded-3xl w-full max-w-4xl shadow-2xl border border-slate-100 animate-fade-in max-h-[95vh] flex flex-col">
-              
-              <div className="flex justify-between items-start mb-6 shrink-0 border-b border-slate-100 pb-6">
-                  <div className="flex items-center gap-4">
-                      <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-500 flex items-center justify-center shadow-inner"><Users size={32}/></div>
-                      <div>
-                          <h3 className="text-3xl font-extrabold text-slate-800 font-poppins">{selectedDetailedAgent}</h3>
-                          <p className="text-slate-500 text-sm font-medium mt-1">Analyse détaillée des livraisons et projections</p>
-                      </div>
-                  </div>
-                  <button onClick={() => setShowModal(null)} className="text-slate-400 hover:bg-slate-100 p-2 rounded-xl transition-colors"><X size={24}/></button>
-              </div>
-              
-              <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-6">
-                  
-                  {/* LIGNE KPI & PROJECTION */}
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                      <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 text-center">
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total Livré</p>
-                          <p className="text-3xl font-black text-[#01189B] font-poppins">{totalLeads}</p>
-                      </div>
-                      <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 text-center">
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Moyenne / Jour</p>
-                          <p className="text-3xl font-black text-orange-500 font-poppins">{avgPerDay}</p>
-                      </div>
-                      <div className="md:col-span-2 bg-gradient-to-r from-emerald-50 to-emerald-100/50 p-5 rounded-2xl border border-emerald-200 relative overflow-hidden flex items-center justify-between">
-                          <div className="absolute right-0 top-0 opacity-10"><Target size={120} className="text-emerald-500 -mt-4 -mr-4"/></div>
-                          <div className="relative z-10">
-                              <p className="text-[10px] font-bold text-emerald-700 uppercase tracking-widest mb-1 flex items-center gap-1.5"><TrendingUp size={12}/> Projection à J+30</p>
-                              <p className="text-3xl font-black text-emerald-600 font-poppins">{projected30} leads</p>
-                          </div>
-                          <div className="relative z-10 text-right">
-                              <p className="text-xs text-emerald-800 font-medium">Rythme estimé selon</p>
-                              <p className="text-xs text-emerald-800 font-bold">historique ({daysActive}j actifs)</p>
-                          </div>
-                      </div>
-                  </div>
-
-                  {/* OBJECTIF CAMPAGNE */}
-                  {targetLeads > 0 && (
-                      <div className="bg-white p-6 rounded-2xl border-2 border-indigo-100 shadow-sm">
-                          <div className="flex justify-between items-center mb-3">
-                              <h4 className="font-extrabold text-indigo-900 flex items-center gap-2"><Target size={20} className="text-indigo-500"/> Objectif de Production Média</h4>
-                              <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-3 py-1 rounded-lg">{(totalLeads / targetLeads * 100).toFixed(1)}% Atteint</span>
-                          </div>
-                          <div className="flex justify-between text-sm font-bold text-slate-600 mb-2">
-                              <span>{totalLeads} leads actuels</span>
-                              <span>Cible : {targetLeads} leads</span>
-                          </div>
-                          <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden shadow-inner">
-                              <div className="h-full rounded-full transition-all duration-1000 bg-indigo-500" style={{ width: `${Math.min((totalLeads / targetLeads) * 100, 100)}%` }}></div>
-                          </div>
-                          <p className="text-xs text-slate-500 mt-3 flex items-center gap-1"><Info size={12}/> Connecté à {linkedSims.length} simulation(s) de campagne active(s).</p>
-                      </div>
-                  )}
-
-                  {/* GRAPHIQUE 14 JOURS */}
-                  <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
-                      <h4 className="font-extrabold text-slate-800 mb-6 flex items-center gap-2 text-base"><Activity size={18} className="text-orange-500"/> Activité des 14 derniers jours</h4>
-                      <div className="flex h-40 items-end gap-2 border-b border-slate-100 pb-2">
-                          {last14Days.map((day) => {
-                              const val = stats14d[day];
-                              const percent = (val / max14d) * 100;
-                              return (
-                                  <div key={day} className="flex-1 flex flex-col items-center justify-end h-full relative group">
-                                      <div className="w-full bg-orange-100/70 rounded-t-md relative hover:bg-orange-500 transition-all duration-300 cursor-pointer" style={{ height: `${Math.max(percent, 4)}%`, backgroundColor: val === 0 ? '#f8fafc' : '' }}>
-                                          <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[10px] font-bold py-1 px-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
-                                              {val} leads
-                                          </div>
-                                      </div>
-                                      <span className="text-[8px] font-bold text-slate-400 mt-2 truncate max-w-full">{day}</span>
-                                  </div>
-                              )
-                          })}
-                      </div>
-                  </div>
-
-              </div>
-            </div>
-          </div>
-        );
-    })()}
 
     {/* EMAIL MODAL */}
     {showEmailModal && (
