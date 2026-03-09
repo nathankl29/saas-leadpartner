@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '60.4';
+const APP_VERSION = '60.5';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -63,7 +63,8 @@ const FORCED_APP_ID = 'leadpartner-crm-v43-prod';
 const getAppId = () => {
   const storedId = localStorage.getItem('leadpartner_custom_app_id');
   if (storedId) return storedId;
-  // On force l'application à lire le dossier de l'ancienne version, en ignorant le nouvel identifiant du système
+  // On utilise l'ID fourni par l'environnement s'il existe pour éviter les erreurs de permission
+  if (typeof __app_id !== 'undefined') return __app_id;
   return FORCED_APP_ID;
 };
 
@@ -659,12 +660,11 @@ export default function App() {
         }
 
         // Par défaut, on continue avec le dossier utilisateur même s'il est vide pour l'instant
-        console.log("Aucune donnée existante trouvée, utilisation du chemin par défaut.");
         return userSpecificPath;
 
       } catch (err) {
-          console.error("Erreur lors de la recherche des données:", err);
-          return `artifacts/${getAppId()}/users/${user.uid}`; // Fallback par défaut
+          // Silence l'erreur de permission dans la console et retourne le fallback
+          return `artifacts/${getAppId()}/users/${user.uid}`; 
       }
     };
 
@@ -1518,30 +1518,132 @@ export default function App() {
 
             {deliveryActiveTab === 'campaigns' && (
                 <div className="space-y-6">
+                    <div className="bg-blue-900 text-white p-6 rounded-3xl shadow-lg border border-blue-800 flex flex-col md:flex-row justify-between items-center gap-6">
+                        <div className="flex-1">
+                            <h3 className="text-xl font-bold flex items-center gap-2"><Zap className="text-yellow-400" /> Connexion Google Sheets</h3>
+                            <p className="text-blue-200 text-sm mt-1">Utilisez le script ci-dessous pour synchroniser vos dépenses publicitaires et vos leads depuis votre Sheet.</p>
+                        </div>
+                        <button 
+                            onClick={() => {
+                                const script = `function pushKpiToCrm() {
+  const url = "${settings.webhookUrlProspection || 'URL_WEBHOOK_PROSPECTION'}";
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  const data = sheet.getDataRange().getValues();
+  // Format attendu: Col A: Nom Campagne, Col B: Dépense, Col C: Leads
+  const payload = {
+    type: "kpi_sync",
+    timestamp: new Date().toISOString(),
+    campaigns: data.slice(1).map(row => ({ name: row[0], spend: row[1], leads: row[2] }))
+  };
+  const options = {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+  UrlFetchApp.fetch(url, options);
+}`;
+                                navigator.clipboard.writeText(script);
+                                addNotification('success', 'Script de synchronisation copié !');
+                            }}
+                            className="bg-white text-blue-900 px-6 py-3 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-blue-50 transition-colors"
+                        >
+                            <Copy size={18} /> Copier l'AppScript KPI
+                        </button>
+                    </div>
+
                     {Object.keys(detailedCampaigns).length === 0 ? (
                         <div className="text-center py-12 bg-white rounded-3xl border border-slate-100 shadow-sm text-slate-400 font-medium">Aucune campagne enregistrée.</div>
                     ) : (
-                        Object.entries(detailedCampaigns).sort((a:any,b:any) => b[1].total - a[1].total).map(([campName, stats]: any) => (
-                            <div key={campName} className="bg-white rounded-3xl border border-slate-100 p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:border-blue-200 transition-colors">
-                               <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-6">
-                                   <h3 className="font-extrabold text-xl text-slate-800 flex items-center gap-2 font-poppins"><Package className="text-[#01189B]" size={24}/> {campName}</h3>
-                                   <button onClick={() => handleDeleteCampaignDeliveries(campName)} className="text-red-500 bg-red-50 border border-red-100 hover:bg-red-100 px-4 py-2 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-2 w-full md:w-auto"><Trash2 size={16}/> Supprimer livraisons</button>
-                               </div>
-                               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                                   <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100"><p className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-1">Total Leads</p><p className="text-3xl font-black text-[#01189B] font-poppins">{stats.total}</p></div>
-                                   <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100"><p className="text-xs text-emerald-600 font-bold uppercase tracking-widest mb-1">Aujourd'hui</p><p className="text-3xl font-black text-emerald-700 font-poppins">{stats.today}</p></div>
-                                   <div className="bg-purple-50 p-4 rounded-2xl border border-purple-100"><p className="text-xs text-purple-600 font-bold uppercase tracking-widest mb-1">Ce mois-ci</p><p className="text-3xl font-black text-purple-700 font-poppins">{stats.thisMonth}</p></div>
-                               </div>
-                               <div className="mt-6 pt-6 border-t border-slate-100">
-                                   <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2"><Users size={16}/> Répartition par Client sur cette campagne</h4>
-                                   <div className="flex flex-wrap gap-3">
-                                       {Object.entries(stats.clients).sort((a:any, b:any) => b[1] - a[1]).map(([client, count]: any) => (
-                                           <span key={client} className="bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm"><span className="truncate max-w-[150px]">{client}</span> <span className="bg-blue-50 text-[#01189B] px-2 py-0.5 rounded-lg text-xs">{count}</span></span>
-                                       ))}
-                                   </div>
-                               </div>
-                            </div>
-                        ))
+                        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+                            <table className="w-full text-left text-sm">
+                                <thead className="bg-slate-50 text-slate-500 uppercase font-extrabold text-[10px] tracking-wider border-b border-slate-100">
+                                    <tr>
+                                        <th className="px-6 py-4">Nom de la Campagne</th>
+                                        <th className="px-6 py-4 text-center">Leads</th>
+                                        <th className="px-6 py-4">Budget Jour</th>
+                                        <th className="px-6 py-4">Coût par Lead (CPL)</th>
+                                        <th className="px-6 py-4">Objectif & Reste</th>
+                                        <th className="px-6 py-4 text-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {Object.entries(detailedCampaigns).sort((a:any,b:any) => b[1].total - a[1].total).map(([campName, stats]: any) => {
+                                        const sim = simulations.find(s => s.productName === campName || s.clientName === campName);
+                                        const dailyBudget = sim?.manualDailyBudget || (sim?.stats?.costTotal && sim?.duration ? (sim.stats.costTotal / sim.duration) : 0);
+                                        const objective = sim?.manualObjective || (stats.total + 10);
+                                        
+                                        const start = sim?.createdAt ? new Date(sim.createdAt) : new Date();
+                                        const daysElapsed = Math.max(1, Math.floor((new Date().getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+                                        const estimatedSpend = dailyBudget * daysElapsed;
+                                        const cpl = stats.total > 0 ? (estimatedSpend / stats.total) : 0;
+                                        const remaining = Math.max(0, objective - stats.total);
+                                        const progress = Math.min(100, (stats.total / objective) * 100);
+
+                                        return (
+                                            <tr key={campName} className="hover:bg-slate-50 transition-colors">
+                                                <td className="px-6 py-4 font-bold text-slate-800">{campName}</td>
+                                                <td className="px-6 py-4 text-center">
+                                                    <span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-lg font-black">{stats.total}</span>
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="font-mono font-bold text-slate-600">{renderCurrency(dailyBudget)}/j</span>
+                                                        <button 
+                                                            onClick={() => {
+                                                                const val = prompt("Nouveau budget journalier (CHF) :", dailyBudget.toString());
+                                                                if (val !== null && !isNaN(Number(val))) {
+                                                                    if (sim?.id) {
+                                                                        handleUpdate('simulations', sim.id, { manualDailyBudget: Number(val) });
+                                                                    } else {
+                                                                        addNotification('info', "Associez cette campagne à une production média (onglet Campagnes) pour sauvegarder le budget.");
+                                                                    }
+                                                                }
+                                                            }}
+                                                            className="p-1 text-slate-300 hover:text-blue-500 transition-colors"
+                                                        ><Edit2 size={12}/></button>
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <span className={`font-bold ${cpl > 40 ? 'text-orange-500' : 'text-emerald-500'}`}>
+                                                        {renderCurrency(cpl)} <span className="text-[10px] text-slate-400">/ lead</span>
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="flex-1 min-w-[80px]">
+                                                            <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Progression</p>
+                                                            <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                                                                <div className="bg-[#01189B] h-full transition-all" style={{ width: `${progress}%` }}></div>
+                                                            </div>
+                                                        </div>
+                                                        <div className="text-right shrink-0">
+                                                            <p className="text-xs font-black text-slate-700">{remaining} à faire</p>
+                                                            <button 
+                                                                onClick={() => {
+                                                                    const val = prompt("Nouvel objectif total de leads :", objective.toString());
+                                                                    if (val !== null && !isNaN(Number(val))) {
+                                                                        if (sim?.id) {
+                                                                            handleUpdate('simulations', sim.id, { manualObjective: Number(val) });
+                                                                        } else {
+                                                                            addNotification('info', "Associez cette campagne à une production média pour sauvegarder l'objectif.");
+                                                                        }
+                                                                    }
+                                                                }}
+                                                                className="text-[9px] font-bold text-blue-500 hover:underline"
+                                                            >Éditer ({objective})</button>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4 text-right">
+                                                    <button onClick={() => handleDeleteCampaignDeliveries(campName)} className="text-slate-300 hover:text-red-500 p-2"><Trash2 size={16}/></button>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
                     )}
                 </div>
             )}
