@@ -1,4 +1,3 @@
-/// <reference types="vite/client" />
 import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   LayoutDashboard, Users, Settings, Plus, Search, ChevronLeft,
@@ -32,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '60.4';
+const APP_VERSION = '60.5';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -1709,7 +1708,7 @@ export default function App() {
                                 return totalB - totalA;
                             })
                             .map(([campagne, clients]: any) => {
-                            const totalCampagne = Object.values(clients).reduce((a: any, b: any) => a + b, 0);
+                            const totalCampagne = Number(Object.values(clients).reduce((a: any, b: any) => a + b, 0));
                             return (
                                 <div key={campagne} className="bg-slate-50 rounded-2xl p-5 border border-slate-100">
                                     <div className="flex justify-between items-center mb-4 border-b border-slate-200 pb-3">
