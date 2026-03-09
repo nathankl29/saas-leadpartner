@@ -32,7 +32,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '60.2';
+const APP_VERSION = '60.4';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -542,6 +542,9 @@ export default function App() {
   const [planClientId, setPlanClientId] = useState('');
   const [planDataSource, setPlanDataSource] = useState('deliveries');
 
+  // --- NOUVEAUX ETATS LIVRAISONS ---
+  const [deliveryActiveTab, setDeliveryActiveTab] = useState('global');
+
   // --- NOUVEAU : ETAT LMC ---
   const [lmcGoal, setLmcGoal] = useState<number>(10000);
   const [lmcSimulationsList, setLmcSimulationsList] = useState<any[]>([]);
@@ -1050,6 +1053,29 @@ export default function App() {
       });
   };
 
+  const handleDeleteCampaignDeliveries = async (campaignName: string) => {
+      if (!user || isOfflineMode) return;
+      openConfirm("Supprimer la campagne ?", `Attention : Ceci va supprimer TOUTES les livraisons (${deliveries.filter((d:any) => d.campagne === campaignName).length} leads) associées à la campagne "${campaignName}". Cette action est irréversible.`, async () => {
+          const batch = writeBatch(db);
+          let count = 0;
+          const deliveriesToDelete = deliveries.filter((d:any) => d.campagne === campaignName);
+          
+          deliveriesToDelete.slice(0, 490).forEach((d:any) => {
+              const docRef = doc(db, `artifacts/${getAppId()}/users/${user.uid}/lead_deliveries`, d.id);
+              batch.delete(docRef);
+              count++;
+          });
+          
+          try {
+              await batch.commit();
+              addNotification('success', `${count} livraisons supprimées avec succès.`);
+              if(deliveriesToDelete.length > 490) addNotification('info', "Plus de 490 éléments. Veuillez relancer la suppression pour le reste.");
+          } catch(e) {
+              addNotification('error', 'Erreur lors de la suppression en masse.');
+          }
+      });
+  };
+
   const generateNextInvoiceId = () => {
     if (invoices.length === 0) return 'FAC-0001';
     let max = 0;
@@ -1376,6 +1402,16 @@ export default function App() {
       // NOUVEAU: Groupement par jour de la semaine
       const byDayOfWeek = [0, 0, 0, 0, 0, 0, 0]; // Dim, Lun, Mar, Mer, Jeu, Ven, Sam
 
+      // Groupement par campagne ET client (Détail croisé)
+      const deliveriesByCampaignAndClient = deliveries.reduce((acc: any, d: any) => {
+          const camp = d.campagne || 'Inconnue';
+          const agent = d.agentName || 'Inconnu';
+          if (!acc[camp]) acc[camp] = {};
+          if (!acc[camp][agent]) acc[camp][agent] = 0;
+          acc[camp][agent]++;
+          return acc;
+      }, {});
+
       // Groupement par date pour l'évolution
       const byDate = deliveries.reduce((acc: any, d: any) => {
           const dateStr = d.date || d.createdAt;
@@ -1423,6 +1459,47 @@ export default function App() {
       const daysLabels = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
       const maxDayOfWeek = Math.max(...byDayOfWeek, 1);
 
+      // NOUVEAU: Données détaillées pour les onglets Campagnes et Clients
+      const detailedCampaigns = deliveries.reduce((acc: any, d: any) => {
+          const camp = d.campagne || 'Inconnue';
+          if(!acc[camp]) acc[camp] = { total: 0, today: 0, thisMonth: 0, clients: {} };
+          acc[camp].total++;
+          
+          const dateStr = d.date || d.createdAt;
+          if (dateStr) {
+              const dateObj = new Date(dateStr);
+              if (!isNaN(dateObj.getTime())) {
+                  const isToday = dateObj.toDateString() === new Date().toDateString();
+                  const isThisMonth = dateObj.getMonth() === new Date().getMonth() && dateObj.getFullYear() === new Date().getFullYear();
+                  if (isToday) acc[camp].today++;
+                  if (isThisMonth) acc[camp].thisMonth++;
+              }
+          }
+          const agent = d.agentName || 'Inconnu';
+          acc[camp].clients[agent] = (acc[camp].clients[agent] || 0) + 1;
+          return acc;
+      }, {});
+
+      const detailedClients = deliveries.reduce((acc: any, d: any) => {
+          const agent = d.agentName || 'Inconnu';
+          if(!acc[agent]) acc[agent] = { total: 0, today: 0, thisMonth: 0, campaigns: {} };
+          acc[agent].total++;
+          
+          const dateStr = d.date || d.createdAt;
+          if (dateStr) {
+              const dateObj = new Date(dateStr);
+              if (!isNaN(dateObj.getTime())) {
+                  const isToday = dateObj.toDateString() === new Date().toDateString();
+                  const isThisMonth = dateObj.getMonth() === new Date().getMonth() && dateObj.getFullYear() === new Date().getFullYear();
+                  if (isToday) acc[agent].today++;
+                  if (isThisMonth) acc[agent].thisMonth++;
+              }
+          }
+          const camp = d.campagne || 'Inconnue';
+          acc[agent].campaigns[camp] = (acc[agent].campaigns[camp] || 0) + 1;
+          return acc;
+      }, {});
+
       return (
         <div className="max-w-6xl mx-auto animate-fade-in space-y-8 pb-12">
             <div className="flex items-center justify-between mb-2">
@@ -1434,6 +1511,70 @@ export default function App() {
                 </div>
             </div>
 
+            <div className="flex gap-3 mb-6 border-b border-slate-200 pb-4">
+               <button onClick={() => setDeliveryActiveTab('global')} className={`px-5 py-2.5 text-sm font-bold rounded-xl transition-all ${deliveryActiveTab === 'global' ? 'bg-[#01189B] text-white shadow-md' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>Vue Globale</button>
+               <button onClick={() => setDeliveryActiveTab('campaigns')} className={`px-5 py-2.5 text-sm font-bold rounded-xl transition-all ${deliveryActiveTab === 'campaigns' ? 'bg-[#01189B] text-white shadow-md' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>Vue par Campagne</button>
+               <button onClick={() => setDeliveryActiveTab('clients')} className={`px-5 py-2.5 text-sm font-bold rounded-xl transition-all ${deliveryActiveTab === 'clients' ? 'bg-[#01189B] text-white shadow-md' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>Vue par Client</button>
+            </div>
+
+            {deliveryActiveTab === 'campaigns' && (
+                <div className="space-y-6">
+                    {Object.keys(detailedCampaigns).length === 0 ? (
+                        <div className="text-center py-12 bg-white rounded-3xl border border-slate-100 shadow-sm text-slate-400 font-medium">Aucune campagne enregistrée.</div>
+                    ) : (
+                        Object.entries(detailedCampaigns).sort((a:any,b:any) => b[1].total - a[1].total).map(([campName, stats]: any) => (
+                            <div key={campName} className="bg-white rounded-3xl border border-slate-100 p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:border-blue-200 transition-colors">
+                               <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-6">
+                                   <h3 className="font-extrabold text-xl text-slate-800 flex items-center gap-2 font-poppins"><Package className="text-[#01189B]" size={24}/> {campName}</h3>
+                                   <button onClick={() => handleDeleteCampaignDeliveries(campName)} className="text-red-500 bg-red-50 border border-red-100 hover:bg-red-100 px-4 py-2 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-2 w-full md:w-auto"><Trash2 size={16}/> Supprimer livraisons</button>
+                               </div>
+                               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                                   <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100"><p className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-1">Total Leads</p><p className="text-3xl font-black text-[#01189B] font-poppins">{stats.total}</p></div>
+                                   <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100"><p className="text-xs text-emerald-600 font-bold uppercase tracking-widest mb-1">Aujourd'hui</p><p className="text-3xl font-black text-emerald-700 font-poppins">{stats.today}</p></div>
+                                   <div className="bg-purple-50 p-4 rounded-2xl border border-purple-100"><p className="text-xs text-purple-600 font-bold uppercase tracking-widest mb-1">Ce mois-ci</p><p className="text-3xl font-black text-purple-700 font-poppins">{stats.thisMonth}</p></div>
+                               </div>
+                               <div className="mt-6 pt-6 border-t border-slate-100">
+                                   <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2"><Users size={16}/> Répartition par Client sur cette campagne</h4>
+                                   <div className="flex flex-wrap gap-3">
+                                       {Object.entries(stats.clients).sort((a:any, b:any) => b[1] - a[1]).map(([client, count]: any) => (
+                                           <span key={client} className="bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm"><span className="truncate max-w-[150px]">{client}</span> <span className="bg-blue-50 text-[#01189B] px-2 py-0.5 rounded-lg text-xs">{count}</span></span>
+                                       ))}
+                                   </div>
+                               </div>
+                            </div>
+                        ))
+                    )}
+                </div>
+            )}
+
+            {deliveryActiveTab === 'clients' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {Object.keys(detailedClients).length === 0 ? (
+                        <div className="col-span-full text-center py-12 bg-white rounded-3xl border border-slate-100 shadow-sm text-slate-400 font-medium">Aucun client trouvé dans les livraisons.</div>
+                    ) : (
+                        Object.entries(detailedClients).sort((a:any,b:any) => b[1].total - a[1].total).map(([clientName, stats]: any) => (
+                            <div key={clientName} className="bg-white rounded-3xl border border-slate-100 p-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:border-emerald-200 transition-colors flex flex-col">
+                               <h3 className="font-extrabold text-lg text-slate-800 mb-6 flex items-center gap-2 font-poppins"><Users className="text-emerald-500" size={20}/> <span className="truncate">{clientName}</span></h3>
+                               <div className="grid grid-cols-2 gap-3 mb-6 flex-1">
+                                   <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100"><p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1">Total</p><p className="text-2xl font-black text-[#01189B] font-poppins">{stats.total}</p></div>
+                                   <div className="bg-emerald-50 p-3 rounded-2xl border border-emerald-100"><p className="text-[10px] text-emerald-600 font-bold uppercase tracking-widest mb-1">Mois</p><p className="text-2xl font-black text-emerald-700 font-poppins">{stats.thisMonth}</p></div>
+                               </div>
+                               <div className="mt-auto pt-4 border-t border-slate-100">
+                                   <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-1.5"><Package size={14}/> Sources (Campagnes)</h4>
+                                   <div className="flex flex-wrap gap-2">
+                                       {Object.entries(stats.campaigns).sort((a:any, b:any) => b[1] - a[1]).map(([camp, count]: any) => (
+                                           <span key={camp} className="bg-orange-50 border border-orange-100 text-orange-800 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center justify-between w-full shadow-sm"><span className="truncate pr-2">{camp}</span> <span className="bg-white text-orange-600 px-2 py-0.5 rounded-lg shadow-sm shrink-0">{count}</span></span>
+                                       ))}
+                                   </div>
+                               </div>
+                            </div>
+                        ))
+                    )}
+                </div>
+            )}
+
+            {deliveryActiveTab === 'global' && (
+              <>
             {/* QUICK STATS */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
                 <div className="bg-white px-6 py-5 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
@@ -1554,6 +1695,44 @@ export default function App() {
                 </div>
             </div>
 
+            {/* NOUVEAU BLOC : DÉTAIL PAR CAMPAGNE ET CLIENT */}
+            <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 mt-8">
+                <h3 className="font-extrabold text-slate-800 mb-6 flex items-center gap-2 text-lg"><Package className="text-[#01189B]" size={20}/> Détail des Livraisons : Campagnes ➔ Clients</h3>
+                {Object.keys(deliveriesByCampaignAndClient).length === 0 ? (
+                    <p className="text-slate-400 italic text-sm">Aucune donnée de livraison.</p>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {Object.entries(deliveriesByCampaignAndClient)
+                            .sort((a, b) => {
+                                const totalA = Object.values(a[1] as any).reduce((sum:any, val:any) => sum + val, 0) as number;
+                                const totalB = Object.values(b[1] as any).reduce((sum:any, val:any) => sum + val, 0) as number;
+                                return totalB - totalA;
+                            })
+                            .map(([campagne, clients]: any) => {
+                            const totalCampagne = Object.values(clients).reduce((a: any, b: any) => a + b, 0);
+                            return (
+                                <div key={campagne} className="bg-slate-50 rounded-2xl p-5 border border-slate-100">
+                                    <div className="flex justify-between items-center mb-4 border-b border-slate-200 pb-3">
+                                        <h4 className="font-bold text-slate-800 text-sm truncate pr-2">{campagne}</h4>
+                                        <span className="bg-orange-100 text-orange-700 font-extrabold text-xs px-2 py-1 rounded-lg shrink-0">{totalCampagne} leads</span>
+                                    </div>
+                                    <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar pr-1">
+                                        {Object.entries(clients)
+                                            .sort((a: any, b: any) => b[1] - a[1])
+                                            .map(([client, count]: any) => (
+                                            <div key={client} className="flex justify-between items-center text-sm">
+                                                <span className="text-slate-600 font-medium flex items-center gap-1.5 truncate pr-2"><Users size={12} className="text-slate-400 shrink-0"/> <span className="truncate">{client}</span></span>
+                                                <span className="font-bold text-slate-800 bg-white px-2 py-0.5 rounded border border-slate-100 text-xs shadow-sm">{count}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+
             {/* NOUVEAU BLOC : GESTION DES DONNÉES BRUTES */}
             <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 mt-8">
                 <div className="flex justify-between items-center mb-6">
@@ -1590,7 +1769,8 @@ export default function App() {
                     </table>
                 </div>
             </div>
-
+              </>
+            )}
         </div>
       );
   };
