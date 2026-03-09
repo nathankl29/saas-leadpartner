@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '60.5';
+const APP_VERSION = '60.7';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -477,6 +477,7 @@ export default function App() {
   const [scenarios, setScenarios] = useState<any[]>([]);
   const [deliveries, setDeliveries] = useState<any[]>([]);
   const [companiesData, setCompaniesData] = useState<any[]>([]);
+  const [campaignKpis, setCampaignKpis] = useState<any[]>([]);
 
   const [settings, setSettings] = useState<any>({
     companyName: 'LeadPartner',
@@ -707,6 +708,11 @@ export default function App() {
             onSnapshot(collection(db, `${basePath}/lead_deliveries`), (s) => setDeliveries(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
             onSnapshot(collection(db, `${basePath}/email_logs`), (s) => setEmailHistory(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
             onSnapshot(collection(db, `${basePath}/companies`), (s) => setCompaniesData(s.docs.map((d) => ({ id: d.id, ...d.data() })))),
+            onSnapshot(doc(db, `${basePath}/campaign_kpis`, 'latest'), (s) => {
+                if (s.exists()) {
+                    setCampaignKpis(s.data().campaigns || []);
+                }
+            }),
             onSnapshot(doc(db, `${basePath}/config`, 'general'), (s) => { 
                 if (s.exists()) {
                     const data = s.data();
@@ -1510,11 +1516,112 @@ export default function App() {
                 </div>
             </div>
 
-            <div className="flex gap-3 mb-6 border-b border-slate-200 pb-4">
-               <button onClick={() => setDeliveryActiveTab('global')} className={`px-5 py-2.5 text-sm font-bold rounded-xl transition-all ${deliveryActiveTab === 'global' ? 'bg-[#01189B] text-white shadow-md' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>Vue Globale</button>
-               <button onClick={() => setDeliveryActiveTab('campaigns')} className={`px-5 py-2.5 text-sm font-bold rounded-xl transition-all ${deliveryActiveTab === 'campaigns' ? 'bg-[#01189B] text-white shadow-md' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>Vue par Campagne</button>
-               <button onClick={() => setDeliveryActiveTab('clients')} className={`px-5 py-2.5 text-sm font-bold rounded-xl transition-all ${deliveryActiveTab === 'clients' ? 'bg-[#01189B] text-white shadow-md' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>Vue par Client</button>
+            <div className="flex gap-3 mb-6 border-b border-slate-200 pb-4 overflow-x-auto custom-scrollbar">
+               <button onClick={() => setDeliveryActiveTab('global')} className={`px-5 py-2.5 text-sm font-bold rounded-xl transition-all whitespace-nowrap ${deliveryActiveTab === 'global' ? 'bg-[#01189B] text-white shadow-md' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>Vue Globale</button>
+               <button onClick={() => setDeliveryActiveTab('campaigns')} className={`px-5 py-2.5 text-sm font-bold rounded-xl transition-all whitespace-nowrap ${deliveryActiveTab === 'campaigns' ? 'bg-[#01189B] text-white shadow-md' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>Vue par Campagne</button>
+               <button onClick={() => setDeliveryActiveTab('clients')} className={`px-5 py-2.5 text-sm font-bold rounded-xl transition-all whitespace-nowrap ${deliveryActiveTab === 'clients' ? 'bg-[#01189B] text-white shadow-md' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>Vue par Client</button>
+               <button onClick={() => setDeliveryActiveTab('kpis')} className={`px-5 py-2.5 text-sm font-bold rounded-xl transition-all whitespace-nowrap ${deliveryActiveTab === 'kpis' ? 'bg-[#01189B] text-white shadow-md' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>KPI & Performances</button>
             </div>
+
+            {deliveryActiveTab === 'kpis' && (
+                <div className="space-y-6 animate-fade-in">
+                    {/* Top Level KPIs based on GSheet Data */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        {(() => {
+                            const totalSpend = campaignKpis.reduce((acc, k) => acc + Number(k.spend || 0), 0);
+                            const totalSheetLeads = campaignKpis.reduce((acc, k) => acc + Number(k.leads || 0), 0);
+                            const avgCpl = totalSheetLeads > 0 ? totalSpend / totalSheetLeads : 0;
+                            return (
+                                <>
+                                    <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4">
+                                        <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center text-[#01189B]"><Wallet size={28}/></div>
+                                        <div>
+                                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1">Dépense Globale (Sheet)</p>
+                                            <p className="text-2xl font-black text-slate-800 font-mono">{renderCurrency(totalSpend)}</p>
+                                        </div>
+                                    </div>
+                                    <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4">
+                                        <div className="w-14 h-14 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600"><Users size={28}/></div>
+                                        <div>
+                                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1">Leads (Sheet)</p>
+                                            <p className="text-2xl font-black text-indigo-700 font-poppins">{renderNumber(totalSheetLeads)}</p>
+                                        </div>
+                                    </div>
+                                    <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4">
+                                        <div className="w-14 h-14 rounded-2xl bg-emerald-50 flex items-center justify-center text-emerald-600"><TrendingUp size={28}/></div>
+                                        <div>
+                                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1">CPL Moyen Global</p>
+                                            <p className="text-2xl font-black text-emerald-600 font-mono">{renderCurrency(avgCpl)}</p>
+                                        </div>
+                                    </div>
+                                </>
+                            )
+                        })()}
+                    </div>
+
+                    <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden mt-8">
+                        <div className="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                            <h3 className="font-bold text-slate-800 flex items-center gap-2 text-lg"><Users size={20} className="text-[#01189B]"/> Performances par Agent / Client (Calculées)</h3>
+                        </div>
+                        <div className="overflow-x-auto custom-scrollbar">
+                            <table className="w-full text-left text-sm">
+                                <thead className="bg-white text-slate-500 uppercase font-extrabold text-[10px] tracking-wider border-b border-slate-100">
+                                    <tr>
+                                        <th className="px-6 py-4">Agent / Client Ciblé</th>
+                                        <th className="px-6 py-4 text-center">Leads Reçus (CRM)</th>
+                                        <th className="px-6 py-4">Budget Consommé (Estim.)</th>
+                                        <th className="px-6 py-4">CPL Moyen d'Acquisition</th>
+                                        <th className="px-6 py-4">Sources d'Acquisition</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-50">
+                                    {Object.entries(detailedClients).sort((a:any, b:any) => b[1].total - a[1].total).map(([agent, stats]: any) => {
+                                        let consumedBudget = 0;
+                                        Object.entries(stats.campaigns).forEach(([campName, count]: any) => {
+                                            const sheetKpi = campaignKpis.find((k:any) => k.name === campName);
+                                            const exactSpend = sheetKpi ? Number(sheetKpi.spend) : null;
+                                            
+                                            const sim = simulations.find(s => s.productName === campName || s.clientName === campName);
+                                            const dailyBudget = sim?.manualDailyBudget || (sim?.stats?.costTotal && sim?.duration ? (sim.stats.costTotal / sim.duration) : 0);
+                                            
+                                            const start = sim?.createdAt ? new Date(sim.createdAt) : new Date();
+                                            const daysElapsed = Math.max(1, Math.floor((new Date().getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+                                            const estimatedSpend = dailyBudget * daysElapsed;
+                                            
+                                            const displaySpend = exactSpend !== null ? exactSpend : estimatedSpend;
+                                            const campTotalLeads = detailedCampaigns[campName]?.total || 1; 
+                                            const cpl = displaySpend / campTotalLeads;
+                                            
+                                            consumedBudget += (cpl * count);
+                                        });
+
+                                        const avgAgentCpl = stats.total > 0 ? (consumedBudget / stats.total) : 0;
+
+                                        return (
+                                            <tr key={agent} className="hover:bg-slate-50/50 transition-colors">
+                                                <td className="px-6 py-4 font-bold text-slate-800 flex items-center gap-3">
+                                                    <div className="w-8 h-8 rounded-full bg-blue-100 text-[#01189B] flex items-center justify-center text-xs shrink-0">{agent.substring(0,2).toUpperCase()}</div> 
+                                                    <span className="truncate max-w-[150px]" title={agent}>{agent}</span>
+                                                </td>
+                                                <td className="px-6 py-4 text-center"><span className="bg-blue-50 text-[#01189B] px-3 py-1 rounded-lg font-black">{stats.total}</span></td>
+                                                <td className="px-6 py-4 font-mono font-bold text-orange-600">{renderCurrency(consumedBudget)}</td>
+                                                <td className="px-6 py-4 font-mono font-bold text-emerald-600">{renderCurrency(avgAgentCpl)}</td>
+                                                <td className="px-6 py-4">
+                                                    <div className="flex flex-wrap gap-1.5">
+                                                        {Object.entries(stats.campaigns).map(([c, cnt]: any) => (
+                                                            <span key={c} className="text-[9px] font-bold bg-slate-100 text-slate-600 px-2 py-1 rounded-md border border-slate-200 uppercase tracking-wide truncate max-w-[120px]" title={c}>{c} <span className="text-blue-500">({cnt})</span></span>
+                                                        ))}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        )
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {deliveryActiveTab === 'campaigns' && (
                 <div className="space-y-6">
@@ -1525,26 +1632,93 @@ export default function App() {
                         </div>
                         <button 
                             onClick={() => {
-                                const script = `function pushKpiToCrm() {
-  const url = "${settings.webhookUrlProspection || 'URL_WEBHOOK_PROSPECTION'}";
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  const data = sheet.getDataRange().getValues();
-  // Format attendu: Col A: Nom Campagne, Col B: Dépense, Col C: Leads
-  const payload = {
-    type: "kpi_sync",
-    timestamp: new Date().toISOString(),
-    campaigns: data.slice(1).map(row => ({ name: row[0], spend: row[1], leads: row[2] }))
-  };
-  const options = {
-    method: "post",
-    contentType: "application/json",
-    payload: JSON.stringify(payload),
-    muteHttpExceptions: true
-  };
-  UrlFetchApp.fetch(url, options);
+                                const script = `/**
+ * SCRIPT DIRECT : SHEET KPIs -> FIREBASE CRM LEADPARTNER
+ * Utilise vos propres identifiants de connexion CRM.
+ */
+function pushKpiToCrmDaily() {
+  const lock = LockService.getDocumentLock();
+  if (!lock.tryLock(30000)) {
+    Logger.log("Synchronisation déjà en cours.");
+    return;
+  }
+
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    const data = sheet.getDataRange().getValues();
+
+    // -- VOS IDENTIFIANTS DE CONNEXION CRM --
+    const USER_EMAIL = "contact@leadpartner.ch"; 
+    const USER_PASSWORD = "3Wadewade3*";
+
+    // -- CONFIGURATION TECHNIQUE --
+    const apiKey = "${fallbackFirebaseConfig.apiKey || 'AIzaSyDY6zXLeebKhMxL_2_mfQOYV44JuoCArK0'}";
+    const projectId = "${fallbackFirebaseConfig.projectId || 'crm-leadpartner'}";
+    const appId = "${getAppId()}";
+    const uid = "${user?.uid || 'Jun1vEWPSgXnWldncg4M8QTVL0r1'}";
+
+    let idToken = null;
+
+    // 1. Authentification Firebase
+    const authUrl = "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=" + apiKey;
+    const authRes = UrlFetchApp.fetch(authUrl, {
+      method: "post",
+      payload: JSON.stringify({ email: USER_EMAIL, password: USER_PASSWORD, returnSecureToken: true }),
+      contentType: "application/json",
+      muteHttpExceptions: true
+    });
+    const authJson = JSON.parse(authRes.getContentText());
+    if (authJson.error) return Logger.log("Erreur Auth : " + authJson.error.message);
+    idToken = authJson.idToken;
+
+    // 2. Préparation des données
+    const campaigns = [];
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      if (row[0] && String(row[0]).trim() !== "") {
+        campaigns.push({
+          mapValue: {
+            fields: {
+              name: { stringValue: String(row[0]) },
+              spend: { doubleValue: Number(row[1]) || 0 },
+              leads: { integerValue: String(parseInt(row[2], 10) || 0) }
+            }
+          }
+        });
+      }
+    }
+
+    if (campaigns.length === 0) return Logger.log("Aucune donnée à synchroniser.");
+
+    // Enregistrement sur le document 'latest'
+    const firebaseUrl = "https://firestore.googleapis.com/v1/projects/" + projectId + "/databases/(default)/documents/artifacts/" + appId + "/users/" + uid + "/campaign_kpis/latest";
+
+    const payload = {
+      fields: {
+        date: { stringValue: new Date().toISOString() },
+        campaigns: { arrayValue: { values: campaigns } }
+      }
+    };
+
+    const options = {
+      method: "patch", 
+      contentType: "application/json",
+      headers: { "Authorization": "Bearer " + idToken },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    };
+
+    const response = UrlFetchApp.fetch(firebaseUrl, options);
+    Logger.log("Synchro terminée. Statut HTTP : " + response.getResponseCode());
+    
+  } catch (e) {
+    Logger.log("Erreur réseau/technique : " + e.toString());
+  } finally {
+    lock.releaseLock();
+  }
 }`;
                                 navigator.clipboard.writeText(script);
-                                addNotification('success', 'Script de synchronisation copié !');
+                                addNotification('success', 'Script de synchronisation direct Firebase copié !');
                             }}
                             className="bg-white text-blue-900 px-6 py-3 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-blue-50 transition-colors"
                         >
@@ -1569,6 +1743,9 @@ export default function App() {
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
                                     {Object.entries(detailedCampaigns).sort((a:any,b:any) => b[1].total - a[1].total).map(([campName, stats]: any) => {
+                                        const sheetKpi = campaignKpis.find((k:any) => k.name === campName);
+                                        const exactSpend = sheetKpi ? Number(sheetKpi.spend) : null;
+
                                         const sim = simulations.find(s => s.productName === campName || s.clientName === campName);
                                         const dailyBudget = sim?.manualDailyBudget || (sim?.stats?.costTotal && sim?.duration ? (sim.stats.costTotal / sim.duration) : 0);
                                         const objective = sim?.manualObjective || (stats.total + 10);
@@ -1576,7 +1753,10 @@ export default function App() {
                                         const start = sim?.createdAt ? new Date(sim.createdAt) : new Date();
                                         const daysElapsed = Math.max(1, Math.floor((new Date().getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
                                         const estimatedSpend = dailyBudget * daysElapsed;
-                                        const cpl = stats.total > 0 ? (estimatedSpend / stats.total) : 0;
+                                        
+                                        const displaySpend = exactSpend !== null ? exactSpend : estimatedSpend;
+                                        const cpl = stats.total > 0 ? (displaySpend / stats.total) : 0;
+                                        
                                         const remaining = Math.max(0, objective - stats.total);
                                         const progress = Math.min(100, (stats.total / objective) * 100);
 
@@ -1588,7 +1768,13 @@ export default function App() {
                                                 </td>
                                                 <td className="px-6 py-4">
                                                     <div className="flex items-center gap-2">
-                                                        <span className="font-mono font-bold text-slate-600">{renderCurrency(dailyBudget)}/j</span>
+                                                        <span className="font-mono font-bold text-slate-600">
+                                                            {exactSpend !== null ? (
+                                                                <span className="text-purple-600 bg-purple-50 px-2 py-0.5 rounded text-[10px] uppercase tracking-widest">{renderCurrency(exactSpend)} (Sheet)</span>
+                                                            ) : (
+                                                                `${renderCurrency(dailyBudget)}/j`
+                                                            )}
+                                                        </span>
                                                         <button 
                                                             onClick={() => {
                                                                 const val = prompt("Nouveau budget journalier (CHF) :", dailyBudget.toString());
@@ -1653,23 +1839,47 @@ export default function App() {
                     {Object.keys(detailedClients).length === 0 ? (
                         <div className="col-span-full text-center py-12 bg-white rounded-3xl border border-slate-100 shadow-sm text-slate-400 font-medium">Aucun client trouvé dans les livraisons.</div>
                     ) : (
-                        Object.entries(detailedClients).sort((a:any,b:any) => b[1].total - a[1].total).map(([clientName, stats]: any) => (
+                        Object.entries(detailedClients).sort((a:any,b:any) => b[1].total - a[1].total).map(([clientName, stats]: any) => {
+                            let consumedBudget = 0;
+                            Object.entries(stats.campaigns).forEach(([campName, count]: any) => {
+                                const sheetKpi = campaignKpis.find((k:any) => k.name === campName);
+                                const exactSpend = sheetKpi ? Number(sheetKpi.spend) : null;
+                                
+                                const sim = simulations.find(s => s.productName === campName || s.clientName === campName);
+                                const dailyBudget = sim?.manualDailyBudget || (sim?.stats?.costTotal && sim?.duration ? (sim.stats.costTotal / sim.duration) : 0);
+                                
+                                const start = sim?.createdAt ? new Date(sim.createdAt) : new Date();
+                                const daysElapsed = Math.max(1, Math.floor((new Date().getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+                                const estimatedSpend = dailyBudget * daysElapsed;
+                                
+                                const displaySpend = exactSpend !== null ? exactSpend : estimatedSpend;
+                                const campTotalLeads = detailedCampaigns[campName]?.total || 1; 
+                                const cpl = displaySpend / campTotalLeads;
+                                
+                                consumedBudget += (cpl * count);
+                            });
+
+                            return (
                             <div key={clientName} className="bg-white rounded-3xl border border-slate-100 p-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:border-emerald-200 transition-colors flex flex-col">
                                <h3 className="font-extrabold text-lg text-slate-800 mb-6 flex items-center gap-2 font-poppins"><Users className="text-emerald-500" size={20}/> <span className="truncate">{clientName}</span></h3>
-                               <div className="grid grid-cols-2 gap-3 mb-6 flex-1">
+                               <div className="grid grid-cols-2 gap-3 mb-4 flex-1">
                                    <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100"><p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1">Total</p><p className="text-2xl font-black text-[#01189B] font-poppins">{stats.total}</p></div>
                                    <div className="bg-emerald-50 p-3 rounded-2xl border border-emerald-100"><p className="text-[10px] text-emerald-600 font-bold uppercase tracking-widest mb-1">Mois</p><p className="text-2xl font-black text-emerald-700 font-poppins">{stats.thisMonth}</p></div>
+                               </div>
+                               <div className="bg-orange-50 p-3 rounded-2xl border border-orange-100 mb-6">
+                                   <p className="text-[10px] text-orange-600 font-bold uppercase tracking-widest mb-1 flex items-center gap-1"><PieChart size={12}/> Budget Consommé (Estim.)</p>
+                                   <p className="text-xl font-black text-orange-700 font-mono">{renderCurrency(consumedBudget)}</p>
                                </div>
                                <div className="mt-auto pt-4 border-t border-slate-100">
                                    <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-1.5"><Package size={14}/> Sources (Campagnes)</h4>
                                    <div className="flex flex-wrap gap-2">
                                        {Object.entries(stats.campaigns).sort((a:any, b:any) => b[1] - a[1]).map(([camp, count]: any) => (
-                                           <span key={camp} className="bg-orange-50 border border-orange-100 text-orange-800 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center justify-between w-full shadow-sm"><span className="truncate pr-2">{camp}</span> <span className="bg-white text-orange-600 px-2 py-0.5 rounded-lg shadow-sm shrink-0">{count}</span></span>
+                                           <span key={camp} className="bg-slate-50 border border-slate-200 text-slate-700 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center justify-between w-full shadow-sm"><span className="truncate pr-2">{camp}</span> <span className="bg-white text-[#01189B] px-2 py-0.5 rounded-lg shadow-sm shrink-0">{count}</span></span>
                                        ))}
                                    </div>
                                </div>
                             </div>
-                        ))
+                        )})
                     )}
                 </div>
             )}
