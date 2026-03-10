@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '60.8';
+const APP_VERSION = '60.9';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -1892,7 +1892,7 @@ function pushKpiToCrmDaily() {
             )}
 
             {deliveryActiveTab === 'clients' && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {Object.keys(detailedClients).length === 0 ? (
                         <div className="col-span-full text-center py-12 bg-white rounded-3xl border border-slate-100 shadow-sm text-slate-400 font-medium">Aucun client trouvé dans les livraisons.</div>
                     ) : (
@@ -1916,17 +1916,92 @@ function pushKpiToCrmDaily() {
                                 consumedBudget += (cpl * count);
                             });
 
+                            const contactMatch = contacts.find(c => c.company === clientName || c.name === clientName);
+                            const tBudget = contactMatch?.deliveryTargetBudget || 0;
+                            const tCPL = contactMatch?.deliveryTargetCPL || 40;
+                            const tDuration = contactMatch?.deliveryTargetDuration || 30;
+
+                            const tLeads = tCPL > 0 ? Math.floor(tBudget / tCPL) : 0;
+                            const dailyBudgetTarget = tDuration > 0 ? (tBudget / tDuration) : 0;
+                            const dailyLeadsTarget = tDuration > 0 ? (tLeads / tDuration) : 0;
+                            const remainingLeads = Math.max(0, tLeads - stats.total);
+                            const remainingBudget = Math.max(0, tBudget - consumedBudget);
+
                             return (
-                            <div key={clientName} className="bg-white rounded-3xl border border-slate-100 p-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:border-emerald-200 transition-colors flex flex-col">
-                               <h3 className="font-extrabold text-lg text-slate-800 mb-6 flex items-center gap-2 font-poppins"><Users className="text-emerald-500" size={20}/> <span className="truncate">{clientName}</span></h3>
-                               <div className="grid grid-cols-2 gap-3 mb-4 flex-1">
-                                   <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100"><p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1">Total</p><p className="text-2xl font-black text-[#01189B] font-poppins">{stats.total}</p></div>
-                                   <div className="bg-emerald-50 p-3 rounded-2xl border border-emerald-100"><p className="text-[10px] text-emerald-600 font-bold uppercase tracking-widest mb-1">Mois</p><p className="text-2xl font-black text-emerald-700 font-poppins">{stats.thisMonth}</p></div>
+                            <div key={clientName} className="bg-white rounded-3xl border border-slate-100 p-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:border-[#01189B] transition-colors flex flex-col">
+                               <div className="flex justify-between items-start mb-6">
+                                   <h3 className="font-extrabold text-lg text-slate-800 flex items-center gap-2 font-poppins"><Users className="text-[#01189B]" size={20}/> <span className="truncate">{clientName}</span></h3>
+                                   {!contactMatch && <span className="bg-red-50 text-red-500 text-[9px] px-2 py-1 rounded-md font-bold uppercase" title="Créez une fiche CRM au même nom pour débloquer les objectifs">Non lié au CRM</span>}
                                </div>
-                               <div className="bg-orange-50 p-3 rounded-2xl border border-orange-100 mb-6">
-                                   <p className="text-[10px] text-orange-600 font-bold uppercase tracking-widest mb-1 flex items-center gap-1"><PieChart size={12}/> Budget Consommé (Estim.)</p>
-                                   <p className="text-xl font-black text-orange-700 font-mono">{renderCurrency(consumedBudget)}</p>
+                               
+                               <div className="grid grid-cols-2 gap-3 mb-6">
+                                   <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100"><p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1">Leads Livrés</p><p className="text-2xl font-black text-[#01189B] font-poppins">{stats.total}</p></div>
+                                   <div className="bg-orange-50 p-3 rounded-2xl border border-orange-100"><p className="text-[10px] text-orange-600 font-bold uppercase tracking-widest mb-1">Budget Consommé</p><p className="text-xl font-black text-orange-700 font-mono mt-1">{renderCurrency(consumedBudget)}</p></div>
                                </div>
+
+                               {/* WIDGET PILOTAGE & OBJECTIFS */}
+                               <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 mb-6">
+                                   <div className="flex justify-between items-center mb-3">
+                                       <h4 className="text-[10px] font-bold text-slate-700 uppercase tracking-widest flex items-center gap-1.5"><Target size={14} className="text-[#01189B]"/> Pilotage & Objectifs Cibles</h4>
+                                   </div>
+                                   
+                                   <div className="grid grid-cols-2 gap-2 mb-3">
+                                       <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm relative group">
+                                           <p className="text-[9px] text-slate-400 font-bold uppercase">Budget Alloué</p>
+                                           <p className="font-mono font-bold text-[#01189B] text-sm mt-0.5">{renderCurrency(tBudget)}</p>
+                                           <button onClick={() => {
+                                               if (!contactMatch) return addNotification('error', "Fiche CRM introuvable. Créez un contact avec ce nom exact.");
+                                               const val = prompt("Budget global alloué (CHF) :", tBudget.toString());
+                                               if (val !== null && !isNaN(Number(val))) handleUpdate('contacts', contactMatch.id, { deliveryTargetBudget: Number(val) });
+                                           }} className="absolute top-2.5 right-2.5 text-slate-300 hover:text-[#01189B] opacity-0 group-hover:opacity-100 transition-opacity"><Edit2 size={12}/></button>
+                                       </div>
+                                       <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm relative group">
+                                           <p className="text-[9px] text-slate-400 font-bold uppercase">CPL Cible</p>
+                                           <p className="font-mono font-bold text-emerald-600 text-sm mt-0.5">{renderCurrency(tCPL)}</p>
+                                           <button onClick={() => {
+                                               if (!contactMatch) return addNotification('error', "Fiche CRM introuvable.");
+                                               const val = prompt("CPL Cible (CHF) :", tCPL.toString());
+                                               if (val !== null && !isNaN(Number(val))) handleUpdate('contacts', contactMatch.id, { deliveryTargetCPL: Number(val) });
+                                           }} className="absolute top-2.5 right-2.5 text-slate-300 hover:text-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity"><Edit2 size={12}/></button>
+                                       </div>
+                                       <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm relative group">
+                                           <p className="text-[9px] text-slate-400 font-bold uppercase">Durée de diffusion</p>
+                                           <p className="font-mono font-bold text-slate-700 text-sm mt-0.5">{tDuration} jours</p>
+                                           <button onClick={() => {
+                                               if (!contactMatch) return addNotification('error', "Fiche CRM introuvable.");
+                                               const val = prompt("Durée prévue (Jours) :", tDuration.toString());
+                                               if (val !== null && !isNaN(Number(val))) handleUpdate('contacts', contactMatch.id, { deliveryTargetDuration: Number(val) });
+                                           }} className="absolute top-2.5 right-2.5 text-slate-300 hover:text-[#01189B] opacity-0 group-hover:opacity-100 transition-opacity"><Edit2 size={12}/></button>
+                                       </div>
+                                       <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm">
+                                           <p className="text-[9px] text-slate-400 font-bold uppercase">Objectif Total Leads</p>
+                                           <p className="font-mono font-bold text-orange-600 text-sm mt-0.5">{tLeads} <span className="text-[9px] font-sans font-medium text-slate-400">leads</span></p>
+                                       </div>
+                                   </div>
+
+                                   <div className="bg-blue-50/50 p-3 rounded-xl border border-blue-100/50">
+                                       <p className="text-[9px] font-bold text-[#01189B] uppercase tracking-widest mb-2 border-b border-blue-100 pb-1">Rythme à tenir (Pacing)</p>
+                                       <div className="grid grid-cols-2 gap-2">
+                                           <div>
+                                               <p className="text-[9px] text-slate-500">Dépense Quotidienne</p>
+                                               <p className="font-mono font-bold text-slate-800 text-xs">{renderCurrency(dailyBudgetTarget)}/j</p>
+                                           </div>
+                                           <div>
+                                               <p className="text-[9px] text-slate-500">Leads Quotidiens</p>
+                                               <p className="font-mono font-bold text-slate-800 text-xs">{dailyLeadsTarget.toFixed(1)}/j</p>
+                                           </div>
+                                           <div className="mt-2">
+                                               <p className="text-[9px] text-slate-500">Budget Restant</p>
+                                               <p className="font-mono font-bold text-orange-600 text-xs">{renderCurrency(remainingBudget)}</p>
+                                           </div>
+                                           <div className="mt-2">
+                                               <p className="text-[9px] text-slate-500">Leads Restants</p>
+                                               <p className="font-mono font-bold text-emerald-600 text-xs">{remainingLeads}</p>
+                                           </div>
+                                       </div>
+                                   </div>
+                               </div>
+
                                <div className="mt-auto pt-4 border-t border-slate-100">
                                    <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-1.5"><Package size={14}/> Sources (Campagnes)</h4>
                                    <div className="flex flex-wrap gap-2">
