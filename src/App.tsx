@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '60.9';
+const APP_VERSION = '60.11';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -1525,7 +1525,6 @@ export default function App() {
 
             {deliveryActiveTab === 'kpis' && (
                 <div className="space-y-6 animate-fade-in">
-                    {/* Top Level KPIs based on GSheet Data */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                         {(() => {
                             const totalSpend = campaignKpis.reduce((acc, k) => acc + Number(k.spend || 0), 0);
@@ -1614,7 +1613,7 @@ export default function App() {
                                                     </div>
                                                 </td>
                                             </tr>
-                                        )
+                                        );
                                     })}
                                 </tbody>
                             </table>
@@ -1671,7 +1670,7 @@ export default function App() {
                                                     <span className={`font-mono font-bold ${cpl > 40 ? 'text-red-500' : 'text-emerald-600'}`}>{renderCurrency(cpl)}</span>
                                                 </td>
                                             </tr>
-                                        )
+                                        );
                                     })}
                                 </tbody>
                             </table>
@@ -1681,7 +1680,7 @@ export default function App() {
             )}
 
             {deliveryActiveTab === 'campaigns' && (
-                <div className="space-y-6">
+                <div className="space-y-6 animate-fade-in">
                     <div className="bg-blue-900 text-white p-6 rounded-3xl shadow-lg border border-blue-800 flex flex-col md:flex-row justify-between items-center gap-6">
                         <div className="flex-1">
                             <h3 className="text-xl font-bold flex items-center gap-2"><Zap className="text-yellow-400" /> Connexion Google Sheets</h3>
@@ -1824,27 +1823,28 @@ function pushKpiToCrmDaily() {
                                                     <span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-lg font-black">{stats.total}</span>
                                                 </td>
                                                 <td className="px-6 py-4">
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="font-mono font-bold text-slate-600">
-                                                            {exactSpend !== null ? (
-                                                                <span className="text-purple-600 bg-purple-50 px-2 py-0.5 rounded text-[10px] uppercase tracking-widest">{renderCurrency(exactSpend)} (Sheet)</span>
-                                                            ) : (
-                                                                `${renderCurrency(dailyBudget)}/j`
-                                                            )}
-                                                        </span>
-                                                        <button 
-                                                            onClick={() => {
-                                                                const val = prompt("Nouveau budget journalier (CHF) :", dailyBudget.toString());
-                                                                if (val !== null && !isNaN(Number(val))) {
-                                                                    if (sim?.id) {
-                                                                        handleUpdate('simulations', sim.id, { manualDailyBudget: Number(val) });
-                                                                    } else {
-                                                                        addNotification('info', "Associez cette campagne à une production média (onglet Campagnes) pour sauvegarder le budget.");
-                                                                    }
-                                                                }
-                                                            }}
-                                                            className="p-1 text-slate-300 hover:text-blue-500 transition-colors"
-                                                        ><Edit2 size={12}/></button>
+                                                    <div className="flex items-center gap-2 group relative w-24">
+                                                        {exactSpend !== null ? (
+                                                            <span className="text-purple-600 bg-purple-50 px-2 py-0.5 rounded text-[10px] uppercase tracking-widest">{renderCurrency(exactSpend)} (Sheet)</span>
+                                                        ) : (
+                                                            <div className="flex items-center border-b border-transparent hover:border-slate-300 focus-within:border-[#01189B] transition-colors pb-0.5">
+                                                                <span className="text-slate-600 font-mono font-bold text-sm mr-1">CHF</span>
+                                                                <input 
+                                                                    type="number" 
+                                                                    defaultValue={dailyBudget} 
+                                                                    onBlur={e => {
+                                                                        const val = Number(e.target.value);
+                                                                        if (val !== dailyBudget && !isNaN(val)) {
+                                                                            if (sim?.id) handleUpdate('simulations', sim.id, { manualDailyBudget: val });
+                                                                            else addNotification('info', "Associez cette campagne à une production média pour sauvegarder.");
+                                                                        }
+                                                                    }}
+                                                                    className="w-12 bg-transparent font-mono font-bold text-slate-600 outline-none text-sm p-0 m-0" 
+                                                                />
+                                                                <span className="text-slate-500 font-mono font-bold text-sm">/j</span>
+                                                                <Edit2 size={10} className="absolute -right-3 top-1 text-slate-300 opacity-0 group-hover:opacity-100 pointer-events-none"/>
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 </td>
                                                 <td className="px-6 py-4">
@@ -1860,21 +1860,24 @@ function pushKpiToCrmDaily() {
                                                                 <div className="bg-[#01189B] h-full transition-all" style={{ width: `${progress}%` }}></div>
                                                             </div>
                                                         </div>
-                                                        <div className="text-right shrink-0">
-                                                            <p className="text-xs font-black text-slate-700">{remaining} à faire</p>
-                                                            <button 
-                                                                onClick={() => {
-                                                                    const val = prompt("Nouvel objectif total de leads :", objective.toString());
-                                                                    if (val !== null && !isNaN(Number(val))) {
-                                                                        if (sim?.id) {
-                                                                            handleUpdate('simulations', sim.id, { manualObjective: Number(val) });
-                                                                        } else {
-                                                                            addNotification('info', "Associez cette campagne à une production média pour sauvegarder l'objectif.");
+                                                        <div className="text-right shrink-0 group relative">
+                                                            <p className="text-xs font-black text-slate-700 mb-0.5">{remaining} à faire</p>
+                                                            <div className="flex items-center justify-end gap-1 text-[9px] font-bold text-blue-500 border-b border-transparent hover:border-blue-200 focus-within:border-blue-500 transition-colors pb-0.5">
+                                                                <span>Cible:</span>
+                                                                <input 
+                                                                    type="number" 
+                                                                    defaultValue={objective} 
+                                                                    onBlur={e => {
+                                                                        const val = Number(e.target.value);
+                                                                        if (val !== objective && !isNaN(val)) {
+                                                                            if (sim?.id) handleUpdate('simulations', sim.id, { manualObjective: val });
+                                                                            else addNotification('info', "Associez cette campagne à une production média.");
                                                                         }
-                                                                    }
-                                                                }}
-                                                                className="text-[9px] font-bold text-blue-500 hover:underline"
-                                                            >Éditer ({objective})</button>
+                                                                    }}
+                                                                    className="w-8 bg-transparent text-right outline-none p-0 m-0" 
+                                                                />
+                                                                <Edit2 size={8} className="absolute -right-3 top-4 text-blue-300 opacity-0 group-hover:opacity-100 pointer-events-none"/>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </td>
@@ -1892,7 +1895,7 @@ function pushKpiToCrmDaily() {
             )}
 
             {deliveryActiveTab === 'clients' && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fade-in">
                     {Object.keys(detailedClients).length === 0 ? (
                         <div className="col-span-full text-center py-12 bg-white rounded-3xl border border-slate-100 shadow-sm text-slate-400 font-medium">Aucun client trouvé dans les livraisons.</div>
                     ) : (
@@ -1916,7 +1919,7 @@ function pushKpiToCrmDaily() {
                                 consumedBudget += (cpl * count);
                             });
 
-                            const contactMatch = contacts.find(c => c.company === clientName || c.name === clientName);
+                            const contactMatch = contacts.find(c => c.company === clientName || c.name === clientName || (c.deliveryAliases && c.deliveryAliases.includes(clientName)));
                             const tBudget = contactMatch?.deliveryTargetBudget || 0;
                             const tCPL = contactMatch?.deliveryTargetCPL || 40;
                             const tDuration = contactMatch?.deliveryTargetDuration || 30;
@@ -1931,7 +1934,41 @@ function pushKpiToCrmDaily() {
                             <div key={clientName} className="bg-white rounded-3xl border border-slate-100 p-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:border-[#01189B] transition-colors flex flex-col">
                                <div className="flex justify-between items-start mb-6">
                                    <h3 className="font-extrabold text-lg text-slate-800 flex items-center gap-2 font-poppins"><Users className="text-[#01189B]" size={20}/> <span className="truncate">{clientName}</span></h3>
-                                   {!contactMatch && <span className="bg-red-50 text-red-500 text-[9px] px-2 py-1 rounded-md font-bold uppercase" title="Créez une fiche CRM au même nom pour débloquer les objectifs">Non lié au CRM</span>}
+                                   {!contactMatch ? (
+                                       <div className="flex flex-col items-end gap-2 shrink-0">
+                                           <span className="bg-red-50 text-red-500 text-[9px] px-2 py-1 rounded-md font-bold uppercase border border-red-100" title="Ce nom de livraison ne correspond à aucun client CRM">Non lié au CRM</span>
+                                           <div className="flex items-center gap-2">
+                                               <select 
+                                                   className="bg-white border border-slate-200 text-slate-600 text-[9px] px-2 py-1.5 rounded-md shadow-sm font-bold outline-none max-w-[120px] truncate cursor-pointer hover:bg-slate-50 transition-colors"
+                                                   onChange={(e) => {
+                                                       if (e.target.value) {
+                                                           const cToLink = contacts.find((c:any) => c.id === e.target.value);
+                                                           if (cToLink) {
+                                                               handleUpdate('contacts', cToLink.id, { deliveryAliases: [...(cToLink.deliveryAliases || []), clientName] });
+                                                               addNotification('success', 'Client lié avec succès !');
+                                                           }
+                                                       }
+                                                   }}
+                                                   defaultValue=""
+                                               >
+                                                   <option value="" disabled>Lier à un client...</option>
+                                                   {contacts.filter((c:any) => c.company || c.name).sort((a:any, b:any) => (a.company || a.name).localeCompare(b.company || b.name)).map((c:any) => <option key={c.id} value={c.id}>{c.company || c.name}</option>)}
+                                               </select>
+                                               <button onClick={() => handleCreate('contacts', { company: clientName, type: 'client', status: 'gagne', source: 'Livraisons' })} className="bg-white border border-[#01189B] text-[#01189B] text-[9px] px-2 py-1 rounded-md shadow-sm font-bold uppercase hover:bg-blue-50 transition-colors flex items-center gap-1 h-[26px]"><Plus size={10}/> Créer Fiche</button>
+                                           </div>
+                                       </div>
+                                   ) : (
+                                       <div className="flex flex-col items-end gap-1 shrink-0">
+                                           <span className="bg-emerald-50 text-emerald-600 text-[9px] px-2 py-1 rounded-md font-bold uppercase border border-emerald-100 flex items-center gap-1"><CheckCircle size={10}/> Lié au CRM</span>
+                                           {(contactMatch.deliveryAliases || []).includes(clientName) && (
+                                               <button onClick={() => {
+                                                   const newAliases = (contactMatch.deliveryAliases || []).filter((a:string) => a !== clientName);
+                                                   handleUpdate('contacts', contactMatch.id, { deliveryAliases: newAliases });
+                                                   addNotification('info', 'Client délié.');
+                                               }} className="text-[8px] text-slate-400 hover:text-red-500 font-bold transition-colors">Délier le compte</button>
+                                           )}
+                                       </div>
+                                   )}
                                </div>
                                
                                <div className="grid grid-cols-2 gap-3 mb-6">
@@ -1946,32 +1983,59 @@ function pushKpiToCrmDaily() {
                                    </div>
                                    
                                    <div className="grid grid-cols-2 gap-2 mb-3">
-                                       <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm relative group">
+                                       <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm relative group hover:border-[#01189B] transition-colors">
                                            <p className="text-[9px] text-slate-400 font-bold uppercase">Budget Alloué</p>
-                                           <p className="font-mono font-bold text-[#01189B] text-sm mt-0.5">{renderCurrency(tBudget)}</p>
-                                           <button onClick={() => {
-                                               if (!contactMatch) return addNotification('error', "Fiche CRM introuvable. Créez un contact avec ce nom exact.");
-                                               const val = prompt("Budget global alloué (CHF) :", tBudget.toString());
-                                               if (val !== null && !isNaN(Number(val))) handleUpdate('contacts', contactMatch.id, { deliveryTargetBudget: Number(val) });
-                                           }} className="absolute top-2.5 right-2.5 text-slate-300 hover:text-[#01189B] opacity-0 group-hover:opacity-100 transition-opacity"><Edit2 size={12}/></button>
+                                           <div className="flex items-center mt-0.5">
+                                               <span className="text-[#01189B] font-mono font-bold text-sm mr-1">CHF</span>
+                                               <input 
+                                                    type="number" 
+                                                    defaultValue={tBudget} 
+                                                    onBlur={(e) => {
+                                                        const val = Number(e.target.value);
+                                                        if (!contactMatch) return addNotification('error', "Veuillez d'abord lier le client au CRM en cliquant sur 'Créer Fiche'.");
+                                                        if (val !== tBudget && !isNaN(val)) handleUpdate('contacts', contactMatch.id, { deliveryTargetBudget: val });
+                                                    }}
+                                                    className="w-full bg-transparent font-mono font-bold text-[#01189B] text-sm outline-none placeholder:text-slate-300"
+                                                    placeholder="0"
+                                               />
+                                           </div>
+                                           <Edit2 size={10} className="absolute top-2.5 right-2.5 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"/>
                                        </div>
-                                       <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm relative group">
+                                       <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm relative group hover:border-emerald-500 transition-colors">
                                            <p className="text-[9px] text-slate-400 font-bold uppercase">CPL Cible</p>
-                                           <p className="font-mono font-bold text-emerald-600 text-sm mt-0.5">{renderCurrency(tCPL)}</p>
-                                           <button onClick={() => {
-                                               if (!contactMatch) return addNotification('error', "Fiche CRM introuvable.");
-                                               const val = prompt("CPL Cible (CHF) :", tCPL.toString());
-                                               if (val !== null && !isNaN(Number(val))) handleUpdate('contacts', contactMatch.id, { deliveryTargetCPL: Number(val) });
-                                           }} className="absolute top-2.5 right-2.5 text-slate-300 hover:text-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity"><Edit2 size={12}/></button>
+                                           <div className="flex items-center mt-0.5">
+                                               <span className="text-emerald-600 font-mono font-bold text-sm mr-1">CHF</span>
+                                               <input 
+                                                    type="number" 
+                                                    defaultValue={tCPL} 
+                                                    onBlur={(e) => {
+                                                        const val = Number(e.target.value);
+                                                        if (!contactMatch) return addNotification('error', "Veuillez d'abord lier le client au CRM en cliquant sur 'Créer Fiche'.");
+                                                        if (val !== tCPL && !isNaN(val)) handleUpdate('contacts', contactMatch.id, { deliveryTargetCPL: val });
+                                                    }}
+                                                    className="w-full bg-transparent font-mono font-bold text-emerald-600 text-sm outline-none placeholder:text-slate-300"
+                                                    placeholder="40"
+                                               />
+                                           </div>
+                                           <Edit2 size={10} className="absolute top-2.5 right-2.5 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"/>
                                        </div>
-                                       <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm relative group">
-                                           <p className="text-[9px] text-slate-400 font-bold uppercase">Durée de diffusion</p>
-                                           <p className="font-mono font-bold text-slate-700 text-sm mt-0.5">{tDuration} jours</p>
-                                           <button onClick={() => {
-                                               if (!contactMatch) return addNotification('error', "Fiche CRM introuvable.");
-                                               const val = prompt("Durée prévue (Jours) :", tDuration.toString());
-                                               if (val !== null && !isNaN(Number(val))) handleUpdate('contacts', contactMatch.id, { deliveryTargetDuration: Number(val) });
-                                           }} className="absolute top-2.5 right-2.5 text-slate-300 hover:text-[#01189B] opacity-0 group-hover:opacity-100 transition-opacity"><Edit2 size={12}/></button>
+                                       <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm relative group hover:border-slate-500 transition-colors">
+                                           <p className="text-[9px] text-slate-400 font-bold uppercase">Durée prévue</p>
+                                           <div className="flex items-center mt-0.5">
+                                               <input 
+                                                    type="number" 
+                                                    defaultValue={tDuration} 
+                                                    onBlur={(e) => {
+                                                        const val = Number(e.target.value);
+                                                        if (!contactMatch) return addNotification('error', "Veuillez d'abord lier le client au CRM en cliquant sur 'Créer Fiche'.");
+                                                        if (val !== tDuration && !isNaN(val)) handleUpdate('contacts', contactMatch.id, { deliveryTargetDuration: val });
+                                                    }}
+                                                    className="w-8 bg-transparent font-mono font-bold text-slate-700 text-sm outline-none placeholder:text-slate-300 text-right mr-1"
+                                                    placeholder="30"
+                                               />
+                                               <span className="text-slate-500 font-mono font-bold text-sm">Jours</span>
+                                           </div>
+                                           <Edit2 size={10} className="absolute top-2.5 right-2.5 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"/>
                                        </div>
                                        <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm">
                                            <p className="text-[9px] text-slate-400 font-bold uppercase">Objectif Total Leads</p>
@@ -2011,208 +2075,209 @@ function pushKpiToCrmDaily() {
                                    </div>
                                </div>
                             </div>
-                        )})
+                            );
+                        })
                     )}
                 </div>
             )}
 
             {deliveryActiveTab === 'global' && (
-              <>
-            {/* QUICK STATS */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
-                <div className="bg-white px-6 py-5 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1 flex justify-between">Total Livré <Package size={14}/></p>
-                    <p className="text-3xl font-black text-[#01189B] font-poppins">{deliveries.length}</p>
-                </div>
-                <div className="bg-white px-6 py-5 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1 flex justify-between">Aujourd'hui <Clock size={14}/></p>
-                    <p className="text-3xl font-black text-emerald-500 font-poppins">{leadsToday}</p>
-                </div>
-                <div className="bg-white px-6 py-5 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1 flex justify-between truncate pr-2">Ce Mois-ci <CalendarClock size={14}/></p>
-                    <p className="text-3xl font-black text-purple-600 font-poppins truncate">{leadsThisMonth}</p>
-                </div>
-                <div className="bg-white px-6 py-5 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1 flex justify-between truncate pr-2">Moyenne / Jour <TrendingUp size={14}/></p>
-                    <p className="text-3xl font-black text-orange-500 font-poppins truncate">{avgPerDay}</p>
-                </div>
-            </div>
-
-            {/* EVOLUTION TEMPORELLE (30 Jours) */}
-            <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8">
-                <h3 className="font-extrabold text-slate-800 mb-6 flex items-center gap-2 text-lg"><TrendingUp className="text-[#01189B]" size={20}/> Évolution des Livraisons (30 derniers jours)</h3>
-                {sortedDates.length === 0 ? (
-                    <p className="text-slate-400 italic text-sm text-center py-6">Aucune donnée temporelle disponible.</p>
-                ) : (
-                    <div className="flex-1 flex items-end gap-1 h-56 border-b border-slate-100 pb-2 relative mt-4">
-                        {sortedDates.map(([dateKey, count]: any, idx: number) => {
-                            const percent = (count / maxDate) * 100;
-                            return (
-                                <div key={idx} className="flex-1 flex flex-col items-center justify-end h-full relative group">
-                                    <div className="w-full bg-blue-100/70 rounded-t-sm relative hover:bg-[#01189B] transition-all duration-300 cursor-pointer" style={{ height: `${Math.max(percent, 2)}%` }}>
-                                        <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-xs font-bold py-1.5 px-2.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none shadow-xl">
-                                            {count} leads
-                                        </div>
-                                    </div>
-                                    <span className="text-[7px] md:text-[9px] font-bold text-slate-400 mt-2 rotate-45 md:rotate-0 origin-left">{dateKey}</span>
-                                </div>
-                            );
-                        })}
+              <div className="animate-fade-in">
+                {/* QUICK STATS */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+                    <div className="bg-white px-6 py-5 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1 flex justify-between">Total Livré <Package size={14}/></p>
+                        <p className="text-3xl font-black text-[#01189B] font-poppins">{deliveries.length}</p>
                     </div>
-                )}
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                {/* Répartition par Jour de la Semaine */}
-                <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 md:col-span-1">
-                    <h3 className="font-extrabold text-slate-800 mb-6 flex items-center gap-2 text-lg"><CalendarIcon className="text-purple-500" size={20}/> Répartition par Jour</h3>
-                    <div className="flex h-48 items-end gap-2 border-b border-slate-100 pb-2">
-                        {byDayOfWeek.map((count, idx) => {
-                            // Ordre: Lun (1) à Dim (0)
-                            const displayIdx = (idx + 6) % 7; 
-                            return { realIdx: idx, displayIdx, count };
-                        }).sort((a, b) => a.displayIdx - b.displayIdx).map(({ realIdx, count }) => {
-                            const percent = (count / maxDayOfWeek) * 100;
-                            return (
-                                <div key={realIdx} className="flex-1 flex flex-col items-center justify-end h-full relative group">
-                                    <div className="w-full bg-purple-100 rounded-t-md relative hover:bg-purple-500 transition-all duration-300 cursor-pointer" style={{ height: `${Math.max(percent, 5)}%` }}>
-                                        <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[10px] font-bold py-1 px-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
-                                            {count}
-                                        </div>
-                                    </div>
-                                    <span className="text-[9px] font-bold text-slate-500 mt-2 uppercase">{daysLabels[realIdx]}</span>
-                                </div>
-                            )
-                        })}
+                    <div className="bg-white px-6 py-5 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1 flex justify-between">Aujourd'hui <Clock size={14}/></p>
+                        <p className="text-3xl font-black text-emerald-500 font-poppins">{leadsToday}</p>
+                    </div>
+                    <div className="bg-white px-6 py-5 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1 flex justify-between truncate pr-2">Ce Mois-ci <CalendarClock size={14}/></p>
+                        <p className="text-3xl font-black text-purple-600 font-poppins truncate">{leadsThisMonth}</p>
+                    </div>
+                    <div className="bg-white px-6 py-5 rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1 flex justify-between truncate pr-2">Moyenne / Jour <TrendingUp size={14}/></p>
+                        <p className="text-3xl font-black text-orange-500 font-poppins truncate">{avgPerDay}</p>
                     </div>
                 </div>
 
-                {/* Graphique par Campagne */}
-                <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 md:col-span-1">
-                    <h3 className="font-extrabold text-slate-800 mb-6 flex items-center gap-2 text-lg"><Package className="text-orange-500" size={20}/> Par Campagne</h3>
-                    {sortedCampaigns.length === 0 ? (
-                        <p className="text-slate-400 italic text-sm">Aucune donnée de livraison.</p>
+                {/* EVOLUTION TEMPORELLE (30 Jours) */}
+                <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 mt-8">
+                    <h3 className="font-extrabold text-slate-800 mb-6 flex items-center gap-2 text-lg"><TrendingUp className="text-[#01189B]" size={20}/> Évolution des Livraisons (30 derniers jours)</h3>
+                    {sortedDates.length === 0 ? (
+                        <p className="text-slate-400 italic text-sm text-center py-6">Aucune donnée temporelle disponible.</p>
                     ) : (
-                        <div className="space-y-5 max-h-48 overflow-y-auto custom-scrollbar pr-2">
-                            {sortedCampaigns.map(([campagne, count]: any) => {
-                                const percent = (count / maxCampaign) * 100;
+                        <div className="flex-1 flex items-end gap-1 h-56 border-b border-slate-100 pb-2 relative mt-4">
+                            {sortedDates.map(([dateKey, count]: any, idx: number) => {
+                                const percent = (count / maxDate) * 100;
                                 return (
-                                    <div key={campagne}>
-                                        <div className="flex justify-between text-sm font-bold text-slate-700 mb-1.5">
-                                            <span className="truncate pr-4">{campagne}</span>
-                                            <span className="text-orange-600 font-black">{count}</span>
-                                        </div>
-                                        <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
-                                            <div className="bg-orange-500 h-full rounded-full transition-all duration-1000" style={{ width: `${percent}%` }}></div>
-                                        </div>
-                                    </div>
-                                )
-                            })}
-                        </div>
-                    )}
-                </div>
-
-                {/* Graphique par Agent */}
-                <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 md:col-span-1">
-                    <h3 className="font-extrabold text-slate-800 mb-6 flex items-center gap-2 text-lg"><Users className="text-emerald-500" size={20}/> Par Client</h3>
-                    {sortedAgents.length === 0 ? (
-                        <p className="text-slate-400 italic text-sm">Aucune donnée de livraison.</p>
-                    ) : (
-                        <div className="space-y-5 max-h-48 overflow-y-auto custom-scrollbar pr-2">
-                            {sortedAgents.map(([agent, count]: any) => {
-                                const percent = (count / maxAgent) * 100;
-                                return (
-                                    <div key={agent}>
-                                        <div className="flex justify-between text-sm font-bold text-slate-700 mb-1.5">
-                                            <span className="truncate pr-4">{agent}</span>
-                                            <span className="text-emerald-600 font-black">{count}</span>
-                                        </div>
-                                        <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
-                                            <div className="bg-emerald-500 h-full rounded-full transition-all duration-1000" style={{ width: `${percent}%` }}></div>
-                                        </div>
-                                    </div>
-                                )
-                            })}
-                        </div>
-                    )}
-                </div>
-            </div>
-
-            {/* NOUVEAU BLOC : DÉTAIL PAR CAMPAGNE ET CLIENT */}
-            <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 mt-8">
-                <h3 className="font-extrabold text-slate-800 mb-6 flex items-center gap-2 text-lg"><Package className="text-[#01189B]" size={20}/> Détail des Livraisons : Campagnes ➔ Clients</h3>
-                {Object.keys(deliveriesByCampaignAndClient).length === 0 ? (
-                    <p className="text-slate-400 italic text-sm">Aucune donnée de livraison.</p>
-                ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {Object.entries(deliveriesByCampaignAndClient)
-                            .sort((a, b) => {
-                                const totalA = Object.values(a[1] as any).reduce((sum:any, val:any) => sum + val, 0) as number;
-                                const totalB = Object.values(b[1] as any).reduce((sum:any, val:any) => sum + val, 0) as number;
-                                return totalB - totalA;
-                            })
-                            .map(([campagne, clients]: any) => {
-                            const totalCampagne = Number(Object.values(clients).reduce((a: any, b: any) => a + b, 0));
-                            return (
-                                <div key={campagne} className="bg-slate-50 rounded-2xl p-5 border border-slate-100">
-                                    <div className="flex justify-between items-center mb-4 border-b border-slate-200 pb-3">
-                                        <h4 className="font-bold text-slate-800 text-sm truncate pr-2">{campagne}</h4>
-                                        <span className="bg-orange-100 text-orange-700 font-extrabold text-xs px-2 py-1 rounded-lg shrink-0">{totalCampagne} leads</span>
-                                    </div>
-                                    <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar pr-1">
-                                        {Object.entries(clients)
-                                            .sort((a: any, b: any) => b[1] - a[1])
-                                            .map(([client, count]: any) => (
-                                            <div key={client} className="flex justify-between items-center text-sm">
-                                                <span className="text-slate-600 font-medium flex items-center gap-1.5 truncate pr-2"><Users size={12} className="text-slate-400 shrink-0"/> <span className="truncate">{client}</span></span>
-                                                <span className="font-bold text-slate-800 bg-white px-2 py-0.5 rounded border border-slate-100 text-xs shadow-sm">{count}</span>
+                                    <div key={idx} className="flex-1 flex flex-col items-center justify-end h-full relative group">
+                                        <div className="w-full bg-blue-100/70 rounded-t-sm relative hover:bg-[#01189B] transition-all duration-300 cursor-pointer" style={{ height: `${Math.max(percent, 2)}%` }}>
+                                            <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-xs font-bold py-1.5 px-2.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none shadow-xl">
+                                                {count} leads
                                             </div>
-                                        ))}
+                                        </div>
+                                        <span className="text-[7px] md:text-[9px] font-bold text-slate-400 mt-2 rotate-45 md:rotate-0 origin-left">{dateKey}</span>
                                     </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                )}
-            </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
 
-            {/* NOUVEAU BLOC : GESTION DES DONNÉES BRUTES */}
-            <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 mt-8">
-                <div className="flex justify-between items-center mb-6">
-                    <h3 className="font-extrabold text-slate-800 flex items-center gap-2 text-lg"><Activity className="text-[#01189B]" size={20}/> Historique brut des livraisons</h3>
-                    <button onClick={() => setShowModal('add_delivery')} className="px-4 py-2 bg-blue-50 text-[#01189B] font-bold rounded-xl text-sm hover:bg-blue-100 transition-colors flex items-center gap-2">
-                        <Plus size={16}/> Ajouter manuellement
-                    </button>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-8">
+                    {/* Répartition par Jour de la Semaine */}
+                    <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 md:col-span-1">
+                        <h3 className="font-extrabold text-slate-800 mb-6 flex items-center gap-2 text-lg"><CalendarIcon className="text-purple-500" size={20}/> Répartition par Jour</h3>
+                        <div className="flex h-48 items-end gap-2 border-b border-slate-100 pb-2">
+                            {byDayOfWeek.map((count, idx) => {
+                                // Ordre: Lun (1) à Dim (0)
+                                const displayIdx = (idx + 6) % 7; 
+                                return { realIdx: idx, displayIdx, count };
+                            }).sort((a, b) => a.displayIdx - b.displayIdx).map(({ realIdx, count }) => {
+                                const percent = (count / maxDayOfWeek) * 100;
+                                return (
+                                    <div key={realIdx} className="flex-1 flex flex-col items-center justify-end h-full relative group">
+                                        <div className="w-full bg-purple-100 rounded-t-md relative hover:bg-purple-500 transition-all duration-300 cursor-pointer" style={{ height: `${Math.max(percent, 5)}%` }}>
+                                            <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[10px] font-bold py-1 px-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
+                                                {count}
+                                            </div>
+                                        </div>
+                                        <span className="text-[9px] font-bold text-slate-500 mt-2 uppercase">{daysLabels[realIdx]}</span>
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    </div>
+
+                    {/* Graphique par Campagne */}
+                    <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 md:col-span-1">
+                        <h3 className="font-extrabold text-slate-800 mb-6 flex items-center gap-2 text-lg"><Package className="text-orange-500" size={20}/> Par Campagne</h3>
+                        {sortedCampaigns.length === 0 ? (
+                            <p className="text-slate-400 italic text-sm">Aucune donnée de livraison.</p>
+                        ) : (
+                            <div className="space-y-5 max-h-48 overflow-y-auto custom-scrollbar pr-2">
+                                {sortedCampaigns.map(([campagne, count]: any) => {
+                                    const percent = (count / maxCampaign) * 100;
+                                    return (
+                                        <div key={campagne}>
+                                            <div className="flex justify-between text-sm font-bold text-slate-700 mb-1.5">
+                                                <span className="truncate pr-4">{campagne}</span>
+                                                <span className="text-orange-600 font-black">{count}</span>
+                                            </div>
+                                            <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                                                <div className="bg-orange-500 h-full rounded-full transition-all duration-1000" style={{ width: `${percent}%` }}></div>
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Graphique par Agent */}
+                    <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 md:col-span-1">
+                        <h3 className="font-extrabold text-slate-800 mb-6 flex items-center gap-2 text-lg"><Users className="text-emerald-500" size={20}/> Par Client</h3>
+                        {sortedAgents.length === 0 ? (
+                            <p className="text-slate-400 italic text-sm">Aucune donnée de livraison.</p>
+                        ) : (
+                            <div className="space-y-5 max-h-48 overflow-y-auto custom-scrollbar pr-2">
+                                {sortedAgents.map(([agent, count]: any) => {
+                                    const percent = (count / maxAgent) * 100;
+                                    return (
+                                        <div key={agent}>
+                                            <div className="flex justify-between text-sm font-bold text-slate-700 mb-1.5">
+                                                <span className="truncate pr-4">{agent}</span>
+                                                <span className="text-emerald-600 font-black">{count}</span>
+                                            </div>
+                                            <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                                                <div className="bg-emerald-500 h-full rounded-full transition-all duration-1000" style={{ width: `${percent}%` }}></div>
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        )}
+                    </div>
                 </div>
-                <div className="max-h-96 overflow-y-auto custom-scrollbar border border-slate-100 rounded-xl">
-                    <table className="w-full text-left text-sm">
-                        <thead className="bg-slate-50 text-slate-500 uppercase font-extrabold text-[10px] tracking-wider sticky top-0 z-10 shadow-sm">
-                            <tr>
-                                <th className="px-4 py-3 border-b border-slate-100">Date d'enregistrement</th>
-                                <th className="px-4 py-3 border-b border-slate-100">Client ciblé (Agent Name)</th>
-                                <th className="px-4 py-3 border-b border-slate-100">Campagne</th>
-                                <th className="px-4 py-3 border-b border-slate-100 text-right">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-50">
-                            {[...deliveries].sort((a,b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime()).map(d => (
-                                <tr key={d.id} className="hover:bg-slate-50 transition-colors">
-                                    <td className="px-4 py-3 font-medium text-slate-500">{formatDateTime(d.date || d.createdAt)}</td>
-                                    <td className="px-4 py-3 font-bold text-slate-800">{d.agentName || 'Inconnu'}</td>
-                                    <td className="px-4 py-3 text-slate-600">{d.campagne || 'Non définie'}</td>
-                                    <td className="px-4 py-3 text-right">
-                                        <button onClick={() => handleDelete('lead_deliveries', d.id)} className="p-1.5 text-slate-300 hover:text-red-500 bg-white hover:bg-red-50 rounded-lg shadow-sm border border-slate-200 hover:border-red-200 transition-colors">
-                                            <Trash2 size={14}/>
-                                        </button>
-                                    </td>
+
+                {/* NOUVEAU BLOC : DÉTAIL PAR CAMPAGNE ET CLIENT */}
+                <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 mt-8">
+                    <h3 className="font-extrabold text-slate-800 mb-6 flex items-center gap-2 text-lg"><Package className="text-[#01189B]" size={20}/> Détail des Livraisons : Campagnes ➔ Clients</h3>
+                    {Object.keys(deliveriesByCampaignAndClient).length === 0 ? (
+                        <p className="text-slate-400 italic text-sm">Aucune donnée de livraison.</p>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {Object.entries(deliveriesByCampaignAndClient)
+                                .sort((a, b) => {
+                                    const totalA = Object.values(a[1] as any).reduce((sum:any, val:any) => sum + val, 0) as number;
+                                    const totalB = Object.values(b[1] as any).reduce((sum:any, val:any) => sum + val, 0) as number;
+                                    return totalB - totalA;
+                                })
+                                .map(([campagne, clients]: any) => {
+                                const totalCampagne = Number(Object.values(clients).reduce((a: any, b: any) => a + b, 0));
+                                return (
+                                    <div key={campagne} className="bg-slate-50 rounded-2xl p-5 border border-slate-100">
+                                        <div className="flex justify-between items-center mb-4 border-b border-slate-200 pb-3">
+                                            <h4 className="font-bold text-slate-800 text-sm truncate pr-2">{campagne}</h4>
+                                            <span className="bg-orange-100 text-orange-700 font-extrabold text-xs px-2 py-1 rounded-lg shrink-0">{totalCampagne} leads</span>
+                                        </div>
+                                        <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar pr-1">
+                                            {Object.entries(clients)
+                                                .sort((a: any, b: any) => b[1] - a[1])
+                                                .map(([client, count]: any) => (
+                                                <div key={client} className="flex justify-between items-center text-sm">
+                                                    <span className="text-slate-600 font-medium flex items-center gap-1.5 truncate pr-2"><Users size={12} className="text-slate-400 shrink-0"/> <span className="truncate">{client}</span></span>
+                                                    <span className="font-bold text-slate-800 bg-white px-2 py-0.5 rounded border border-slate-100 text-xs shadow-sm">{count}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+
+                {/* NOUVEAU BLOC : GESTION DES DONNÉES BRUTES */}
+                <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8 mt-8">
+                    <div className="flex justify-between items-center mb-6">
+                        <h3 className="font-extrabold text-slate-800 flex items-center gap-2 text-lg"><Activity className="text-[#01189B]" size={20}/> Historique brut des livraisons</h3>
+                        <button onClick={() => setShowModal('add_delivery')} className="px-4 py-2 bg-blue-50 text-[#01189B] font-bold rounded-xl text-sm hover:bg-blue-100 transition-colors flex items-center gap-2">
+                            <Plus size={16}/> Ajouter manuellement
+                        </button>
+                    </div>
+                    <div className="max-h-96 overflow-y-auto custom-scrollbar border border-slate-100 rounded-xl">
+                        <table className="w-full text-left text-sm">
+                            <thead className="bg-slate-50 text-slate-500 uppercase font-extrabold text-[10px] tracking-wider sticky top-0 z-10 shadow-sm">
+                                <tr>
+                                    <th className="px-4 py-3 border-b border-slate-100">Date d'enregistrement</th>
+                                    <th className="px-4 py-3 border-b border-slate-100">Client ciblé (Agent Name)</th>
+                                    <th className="px-4 py-3 border-b border-slate-100">Campagne</th>
+                                    <th className="px-4 py-3 border-b border-slate-100 text-right">Action</th>
                                 </tr>
-                            ))}
-                            {deliveries.length === 0 && <tr><td colSpan={4} className="text-center py-8 text-slate-400 italic">Aucune donnée brute enregistrée.</td></tr>}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                                {[...deliveries].sort((a,b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime()).map(d => (
+                                    <tr key={d.id} className="hover:bg-slate-50 transition-colors">
+                                        <td className="px-4 py-3 font-medium text-slate-500">{formatDateTime(d.date || d.createdAt)}</td>
+                                        <td className="px-4 py-3 font-bold text-slate-800">{d.agentName || 'Inconnu'}</td>
+                                        <td className="px-4 py-3 text-slate-600">{d.campagne || 'Non définie'}</td>
+                                        <td className="px-4 py-3 text-right">
+                                            <button onClick={() => handleDelete('lead_deliveries', d.id)} className="p-1.5 text-slate-300 hover:text-red-500 bg-white hover:bg-red-50 rounded-lg shadow-sm border border-slate-200 hover:border-red-200 transition-colors">
+                                                <Trash2 size={14}/>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                                {deliveries.length === 0 && <tr><td colSpan={4} className="text-center py-8 text-slate-400 italic">Aucune donnée brute enregistrée.</td></tr>}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
-            </div>
-              </>
+              </div>
             )}
         </div>
       );
