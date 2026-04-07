@@ -295,34 +295,92 @@ const generateSwissQRPayload = (params: {
   return payload;
 };
 
+// --- Dessin de la croix suisse au centre du QR (directement dans le Canvas) ---
+const _drawSwissCross = (dataUrl: string): Promise<string> => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+
+      const s = img.width;
+      const crossSize = Math.round(s * 0.15); // ~15% de la taille du QR
+      const cx = Math.round(s / 2);
+      const cy = Math.round(s / 2);
+      const half = Math.round(crossSize / 2);
+      const border = Math.round(crossSize * 0.06);
+      const armW = Math.round(crossSize * 0.22);
+      const armH = Math.round(crossSize * 0.65);
+
+      // Fond blanc (efface les modules QR au centre)
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(cx - half - 2, cy - half - 2, crossSize + 4, crossSize + 4);
+
+      // Carré noir extérieur
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(cx - half, cy - half, crossSize, crossSize);
+
+      // Carré blanc intérieur
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(cx - half + border, cy - half + border, crossSize - border * 2, crossSize - border * 2);
+
+      // Croix noire (barre horizontale + barre verticale)
+      ctx.fillStyle = '#000000';
+      const armHalfW = Math.round(armW / 2);
+      const armHalfH = Math.round(armH / 2);
+      // Barre horizontale
+      ctx.fillRect(cx - armHalfH, cy - armHalfW, armH, armW);
+      // Barre verticale
+      ctx.fillRect(cx - armHalfW, cy - armHalfH, armW, armH);
+
+      resolve(canvas.toDataURL('image/png'));
+    };
+    img.onerror = () => resolve(dataUrl); // En cas d'erreur, retourner l'image sans croix
+    img.src = dataUrl;
+  });
+};
+
 // --- Génération du QR Code (CDN prioritaire, Canvas fallback) ---
 const generateQRCodeDataURL = async (payload: string): Promise<string> => {
+  let rawUrl = '';
+
   // Méthode 1 : librairie qrcode npm (via CDN)
   try {
     const QRLib = await requireQRCodeLib();
     if (QRLib && typeof QRLib.toDataURL === 'function') {
-      const url = await QRLib.toDataURL(payload, {
+      rawUrl = await QRLib.toDataURL(payload, {
         errorCorrectionLevel: 'M',
         margin: 0,
         width: 460,
         color: { dark: '#000000', light: '#FFFFFF' },
       });
       console.log('[QR-Facture] ✅ QR généré via librairie CDN');
-      return url;
     }
   } catch (e) {
     console.warn('[QR-Facture] Erreur librairie CDN:', e);
   }
 
   // Méthode 2 : Canvas natif avec qrcode-generator inline
-  try {
-    const url = _fallbackQRGenerate(payload);
-    console.log('[QR-Facture] ✅ QR généré via fallback Canvas');
-    return url;
-  } catch (e) {
-    console.error('[QR-Facture] ❌ Toutes les méthodes ont échoué:', e);
-    return '';
+  if (!rawUrl) {
+    try {
+      rawUrl = _fallbackQRGenerate(payload);
+      console.log('[QR-Facture] ✅ QR généré via fallback Canvas');
+    } catch (e) {
+      console.error('[QR-Facture] ❌ Toutes les méthodes ont échoué:', e);
+      return '';
+    }
   }
+
+  // Ajouter la croix suisse au centre
+  if (rawUrl) {
+    const finalUrl = await _drawSwissCross(rawUrl);
+    console.log('[QR-Facture] ✅ Croix suisse ajoutée au QR');
+    return finalUrl;
+  }
+  return '';
 };
 
 // --- Fallback QR : implémentation minimale embarquée ---
@@ -6239,17 +6297,9 @@ function envoyerLead(agent, ligne) {
                                             <p style={{ fontSize: '11pt', fontWeight: 'bold', marginBottom: '3mm' }}>Section paiement</p>
                                             <div className="flex" style={{ gap: '5mm' }}>
                                                 {/* QR Code avec croix suisse superposée en absolute */}
-                                                <div style={{ width: '46mm', height: '46mm', flexShrink: 0, position: 'relative' }}>
+                                                {/* QR Code avec croix suisse intégrée dans l'image */}
+                                                <div style={{ width: '46mm', height: '46mm', flexShrink: 0 }}>
                                                     <img src={qrCodeDataUrl} alt="Swiss QR Code" style={{ width: '46mm', height: '46mm', display: 'block' }} />
-                                                    {/* Croix suisse centrée — positionnement absolu pour compatibilité html2pdf */}
-                                                    <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '7mm', height: '7mm', backgroundColor: '#FFFFFF' }}>
-                                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" style={{ width: '100%', height: '100%', display: 'block' }}>
-                                                            <rect x="0" y="0" width="20" height="20" fill="black"/>
-                                                            <rect x="1" y="1" width="18" height="18" fill="white"/>
-                                                            <rect x="4" y="8.5" width="12" height="3" fill="black"/>
-                                                            <rect x="8.5" y="4" width="3" height="12" fill="black"/>
-                                                        </svg>
-                                                    </div>
                                                 </div>
 
                                                 {/* Informations à droite du QR */}
