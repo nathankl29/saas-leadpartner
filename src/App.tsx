@@ -6195,111 +6195,98 @@ function envoyerLead(agent, ligne) {
                             </div>
                         )}
 
-                        {/* --- PAGE QR-FACTURE SUISSE (BULLETIN DE VERSEMENT QR) --- */}
+                        {/* --- QR-FACTURE SUISSE (BULLETIN DE VERSEMENT QR) --- */}
+                        {/* Bloc 105mm collé sur page 2 sans page blanche, avec marge de sécurité anti-coupure */}
                         {settings.qrIban && qrCodeDataUrl && (
-                            <div className="qr-bill-page bg-white w-full h-[297mm] shadow-2xl box-border block mt-8 print:mt-0 relative" style={{ pageBreakBefore: 'always' }}>
-                                {/* Page blanche avec le bulletin QR collé en bas */}
-                                <div className="absolute bottom-0 left-0 w-full" style={{ height: '105mm' }}>
-                                    {/* Ligne de séparation perforée */}
-                                    <div className="w-full border-t-2 border-dashed border-slate-300" style={{ position: 'absolute', top: 0, left: 0 }}></div>
-                                    <div className="flex h-full" style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}>
+                            <div className="qr-bill-page bg-white w-full shadow-2xl box-border block mt-8 print:mt-0" style={{ pageBreakBefore: 'always', pageBreakInside: 'avoid', height: '105mm', overflow: 'hidden' }}>
+                                {/* Ligne de séparation perforée (haut du bulletin) */}
+                                <div style={{ width: '100%', borderTop: '1.5px dashed #aaa', marginBottom: '0' }}></div>
+                                <div className="flex" style={{ fontFamily: 'Arial, Helvetica, sans-serif', height: '104mm' }}>
 
-                                        {/* ═══ RÉCÉPISSÉ (62mm) ═══ */}
-                                        <div className="flex flex-col justify-between border-r border-dashed border-slate-300 box-border" style={{ width: '62mm', padding: '5mm', paddingTop: '7mm' }}>
-                                            <div>
-                                                <p className="font-bold" style={{ fontSize: '11pt', marginBottom: '2mm' }}>Récépissé</p>
-
-                                                <p className="font-bold" style={{ fontSize: '6pt', marginBottom: '1mm' }}>Compte / Payable à</p>
-                                                <p style={{ fontSize: '8pt', lineHeight: '1.3', marginBottom: '2mm' }}>
-                                                    {formatIBAN(settings.qrIban).replace(/(.{4})/g, '$1 ').trim()}<br/>
-                                                    {settings.qrCreditorName || settings.companyName}<br/>
-                                                    {settings.qrCreditorAddress && <>{settings.qrCreditorAddress}<br/></>}
-                                                    {settings.qrCreditorZip} {settings.qrCreditorCity}
-                                                </p>
-
-                                                {currentInvoice.clientName && (
-                                                    <>
-                                                        <p className="font-bold" style={{ fontSize: '6pt', marginBottom: '1mm' }}>Payable par</p>
-                                                        <p style={{ fontSize: '8pt', lineHeight: '1.3', marginBottom: '2mm' }}>
-                                                            {currentInvoice.clientName}
-                                                            {currentInvoice.clientAddress && <><br/>{currentInvoice.clientAddress.split('\n').map((l: string, i: number) => <span key={i}>{l}<br/></span>)}</>}
-                                                        </p>
-                                                    </>
-                                                )}
-                                            </div>
-
-                                            <div>
-                                                <p className="font-bold" style={{ fontSize: '6pt', marginBottom: '1mm' }}>Monnaie</p>
-                                                <div className="flex gap-4" style={{ fontSize: '8pt' }}>
-                                                    <div><span>CHF</span></div>
-                                                    <div><span className="font-bold">{((currentInvoice.items || []).reduce((acc: number, i: any) => acc + Number(i.price) * (i.qty || 1), 0)).toFixed(2)}</span></div>
-                                                </div>
-
-                                                <p className="font-bold" style={{ fontSize: '6pt', marginTop: '3mm', marginBottom: '1mm' }}>Point de dépôt</p>
-                                            </div>
+                                    {/* ═══ RÉCÉPISSÉ (62mm) ═══ */}
+                                    <div className="flex flex-col justify-between box-border" style={{ width: '62mm', padding: '5mm', paddingTop: '5mm', borderRight: '1px dashed #aaa' }}>
+                                        <div>
+                                            <p style={{ fontSize: '11pt', fontWeight: 'bold', marginBottom: '2mm' }}>Récépissé</p>
+                                            <p style={{ fontSize: '6pt', fontWeight: 'bold', marginBottom: '1mm' }}>Compte / Payable à</p>
+                                            <p style={{ fontSize: '8pt', lineHeight: '1.3', marginBottom: '2mm' }}>
+                                                {formatIBAN(settings.qrIban).replace(/(.{4})/g, '$1 ').trim()}<br/>
+                                                {settings.qrCreditorName || settings.companyName}<br/>
+                                                {settings.qrCreditorAddress && <>{settings.qrCreditorAddress}<br/></>}
+                                                {settings.qrCreditorZip} {settings.qrCreditorCity}
+                                            </p>
+                                            {currentInvoice.clientName && (
+                                                <>
+                                                    <p style={{ fontSize: '6pt', fontWeight: 'bold', marginBottom: '1mm' }}>Payable par</p>
+                                                    <p style={{ fontSize: '8pt', lineHeight: '1.3', marginBottom: '2mm' }}>
+                                                        {currentInvoice.clientName}
+                                                        {currentInvoice.clientAddress && <><br/>{currentInvoice.clientAddress.split('\n').map((l: string, i: number) => <span key={i}>{l}<br/></span>)}</>}
+                                                    </p>
+                                                </>
+                                            )}
                                         </div>
-
-                                        {/* ═══ SECTION PAIEMENT (148mm) ═══ */}
-                                        <div className="flex flex-col justify-between box-border" style={{ width: '148mm', padding: '5mm', paddingTop: '7mm' }}>
-                                            <div>
-                                                <p className="font-bold" style={{ fontSize: '11pt', marginBottom: '4mm' }}>Section paiement</p>
-
-                                                <div className="flex gap-6">
-                                                    {/* QR Code */}
-                                                    <div style={{ width: '46mm', height: '46mm', flexShrink: 0 }}>
-                                                        <img src={qrCodeDataUrl} alt="Swiss QR Code" style={{ width: '46mm', height: '46mm', imageRendering: 'pixelated' }} />
-                                                        {/* Croix suisse au centre */}
-                                                        <div style={{ position: 'relative', top: '-27mm', left: '19mm', width: '7mm', height: '7mm', backgroundColor: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
-                                                            <svg viewBox="0 0 20 20" style={{ width: '7mm', height: '7mm' }}>
-                                                                <rect x="0" y="0" width="20" height="20" fill="black"/>
-                                                                <rect x="1" y="1" width="18" height="18" fill="white"/>
-                                                                <rect x="4" y="8.5" width="12" height="3" fill="black"/>
-                                                                <rect x="8.5" y="4" width="3" height="12" fill="black"/>
-                                                            </svg>
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Informations à droite du QR */}
-                                                    <div className="flex-1" style={{ marginTop: '0mm' }}>
-                                                        <p className="font-bold" style={{ fontSize: '7pt', marginBottom: '1mm' }}>Compte / Payable à</p>
-                                                        <p style={{ fontSize: '9pt', lineHeight: '1.4', marginBottom: '3mm' }}>
-                                                            {formatIBAN(settings.qrIban).replace(/(.{4})/g, '$1 ').trim()}<br/>
-                                                            {settings.qrCreditorName || settings.companyName}<br/>
-                                                            {settings.qrCreditorAddress && <>{settings.qrCreditorAddress}<br/></>}
-                                                            {settings.qrCreditorZip} {settings.qrCreditorCity}
-                                                        </p>
-
-                                                        <p className="font-bold" style={{ fontSize: '7pt', marginBottom: '1mm' }}>Informations supplémentaires</p>
-                                                        <p style={{ fontSize: '9pt', lineHeight: '1.4', marginBottom: '3mm' }}>
-                                                            Facture {currentInvoice.id || ''}
-                                                        </p>
-
-                                                        {currentInvoice.clientName && (
-                                                            <>
-                                                                <p className="font-bold" style={{ fontSize: '7pt', marginBottom: '1mm' }}>Payable par</p>
-                                                                <p style={{ fontSize: '9pt', lineHeight: '1.4' }}>
-                                                                    {currentInvoice.clientName}
-                                                                    {currentInvoice.clientAddress && <><br/>{currentInvoice.clientAddress.split('\n').map((l: string, i: number) => <span key={i}>{l}<br/></span>)}</>}
-                                                                </p>
-                                                            </>
-                                                        )}
-                                                    </div>
-                                                </div>
+                                        <div>
+                                            <div className="flex" style={{ fontSize: '8pt', gap: '4mm' }}>
+                                                <div><span style={{ fontSize: '6pt', fontWeight: 'bold', display: 'block', marginBottom: '1mm' }}>Monnaie</span><span>CHF</span></div>
+                                                <div><span style={{ fontSize: '6pt', fontWeight: 'bold', display: 'block', marginBottom: '1mm' }}>Montant</span><span style={{ fontWeight: 'bold' }}>{((currentInvoice.items || []).reduce((acc: number, i: any) => acc + Number(i.price) * (i.qty || 1), 0)).toFixed(2)}</span></div>
                                             </div>
+                                            <p style={{ fontSize: '6pt', fontWeight: 'bold', marginTop: '3mm' }}>Point de dépôt</p>
+                                        </div>
+                                    </div>
 
-                                            {/* Montant en bas à droite */}
-                                            <div className="flex justify-between items-end" style={{ marginTop: '4mm' }}>
-                                                <div>
-                                                    <p className="font-bold" style={{ fontSize: '7pt', marginBottom: '1mm' }}>Monnaie</p>
-                                                    <p style={{ fontSize: '10pt' }}>CHF</p>
+                                    {/* ═══ SECTION PAIEMENT (148mm) ═══ */}
+                                    <div className="flex flex-col justify-between box-border" style={{ width: '148mm', padding: '5mm', paddingTop: '5mm' }}>
+                                        <div>
+                                            <p style={{ fontSize: '11pt', fontWeight: 'bold', marginBottom: '3mm' }}>Section paiement</p>
+                                            <div className="flex" style={{ gap: '5mm' }}>
+                                                {/* QR Code avec croix suisse superposée en absolute */}
+                                                <div style={{ width: '46mm', height: '46mm', flexShrink: 0, position: 'relative' }}>
+                                                    <img src={qrCodeDataUrl} alt="Swiss QR Code" style={{ width: '46mm', height: '46mm', display: 'block' }} />
+                                                    {/* Croix suisse centrée — positionnement absolu pour compatibilité html2pdf */}
+                                                    <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '7mm', height: '7mm', backgroundColor: '#FFFFFF' }}>
+                                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" style={{ width: '100%', height: '100%', display: 'block' }}>
+                                                            <rect x="0" y="0" width="20" height="20" fill="black"/>
+                                                            <rect x="1" y="1" width="18" height="18" fill="white"/>
+                                                            <rect x="4" y="8.5" width="12" height="3" fill="black"/>
+                                                            <rect x="8.5" y="4" width="3" height="12" fill="black"/>
+                                                        </svg>
+                                                    </div>
                                                 </div>
-                                                <div>
-                                                    <p className="font-bold" style={{ fontSize: '7pt', marginBottom: '1mm' }}>Montant</p>
-                                                    <p className="font-bold" style={{ fontSize: '10pt' }}>{((currentInvoice.items || []).reduce((acc: number, i: any) => acc + Number(i.price) * (i.qty || 1), 0)).toFixed(2)}</p>
+
+                                                {/* Informations à droite du QR */}
+                                                <div style={{ flex: 1 }}>
+                                                    <p style={{ fontSize: '7pt', fontWeight: 'bold', marginBottom: '1mm' }}>Compte / Payable à</p>
+                                                    <p style={{ fontSize: '9pt', lineHeight: '1.4', marginBottom: '3mm' }}>
+                                                        {formatIBAN(settings.qrIban).replace(/(.{4})/g, '$1 ').trim()}<br/>
+                                                        {settings.qrCreditorName || settings.companyName}<br/>
+                                                        {settings.qrCreditorAddress && <>{settings.qrCreditorAddress}<br/></>}
+                                                        {settings.qrCreditorZip} {settings.qrCreditorCity}
+                                                    </p>
+                                                    <p style={{ fontSize: '7pt', fontWeight: 'bold', marginBottom: '1mm' }}>Informations supplémentaires</p>
+                                                    <p style={{ fontSize: '9pt', lineHeight: '1.4', marginBottom: '3mm' }}>Facture {currentInvoice.id || ''}</p>
+                                                    {currentInvoice.clientName && (
+                                                        <>
+                                                            <p style={{ fontSize: '7pt', fontWeight: 'bold', marginBottom: '1mm' }}>Payable par</p>
+                                                            <p style={{ fontSize: '9pt', lineHeight: '1.4' }}>
+                                                                {currentInvoice.clientName}
+                                                                {currentInvoice.clientAddress && <><br/>{currentInvoice.clientAddress.split('\n').map((l: string, i: number) => <span key={i}>{l}<br/></span>)}</>}
+                                                            </p>
+                                                        </>
+                                                    )}
                                                 </div>
                                             </div>
                                         </div>
 
+                                        {/* Montant en bas */}
+                                        <div className="flex justify-between items-end" style={{ marginTop: '3mm' }}>
+                                            <div>
+                                                <p style={{ fontSize: '7pt', fontWeight: 'bold', marginBottom: '1mm' }}>Monnaie</p>
+                                                <p style={{ fontSize: '10pt' }}>CHF</p>
+                                            </div>
+                                            <div>
+                                                <p style={{ fontSize: '7pt', fontWeight: 'bold', marginBottom: '1mm' }}>Montant</p>
+                                                <p style={{ fontSize: '10pt', fontWeight: 'bold' }}>{((currentInvoice.items || []).reduce((acc: number, i: any) => acc + Number(i.price) * (i.qty || 1), 0)).toFixed(2)}</p>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
