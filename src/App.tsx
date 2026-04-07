@@ -307,8 +307,8 @@ const _drawSwissCross = (dataUrl: string): Promise<string> => {
       ctx.drawImage(img, 0, 0);
 
       const s = img.width;
-      // Taille conforme Swiss QR : la croix fait ~26% du QR code
-      const crossSize = Math.round(s * 0.26);
+      // Taille de la croix suisse : ~15% du QR code
+      const crossSize = Math.round(s * 0.15);
       const cx = Math.round(s / 2);
       const cy = Math.round(s / 2);
       const half = Math.round(crossSize / 2);
