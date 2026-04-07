@@ -27,11 +27,12 @@ declare const __initial_auth_token: string | undefined;
 declare global {
   interface Window {
     html2pdf: any;
+    QRCode: any;
   }
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '60.11';
+const APP_VERSION = '60.12';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -180,6 +181,136 @@ const requireHtml2Pdf = async () => {
       script.onerror = reject;
       document.body.appendChild(script);
   });
+};
+
+// --- CHARGEMENT CDN QR CODE ---
+const QR_CDN_URLS = [
+  'https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js',
+  'https://unpkg.com/qrcode@1.5.3/build/qrcode.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js',
+];
+
+const requireQRCodeLib = async (): Promise<any> => {
+  if (window.QRCode) return window.QRCode;
+
+  // Essayer chaque CDN jusqu'à ce qu'un fonctionne
+  for (const cdnUrl of QR_CDN_URLS) {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = cdnUrl;
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error(`CDN failed: ${cdnUrl}`));
+        document.body.appendChild(script);
+      });
+      if (window.QRCode) {
+        console.log('[QR-Facture] Librairie QR chargée depuis:', cdnUrl);
+        return window.QRCode;
+      }
+    } catch (e) {
+      console.warn('[QR-Facture] Échec chargement CDN:', cdnUrl, e);
+    }
+  }
+  throw new Error('[QR-Facture] Impossible de charger la librairie QR code depuis aucun CDN');
+};
+
+// --- GENERATION DU PAYLOAD SWISS QR (SPC) ---
+const formatIBAN = (iban: string): string => iban.replace(/\s+/g, '').toUpperCase();
+
+const formatAmountQR = (amount: number): string => {
+  return amount.toFixed(2);
+};
+
+const generateSwissQRPayload = (params: {
+  iban: string;
+  creditorName: string;
+  creditorAddress: string;
+  creditorZip: string;
+  creditorCity: string;
+  creditorCountry: string;
+  amount: number;
+  currency: string;
+  debtorName?: string;
+  debtorAddress?: string;
+  debtorZip?: string;
+  debtorCity?: string;
+  debtorCountry?: string;
+  reference?: string;
+  additionalInfo?: string;
+}): string => {
+  const p = params;
+  const iban = formatIBAN(p.iban);
+
+  // Determine reference type based on IBAN type
+  // QR-IBAN (3xxxxx) → QRR, standard IBAN → SCOR or NON
+  const refType = 'NON'; // IBAN classique = NON (pas de référence structurée)
+  const ref = '';
+
+  // SPC format v0200 - Swiss Implementation Guidelines QR-bill
+  // Header: 3 lines, Creditor: 7 lines, UCr: 7 lines, Amount: 2 lines, Debtor: 7 lines, Ref: 2 lines, AddInfo: 1 line, Trailer: 1 line
+  const lines = [
+    'SPC',                          // QRType (fixed)
+    '0200',                         // Version
+    '1',                            // Coding Type (1=UTF-8)
+    iban,                           // Account (IBAN)
+    // --- Creditor (structured S) ---
+    'S',                            // Address Type
+    (p.creditorName || '').substring(0, 70),       // Name
+    (p.creditorAddress || '').substring(0, 70),    // Street or address line 1
+    '',                             // Building number or address line 2
+    (p.creditorZip || '').substring(0, 16),        // Postal code
+    (p.creditorCity || '').substring(0, 35),       // City
+    (p.creditorCountry || 'CH').substring(0, 2),   // Country
+    // --- Ultimate Creditor (empty, 7 lines) ---
+    '', '', '', '', '', '', '',
+    // --- Payment amount ---
+    formatAmountQR(p.amount),       // Amount
+    p.currency || 'CHF',            // Currency
+    // --- Ultimate Debtor (structured S if present) ---
+    p.debtorName ? 'S' : '',       // Address Type
+    (p.debtorName || '').substring(0, 70),         // Name
+    (p.debtorAddress || '').substring(0, 70),      // Street
+    '',                             // Building number
+    (p.debtorZip || '').substring(0, 16),          // Postal code
+    (p.debtorCity || '').substring(0, 35),         // City
+    p.debtorName ? (p.debtorCountry || 'CH').substring(0, 2) : '', // Country
+    // --- Reference ---
+    refType,                        // Reference type (NON for IBAN classique)
+    ref,                            // Reference (empty for NON)
+    // --- Additional information ---
+    (p.additionalInfo || '').substring(0, 140),    // Unstructured message
+    'EPD',                          // Trailer (fixed)
+  ];
+
+  return lines.join('\n');
+};
+
+const generateQRCodeDataURL = async (payload: string): Promise<string> => {
+  const QRCodeLib = await requireQRCodeLib();
+
+  // API "qrcode" npm (toDataURL retourne une Promise)
+  if (typeof QRCodeLib.toDataURL === 'function') {
+    const url = await QRCodeLib.toDataURL(payload, {
+      errorCorrectionLevel: 'M',
+      margin: 0,
+      width: 460,
+      color: { dark: '#000000', light: '#FFFFFF' }
+    });
+    console.log('[QR-Facture] QR code généré avec succès (qrcode lib)');
+    return url;
+  }
+
+  // Fallback: API "qrcode-generator" (function-based)
+  if (typeof QRCodeLib === 'function') {
+    const qr = QRCodeLib(0, 'M');
+    qr.addData(payload);
+    qr.make();
+    const dataUrl = qr.createDataURL(4, 0);
+    console.log('[QR-Facture] QR code généré avec succès (qrcode-generator)');
+    return dataUrl;
+  }
+
+  throw new Error('[QR-Facture] API QR code non reconnue');
 };
 
 // --- COMPOSANT LOGIN ---
@@ -486,6 +617,12 @@ export default function App() {
     email: 'contact@leadpartner.ch',
     phone: '+41 79 000 00 00',
     bankDetails: 'Banque Cantonale de Genève\nIBAN: CH93 0000 0000 0000 0000 0\nBIC: BCGECHGG',
+    qrIban: '',
+    qrCreditorName: '',
+    qrCreditorAddress: '',
+    qrCreditorZip: '',
+    qrCreditorCity: '',
+    qrCreditorCountry: 'CH',
     invoiceFooter: 'Conditions de paiement : 30 jours net.\nEn cas de retard, des pénalités pourront être appliquées.',
     legalNotice: 'Entreprise individuelle non soumise à la TVA',
     primaryColor: BRAND_COLOR,
@@ -530,6 +667,75 @@ export default function App() {
   const [currentProduct, setCurrentProduct] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentInvoice, setCurrentInvoice] = useState<any>(null);
+  const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>('');
+
+  // --- Génération automatique du QR code pour la facture ---
+  // Créer une clé de dépendance stable basée sur le contenu des items (pas la référence)
+  const qrDepsKey = useMemo(() => {
+    if (!currentInvoice) return '';
+    const itemsHash = JSON.stringify((currentInvoice.items || []).map((i: any) => ({ p: i.price, q: i.qty })));
+    return `${settings.qrIban}|${currentInvoice.clientName}|${currentInvoice.clientAddress}|${currentInvoice.id}|${itemsHash}|${settings.qrCreditorName}|${settings.qrCreditorAddress}|${settings.qrCreditorZip}|${settings.qrCreditorCity}`;
+  }, [currentInvoice, settings.qrIban, settings.qrCreditorName, settings.qrCreditorAddress, settings.qrCreditorZip, settings.qrCreditorCity]);
+
+  useEffect(() => {
+    if (!currentInvoice || !settings.qrIban) {
+      setQrCodeDataUrl('');
+      return;
+    }
+    const iban = formatIBAN(settings.qrIban);
+    if (!iban || iban.length < 15) {
+      console.warn('[QR-Facture] IBAN trop court ou invalide:', iban);
+      setQrCodeDataUrl('');
+      return;
+    }
+
+    const total = (currentInvoice.items || []).reduce((acc: number, i: any) => acc + Number(i.price || 0) * Number(i.qty || 1), 0);
+    if (total <= 0) {
+      console.warn('[QR-Facture] Montant total <= 0, QR non généré');
+      setQrCodeDataUrl('');
+      return;
+    }
+
+    console.log('[QR-Facture] Génération QR pour montant:', total, 'IBAN:', iban);
+
+    // Parse debtor from invoice
+    const debtorLines = (currentInvoice.clientAddress || '').split('\n').map((l: string) => l.trim()).filter(Boolean);
+    const debtorAddress = debtorLines[0] || '';
+    const debtorZipCity = debtorLines[1] || '';
+    const zipMatch = debtorZipCity.match(/^(\d{4,5})\s+(.+)$/);
+    const debtorZip = zipMatch ? zipMatch[1] : '';
+    const debtorCity = zipMatch ? zipMatch[2] : debtorZipCity;
+
+    const payload = generateSwissQRPayload({
+      iban: iban,
+      creditorName: settings.qrCreditorName || settings.companyName || '',
+      creditorAddress: settings.qrCreditorAddress || '',
+      creditorZip: settings.qrCreditorZip || '',
+      creditorCity: settings.qrCreditorCity || '',
+      creditorCountry: settings.qrCreditorCountry || 'CH',
+      amount: total,
+      currency: 'CHF',
+      debtorName: currentInvoice.clientName || '',
+      debtorAddress: debtorAddress,
+      debtorZip: debtorZip,
+      debtorCity: debtorCity,
+      debtorCountry: 'CH',
+      additionalInfo: `Facture ${currentInvoice.id || ''}`.trim(),
+    });
+
+    console.log('[QR-Facture] Payload SPC généré, chargement librairie QR...');
+
+    generateQRCodeDataURL(payload)
+      .then(url => {
+        console.log('[QR-Facture] ✅ QR code data URL généré avec succès');
+        setQrCodeDataUrl(url);
+      })
+      .catch(err => {
+        console.error('[QR-Facture] ❌ Erreur génération QR code:', err);
+        setQrCodeDataUrl('');
+      });
+  }, [qrDepsKey]);
+
   const [currentSimulation, setCurrentSimulation] = useState<any>(null);
   const [contactFilterType, setContactFilterType] = useState('all');
 
@@ -1121,8 +1327,14 @@ export default function App() {
       address: (fd.get('address') as string) || settings.address, 
       email: (fd.get('email') as string) || settings.email, 
       phone: (fd.get('phone') as string) || settings.phone, 
-      bankDetails: (fd.get('bankDetails') as string) || settings.bankDetails, 
-      invoiceFooter: (fd.get('invoiceFooter') as string) || settings.invoiceFooter, 
+      bankDetails: (fd.get('bankDetails') as string) || settings.bankDetails,
+      qrIban: (fd.get('qrIban') as string) ?? settings.qrIban,
+      qrCreditorName: (fd.get('qrCreditorName') as string) ?? settings.qrCreditorName,
+      qrCreditorAddress: (fd.get('qrCreditorAddress') as string) ?? settings.qrCreditorAddress,
+      qrCreditorZip: (fd.get('qrCreditorZip') as string) ?? settings.qrCreditorZip,
+      qrCreditorCity: (fd.get('qrCreditorCity') as string) ?? settings.qrCreditorCity,
+      qrCreditorCountry: (fd.get('qrCreditorCountry') as string) || settings.qrCreditorCountry || 'CH',
+      invoiceFooter: (fd.get('invoiceFooter') as string) || settings.invoiceFooter,
       legalNotice: (fd.get('legalNotice') as string) || settings.legalNotice, 
       monthlyGoal: Number(fd.get('monthlyGoal')) || settings.monthlyGoal, 
       webhookUrl: (fd.get('webhookUrl') as string) || settings.webhookUrl, 
@@ -1297,20 +1509,23 @@ export default function App() {
                 });
                 cleanBase64 = rawPdfBase64.includes('base64,') ? rawPdfBase64.substring(rawPdfBase64.indexOf('base64,') + 7) : rawPdfBase64;
 
-                // Remettre le contrat, cacher la facture, pour capturer le contrat seul
+                // Remettre le contrat, cacher la facture + QR bill, pour capturer le contrat seul
                 if (contractEl) {
                     contractEl.style.display = 'flex';
                     const invoicePage1 = element.querySelector('.invoice-page-1') as HTMLElement;
+                    const qrBillPage = element.querySelector('.qr-bill-page') as HTMLElement;
                     if (invoicePage1) invoicePage1.style.display = 'none';
+                    if (qrBillPage) qrBillPage.style.display = 'none';
 
                     const optCont = getPdfOptions(`Contrat_${currentInvoice?.id}.pdf`);
                     const rawContBase64: any = await new Promise((resolve) => {
                         html2pdf().set(optCont).from(element).toPdf().get('pdf').then((pdf: any) => resolve(pdf.output('datauristring')));
                     });
                     contractBase64 = rawContBase64.includes('base64,') ? rawContBase64.substring(rawContBase64.indexOf('base64,') + 7) : rawContBase64;
-                    
-                    // Réafficher la facture
+
+                    // Réafficher la facture et le QR bill
                     if (invoicePage1) invoicePage1.style.display = 'flex';
+                    if (qrBillPage) qrBillPage.style.display = 'block';
                 }
             } else {
                 const opt = getPdfOptions(`Facture_${currentInvoice?.id}.pdf`);
@@ -4065,6 +4280,23 @@ function pushKpiToCrmDaily() {
                   <form onSubmit={handleSaveSettings} className="space-y-6 animate-fade-in">
                       <h3 className="font-extrabold text-xl mb-6 font-poppins border-b border-slate-100 pb-4 text-slate-800 flex items-center gap-2"><FileText size={22} className="text-[#01189B]"/> Personnalisation Facture</h3>
                       <div><label className={UI_CLASSES.label}>Coordonnées Bancaires (IBAN, BIC, etc.)</label><textarea name="bankDetails" defaultValue={settings.bankDetails} className={`${UI_CLASSES.input} h-24 resize-none`} placeholder="Banque XYZ&#10;IBAN: CH...&#10;BIC: ..." /></div>
+
+                      {/* --- QR-FACTURE SUISSE --- */}
+                      <div className="border-2 border-slate-100 rounded-2xl p-5 space-y-4 bg-slate-50/50">
+                          <h4 className="font-extrabold text-sm text-slate-700 flex items-center gap-2 uppercase tracking-widest"><span className="text-lg">🇨🇭</span> QR-Facture (Bulletin de versement QR)</h4>
+                          <p className="text-[10px] text-slate-500 -mt-2">Ces informations sont utilisées pour générer le bulletin de versement QR conforme aux normes SIX sur chaque facture.</p>
+                          <div><label className={UI_CLASSES.label}>IBAN (format CH)</label><input name="qrIban" defaultValue={settings.qrIban || ''} className={UI_CLASSES.input} placeholder="CH93 0076 2011 6238 5295 7" /></div>
+                          <div className="grid grid-cols-2 gap-4">
+                              <div><label className={UI_CLASSES.label}>Nom / Raison sociale du créancier</label><input name="qrCreditorName" defaultValue={settings.qrCreditorName || ''} className={UI_CLASSES.input} placeholder="LeadPartner Sàrl" /></div>
+                              <div><label className={UI_CLASSES.label}>Adresse (Rue + N°)</label><input name="qrCreditorAddress" defaultValue={settings.qrCreditorAddress || ''} className={UI_CLASSES.input} placeholder="Rue de la Gare 12" /></div>
+                          </div>
+                          <div className="grid grid-cols-3 gap-4">
+                              <div><label className={UI_CLASSES.label}>NPA</label><input name="qrCreditorZip" defaultValue={settings.qrCreditorZip || ''} className={UI_CLASSES.input} placeholder="1201" /></div>
+                              <div><label className={UI_CLASSES.label}>Ville</label><input name="qrCreditorCity" defaultValue={settings.qrCreditorCity || ''} className={UI_CLASSES.input} placeholder="Genève" /></div>
+                              <div><label className={UI_CLASSES.label}>Pays</label><input name="qrCreditorCountry" defaultValue={settings.qrCreditorCountry || 'CH'} className={UI_CLASSES.input} placeholder="CH" maxLength={2} /></div>
+                          </div>
+                      </div>
+
                       <div><label className={UI_CLASSES.label}>Pied de page / Conditions</label><textarea name="invoiceFooter" defaultValue={settings.invoiceFooter} className={`${UI_CLASSES.input} h-20 resize-none`} /></div>
                       <div><label className={UI_CLASSES.label}>Ligne Légale (Bas de page centré)</label><input name="legalNotice" defaultValue={settings.legalNotice || 'Entreprise individuelle non soumise à la TVA'} className={`${UI_CLASSES.input} text-sm`} /></div>
 
@@ -5739,6 +5971,126 @@ function envoyerLead(agent, ligne) {
                                 </div>
                             </div>
                         </div>
+
+                        {/* --- INDICATEUR QR-FACTURE (no-print) --- */}
+                        {settings.qrIban && !qrCodeDataUrl && (
+                            <div className="no-print bg-amber-50 border-2 border-amber-200 rounded-xl p-4 mt-4 mx-auto w-[80%] text-center">
+                                <p className="text-amber-700 font-bold text-sm flex items-center justify-center gap-2">
+                                    <Loader size={16} className="animate-spin" /> Chargement du QR code en cours...
+                                </p>
+                                <p className="text-amber-600 text-xs mt-1">Si ce message persiste, vérifiez l'IBAN dans les paramètres et que la facture a un montant {'>'} 0.</p>
+                            </div>
+                        )}
+
+                        {/* --- PAGE QR-FACTURE SUISSE (BULLETIN DE VERSEMENT QR) --- */}
+                        {settings.qrIban && qrCodeDataUrl && (
+                            <div className="qr-bill-page bg-white w-full h-[297mm] shadow-2xl box-border block mt-8 print:mt-0 relative" style={{ pageBreakBefore: 'always' }}>
+                                {/* Page blanche avec le bulletin QR collé en bas */}
+                                <div className="absolute bottom-0 left-0 w-full" style={{ height: '105mm' }}>
+                                    {/* Ligne de séparation perforée */}
+                                    <div className="w-full border-t-2 border-dashed border-slate-300" style={{ position: 'absolute', top: 0, left: 0 }}></div>
+                                    <div className="flex h-full" style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}>
+
+                                        {/* ═══ RÉCÉPISSÉ (62mm) ═══ */}
+                                        <div className="flex flex-col justify-between border-r border-dashed border-slate-300 box-border" style={{ width: '62mm', padding: '5mm', paddingTop: '7mm' }}>
+                                            <div>
+                                                <p className="font-bold" style={{ fontSize: '11pt', marginBottom: '2mm' }}>Récépissé</p>
+
+                                                <p className="font-bold" style={{ fontSize: '6pt', marginBottom: '1mm' }}>Compte / Payable à</p>
+                                                <p style={{ fontSize: '8pt', lineHeight: '1.3', marginBottom: '2mm' }}>
+                                                    {formatIBAN(settings.qrIban).replace(/(.{4})/g, '$1 ').trim()}<br/>
+                                                    {settings.qrCreditorName || settings.companyName}<br/>
+                                                    {settings.qrCreditorAddress && <>{settings.qrCreditorAddress}<br/></>}
+                                                    {settings.qrCreditorZip} {settings.qrCreditorCity}
+                                                </p>
+
+                                                {currentInvoice.clientName && (
+                                                    <>
+                                                        <p className="font-bold" style={{ fontSize: '6pt', marginBottom: '1mm' }}>Payable par</p>
+                                                        <p style={{ fontSize: '8pt', lineHeight: '1.3', marginBottom: '2mm' }}>
+                                                            {currentInvoice.clientName}
+                                                            {currentInvoice.clientAddress && <><br/>{currentInvoice.clientAddress.split('\n').map((l: string, i: number) => <span key={i}>{l}<br/></span>)}</>}
+                                                        </p>
+                                                    </>
+                                                )}
+                                            </div>
+
+                                            <div>
+                                                <p className="font-bold" style={{ fontSize: '6pt', marginBottom: '1mm' }}>Monnaie</p>
+                                                <div className="flex gap-4" style={{ fontSize: '8pt' }}>
+                                                    <div><span>CHF</span></div>
+                                                    <div><span className="font-bold">{((currentInvoice.items || []).reduce((acc: number, i: any) => acc + Number(i.price) * (i.qty || 1), 0)).toFixed(2)}</span></div>
+                                                </div>
+
+                                                <p className="font-bold" style={{ fontSize: '6pt', marginTop: '3mm', marginBottom: '1mm' }}>Point de dépôt</p>
+                                            </div>
+                                        </div>
+
+                                        {/* ═══ SECTION PAIEMENT (148mm) ═══ */}
+                                        <div className="flex flex-col justify-between box-border" style={{ width: '148mm', padding: '5mm', paddingTop: '7mm' }}>
+                                            <div>
+                                                <p className="font-bold" style={{ fontSize: '11pt', marginBottom: '4mm' }}>Section paiement</p>
+
+                                                <div className="flex gap-6">
+                                                    {/* QR Code */}
+                                                    <div style={{ width: '46mm', height: '46mm', flexShrink: 0 }}>
+                                                        <img src={qrCodeDataUrl} alt="Swiss QR Code" style={{ width: '46mm', height: '46mm', imageRendering: 'pixelated' }} />
+                                                        {/* Croix suisse au centre */}
+                                                        <div style={{ position: 'relative', top: '-27mm', left: '19mm', width: '7mm', height: '7mm', backgroundColor: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+                                                            <svg viewBox="0 0 20 20" style={{ width: '7mm', height: '7mm' }}>
+                                                                <rect x="0" y="0" width="20" height="20" fill="black"/>
+                                                                <rect x="1" y="1" width="18" height="18" fill="white"/>
+                                                                <rect x="4" y="8.5" width="12" height="3" fill="black"/>
+                                                                <rect x="8.5" y="4" width="3" height="12" fill="black"/>
+                                                            </svg>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Informations à droite du QR */}
+                                                    <div className="flex-1" style={{ marginTop: '0mm' }}>
+                                                        <p className="font-bold" style={{ fontSize: '7pt', marginBottom: '1mm' }}>Compte / Payable à</p>
+                                                        <p style={{ fontSize: '9pt', lineHeight: '1.4', marginBottom: '3mm' }}>
+                                                            {formatIBAN(settings.qrIban).replace(/(.{4})/g, '$1 ').trim()}<br/>
+                                                            {settings.qrCreditorName || settings.companyName}<br/>
+                                                            {settings.qrCreditorAddress && <>{settings.qrCreditorAddress}<br/></>}
+                                                            {settings.qrCreditorZip} {settings.qrCreditorCity}
+                                                        </p>
+
+                                                        <p className="font-bold" style={{ fontSize: '7pt', marginBottom: '1mm' }}>Informations supplémentaires</p>
+                                                        <p style={{ fontSize: '9pt', lineHeight: '1.4', marginBottom: '3mm' }}>
+                                                            Facture {currentInvoice.id || ''}
+                                                        </p>
+
+                                                        {currentInvoice.clientName && (
+                                                            <>
+                                                                <p className="font-bold" style={{ fontSize: '7pt', marginBottom: '1mm' }}>Payable par</p>
+                                                                <p style={{ fontSize: '9pt', lineHeight: '1.4' }}>
+                                                                    {currentInvoice.clientName}
+                                                                    {currentInvoice.clientAddress && <><br/>{currentInvoice.clientAddress.split('\n').map((l: string, i: number) => <span key={i}>{l}<br/></span>)}</>}
+                                                                </p>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Montant en bas à droite */}
+                                            <div className="flex justify-between items-end" style={{ marginTop: '4mm' }}>
+                                                <div>
+                                                    <p className="font-bold" style={{ fontSize: '7pt', marginBottom: '1mm' }}>Monnaie</p>
+                                                    <p style={{ fontSize: '10pt' }}>CHF</p>
+                                                </div>
+                                                <div>
+                                                    <p className="font-bold" style={{ fontSize: '7pt', marginBottom: '1mm' }}>Montant</p>
+                                                    <p className="font-bold" style={{ fontSize: '10pt' }}>{((currentInvoice.items || []).reduce((acc: number, i: any) => acc + Number(i.price) * (i.qty || 1), 0)).toFixed(2)}</p>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
                         {/* --- PAGE CONTRAT (OPTIONNELLE) --- */}
                         {currentInvoice.includeContract && currentInvoice.contractText && (
