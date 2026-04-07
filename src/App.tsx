@@ -6065,6 +6065,27 @@ function envoyerLead(agent, ligne) {
                         </div>
                     </div>
 
+                    {/* --- QR-Facture toggle --- */}
+                    {settings.qrIban && (
+                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+                        <div className="flex items-center justify-between">
+                            <h4 className="font-bold text-slate-800 text-sm uppercase tracking-wide flex items-center gap-2"><span style={{ fontSize: '16px' }}>🇨🇭</span> QR-Facture</h4>
+                            <div className="flex items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    checked={currentInvoice.includeQR !== false}
+                                    onChange={() => setCurrentInvoice({...currentInvoice, includeQR: currentInvoice.includeQR === false ? true : false})}
+                                    className="w-4 h-4 text-[#01189B] border-slate-300 rounded focus:ring-[#01189B] cursor-pointer"
+                                />
+                                <span className="text-[10px] font-bold uppercase text-slate-400">{currentInvoice.includeQR !== false ? 'Activé' : 'Désactivé'}</span>
+                            </div>
+                        </div>
+                        {currentInvoice.includeQR !== false && (
+                            <p className="text-[10px] text-emerald-600 font-bold mt-2 leading-tight bg-emerald-50 border border-emerald-100 p-2 rounded-lg">Le bulletin QR sera ajouté en page 2 du PDF avec vos coordonnées bancaires et le montant de la facture.</p>
+                        )}
+                    </div>
+                    )}
+
                     <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
                         <div className="flex items-center justify-between mb-3">
                             <h4 className="font-bold text-slate-800 text-sm uppercase tracking-wide flex items-center gap-2"><FileText size={16} style={{ color: BRAND_COLOR }}/> Contrat Associé</h4>
@@ -6243,7 +6264,7 @@ function envoyerLead(agent, ligne) {
                         </div>
 
                         {/* --- INDICATEUR QR-FACTURE (no-print) --- */}
-                        {settings.qrIban && !qrCodeDataUrl && (
+                        {settings.qrIban && !qrCodeDataUrl && currentInvoice.includeQR !== false && (
                             <div className="no-print bg-amber-50 border-2 border-amber-200 rounded-xl p-4 mt-4 mx-auto w-[80%] text-center">
                                 <p className="text-amber-700 font-bold text-sm flex items-center justify-center gap-2">
                                     <Loader size={16} className="animate-spin" /> Chargement du QR code en cours...
@@ -6254,7 +6275,7 @@ function envoyerLead(agent, ligne) {
 
                         {/* --- QR-FACTURE SUISSE (BULLETIN DE VERSEMENT QR) --- */}
                         {/* Bloc 105mm collé sur page 2 sans page blanche, avec marge de sécurité anti-coupure */}
-                        {settings.qrIban && qrCodeDataUrl && (
+                        {settings.qrIban && qrCodeDataUrl && currentInvoice.includeQR !== false && (
                             <div className="qr-bill-page bg-white w-full shadow-2xl box-border block mt-8 print:mt-0" style={{ pageBreakBefore: 'always', pageBreakInside: 'avoid', height: '105mm', overflow: 'hidden' }}>
                                 {/* Ligne de séparation perforée (haut du bulletin) */}
                                 <div style={{ width: '100%', borderTop: '1.5px dashed #aaa', marginBottom: '0' }}></div>
