@@ -307,28 +307,27 @@ const _drawSwissCross = (dataUrl: string): Promise<string> => {
       ctx.drawImage(img, 0, 0);
 
       const s = img.width;
-      const crossSize = Math.round(s * 0.15); // ~15% de la taille du QR
+      // Taille conforme Swiss QR : la croix fait ~26% du QR code
+      const crossSize = Math.round(s * 0.26);
       const cx = Math.round(s / 2);
       const cy = Math.round(s / 2);
       const half = Math.round(crossSize / 2);
-      const border = Math.round(crossSize * 0.06);
-      const armW = Math.round(crossSize * 0.22);
-      const armH = Math.round(crossSize * 0.65);
+      const border = Math.max(2, Math.round(crossSize * 0.07));
+      // Bras de la croix : épaisseur ~30% de crossSize, longueur ~75%
+      const armW = Math.round(crossSize * 0.30);
+      const armH = Math.round(crossSize * 0.73);
 
-      // Fond blanc (efface les modules QR au centre)
+      // 1. Grand fond blanc (efface les modules QR autour de la croix)
+      const whitePad = Math.round(crossSize * 0.12);
       ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(cx - half - 2, cy - half - 2, crossSize + 4, crossSize + 4);
+      ctx.fillRect(cx - half - whitePad, cy - half - whitePad, crossSize + whitePad * 2, crossSize + whitePad * 2);
 
-      // Carré noir extérieur
+      // 2. Carré noir (fond de la croix)
       ctx.fillStyle = '#000000';
       ctx.fillRect(cx - half, cy - half, crossSize, crossSize);
 
-      // Carré blanc intérieur
+      // 3. Croix blanche au centre
       ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(cx - half + border, cy - half + border, crossSize - border * 2, crossSize - border * 2);
-
-      // Croix noire (barre horizontale + barre verticale)
-      ctx.fillStyle = '#000000';
       const armHalfW = Math.round(armW / 2);
       const armHalfH = Math.round(armH / 2);
       // Barre horizontale
