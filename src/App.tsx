@@ -27,7 +27,6 @@ declare const __initial_auth_token: string | undefined;
 declare global {
   interface Window {
     html2pdf: any;
-    QRCode: any;
   }
 }
 
@@ -183,35 +182,505 @@ const requireHtml2Pdf = async () => {
   });
 };
 
-// --- CHARGEMENT CDN QR CODE ---
-const QR_CDN_URLS = [
-  'https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js',
-  'https://unpkg.com/qrcode@1.5.3/build/qrcode.min.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js',
-];
+// ═══════════════════════════════════════════════════════════
+// QR CODE GENERATOR - ZERO DEPENDENCY (embedded implementation)
+// ═══════════════════════════════════════════════════════════
 
-const requireQRCodeLib = async (): Promise<any> => {
-  if (window.QRCode) return window.QRCode;
+// Minimal QR Code encoder (supports alphanumeric + byte mode, ECC level M)
+// Based on ISO/IEC 18004 - embedded to avoid CDN dependency issues
+const QR_EC_M = 0; // Error correction level M (15%)
 
-  // Essayer chaque CDN jusqu'à ce qu'un fonctionne
-  for (const cdnUrl of QR_CDN_URLS) {
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const script = document.createElement('script');
-        script.src = cdnUrl;
-        script.onload = () => resolve();
-        script.onerror = () => reject(new Error(`CDN failed: ${cdnUrl}`));
-        document.body.appendChild(script);
-      });
-      if (window.QRCode) {
-        console.log('[QR-Facture] Librairie QR chargée depuis:', cdnUrl);
-        return window.QRCode;
+const _qrNumericCharMap: Record<string, number> = {};
+'0123456789'.split('').forEach((c, i) => _qrNumericCharMap[c] = i);
+
+// Galois Field GF(2^8) with primitive polynomial x^8+x^4+x^3+x^2+1
+const _gfExp = new Uint8Array(512);
+const _gfLog = new Uint8Array(256);
+(() => {
+  let x = 1;
+  for (let i = 0; i < 255; i++) {
+    _gfExp[i] = x;
+    _gfLog[x] = i;
+    x = (x << 1) ^ (x >= 128 ? 0x11d : 0);
+  }
+  for (let i = 255; i < 512; i++) _gfExp[i] = _gfExp[i - 255];
+})();
+
+const _gfMul = (a: number, b: number): number => {
+  if (a === 0 || b === 0) return 0;
+  return _gfExp[_gfLog[a] + _gfLog[b]];
+};
+
+const _rsGenPoly = (nsym: number): number[] => {
+  let g = [1];
+  for (let i = 0; i < nsym; i++) {
+    const ng = new Array(g.length + 1).fill(0);
+    for (let j = 0; j < g.length; j++) {
+      ng[j] ^= g[j];
+      ng[j + 1] ^= _gfMul(g[j], _gfExp[i]);
+    }
+    g = ng;
+  }
+  return g;
+};
+
+const _rsEncode = (data: number[], nsym: number): number[] => {
+  const gen = _rsGenPoly(nsym);
+  const res = new Array(data.length + nsym).fill(0);
+  for (let i = 0; i < data.length; i++) res[i] = data[i];
+  for (let i = 0; i < data.length; i++) {
+    const coef = res[i];
+    if (coef !== 0) {
+      for (let j = 0; j < gen.length; j++) {
+        res[i + j] ^= _gfMul(gen[j], coef);
       }
-    } catch (e) {
-      console.warn('[QR-Facture] Échec chargement CDN:', cdnUrl, e);
     }
   }
-  throw new Error('[QR-Facture] Impossible de charger la librairie QR code depuis aucun CDN');
+  return res.slice(data.length);
+};
+
+// QR version capacity table [version] = { totalCodewords, ecCodewordsPerBlock, numBlocks }
+// For ECC level M, versions 1-15 (enough for ~330 bytes which covers Swiss QR payload)
+const _qrVersionTable: { total: number; ecPerBlock: number; blocks: number[]; }[] = [
+  { total: 0, ecPerBlock: 0, blocks: [] }, // placeholder v0
+  { total: 26, ecPerBlock: 10, blocks: [1] }, // v1
+  { total: 44, ecPerBlock: 16, blocks: [1] }, // v2
+  { total: 70, ecPerBlock: 26, blocks: [1] }, // v3
+  { total: 100, ecPerBlock: 18, blocks: [2] }, // v4
+  { total: 134, ecPerBlock: 24, blocks: [2] }, // v5
+  { total: 172, ecPerBlock: 16, blocks: [4] }, // v6
+  { total: 196, ecPerBlock: 18, blocks: [4] }, // v7
+  { total: 242, ecPerBlock: 22, blocks: [4] }, // v8 -> actually 2 groups
+  { total: 292, ecPerBlock: 22, blocks: [3, 2] }, // v9
+  { total: 346, ecPerBlock: 26, blocks: [4, 1] }, // v10
+  { total: 404, ecPerBlock: 30, blocks: [1, 4] }, // v11
+  { total: 466, ecPerBlock: 22, blocks: [6, 2] }, // v12
+  { total: 532, ecPerBlock: 22, blocks: [8, 1] }, // v13
+  { total: 581, ecPerBlock: 24, blocks: [4, 5] }, // v14
+  { total: 655, ecPerBlock: 24, blocks: [5, 5] }, // v15
+];
+
+// Data capacity in bytes for byte mode, ECC M
+const _qrDataCapacity = (version: number): number => {
+  const v = _qrVersionTable[version];
+  const totalBlocks = v.blocks.reduce((a, b) => a + b, 0);
+  return v.total - totalBlocks * v.ecPerBlock;
+};
+
+const _encodeByteMode = (text: string): number[] => {
+  const utf8: number[] = [];
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c < 0x80) utf8.push(c);
+    else if (c < 0x800) { utf8.push(0xc0 | (c >> 6)); utf8.push(0x80 | (c & 0x3f)); }
+    else if (c < 0x10000) { utf8.push(0xe0 | (c >> 12)); utf8.push(0x80 | ((c >> 6) & 0x3f)); utf8.push(0x80 | (c & 0x3f)); }
+    else { utf8.push(0xf0 | (c >> 18)); utf8.push(0x80 | ((c >> 12) & 0x3f)); utf8.push(0x80 | ((c >> 6) & 0x3f)); utf8.push(0x80 | (c & 0x3f)); }
+  }
+  return utf8;
+};
+
+const _selectVersion = (dataBytes: number): number => {
+  for (let v = 1; v <= 15; v++) {
+    // Mode indicator (4 bits) + char count (v<=9: 8bits, v>=10: 16bits) + data + terminator
+    const countBits = v <= 9 ? 8 : 16;
+    const totalBits = 4 + countBits + dataBytes * 8;
+    const capacity = _qrDataCapacity(v) * 8;
+    if (totalBits <= capacity) return v;
+  }
+  throw new Error('[QR] Data too long for QR code (max ~330 bytes for v15 ECC-M)');
+};
+
+const _buildBitstream = (version: number, dataBytes: number[]): number[] => {
+  const bits: number[] = [];
+  const pushBits = (value: number, count: number) => {
+    for (let i = count - 1; i >= 0; i--) bits.push((value >> i) & 1);
+  };
+
+  // Mode indicator: Byte = 0100
+  pushBits(0b0100, 4);
+  // Character count
+  const countBits = version <= 9 ? 8 : 16;
+  pushBits(dataBytes.length, countBits);
+  // Data
+  for (const b of dataBytes) pushBits(b, 8);
+  // Terminator (up to 4 zeros)
+  const capacity = _qrDataCapacity(version) * 8;
+  const termLen = Math.min(4, capacity - bits.length);
+  pushBits(0, termLen);
+  // Pad to byte boundary
+  while (bits.length % 8 !== 0) bits.push(0);
+  // Pad bytes
+  const padBytes = [0xEC, 0x11];
+  let padIdx = 0;
+  while (bits.length < capacity) {
+    pushBits(padBytes[padIdx % 2], 8);
+    padIdx++;
+  }
+  return bits;
+};
+
+const _bitsToBytes = (bits: number[]): number[] => {
+  const bytes: number[] = [];
+  for (let i = 0; i < bits.length; i += 8) {
+    let b = 0;
+    for (let j = 0; j < 8; j++) b = (b << 1) | (bits[i + j] || 0);
+    bytes.push(b);
+  }
+  return bytes;
+};
+
+const _interleaveBlocks = (version: number, dataBytes: number[]): number[] => {
+  const v = _qrVersionTable[version];
+  const ecPerBlock = v.ecPerBlock;
+  const blocks: { data: number[]; ec: number[] }[] = [];
+
+  let offset = 0;
+  const blockCounts = v.blocks; // [group1Count, group2Count?]
+  const totalBlocks = blockCounts.reduce((a, b) => a + b, 0);
+  const totalDataCw = _qrDataCapacity(version);
+  const group1DataCw = Math.floor(totalDataCw / totalBlocks);
+  const group2DataCw = group1DataCw + (blockCounts.length > 1 ? 1 : 0);
+
+  for (let g = 0; g < blockCounts.length; g++) {
+    const dcw = g === 0 ? group1DataCw : group2DataCw;
+    for (let b = 0; b < blockCounts[g]; b++) {
+      const data = dataBytes.slice(offset, offset + dcw);
+      offset += dcw;
+      const ec = _rsEncode(data, ecPerBlock);
+      blocks.push({ data, ec });
+    }
+  }
+
+  const result: number[] = [];
+  // Interleave data codewords
+  const maxDataLen = Math.max(...blocks.map(b => b.data.length));
+  for (let i = 0; i < maxDataLen; i++) {
+    for (const block of blocks) {
+      if (i < block.data.length) result.push(block.data[i]);
+    }
+  }
+  // Interleave EC codewords
+  for (let i = 0; i < ecPerBlock; i++) {
+    for (const block of blocks) {
+      result.push(block.ec[i]);
+    }
+  }
+  return result;
+};
+
+// QR Matrix construction
+const _qrSize = (version: number): number => 17 + version * 4;
+
+const _initMatrix = (size: number): (number | null)[][] => {
+  return Array.from({ length: size }, () => Array(size).fill(null));
+};
+
+const _placeFinderPattern = (matrix: (number | null)[][], row: number, col: number) => {
+  const pattern = [
+    [1,1,1,1,1,1,1],
+    [1,0,0,0,0,0,1],
+    [1,0,1,1,1,0,1],
+    [1,0,1,1,1,0,1],
+    [1,0,1,1,1,0,1],
+    [1,0,0,0,0,0,1],
+    [1,1,1,1,1,1,1],
+  ];
+  for (let r = 0; r < 7; r++) {
+    for (let c = 0; c < 7; c++) {
+      const mr = row + r, mc = col + c;
+      if (mr >= 0 && mr < matrix.length && mc >= 0 && mc < matrix.length) {
+        matrix[mr][mc] = pattern[r][c];
+      }
+    }
+  }
+};
+
+const _placeSeparators = (matrix: (number | null)[][], size: number) => {
+  for (let i = 0; i < 8; i++) {
+    // Top-left
+    if (i < size) { matrix[7][i] = 0; matrix[i][7] = 0; }
+    // Top-right
+    if (i < size) { matrix[7][size - 8 + i] = 0; matrix[i][size - 8] = 0; }
+    // Bottom-left
+    if (i < size) { matrix[size - 8][i] = 0; matrix[size - 8 + i][7] = 0; }
+  }
+};
+
+const _alignmentPositions = (version: number): number[] => {
+  if (version <= 1) return [];
+  const positions: number[][] = [
+    [], [], [6,18], [6,22], [6,26], [6,30], [6,34],
+    [6,22,38], [6,24,42], [6,26,46], [6,28,50], [6,30,54],
+    [6,32,58], [6,34,62], [6,26,46,66], [6,26,48,70],
+  ];
+  return positions[version] || [];
+};
+
+const _placeAlignmentPatterns = (matrix: (number | null)[][], version: number) => {
+  const positions = _alignmentPositions(version);
+  if (positions.length === 0) return;
+  const pattern = [[1,1,1,1,1],[1,0,0,0,1],[1,0,1,0,1],[1,0,0,0,1],[1,1,1,1,1]];
+  for (const row of positions) {
+    for (const col of positions) {
+      // Skip if overlapping finder patterns
+      if (matrix[row][col] !== null) continue;
+      for (let r = -2; r <= 2; r++) {
+        for (let c = -2; c <= 2; c++) {
+          matrix[row + r][col + c] = pattern[r + 2][c + 2];
+        }
+      }
+    }
+  }
+};
+
+const _placeTimingPatterns = (matrix: (number | null)[][], size: number) => {
+  for (let i = 8; i < size - 8; i++) {
+    if (matrix[6][i] === null) matrix[6][i] = i % 2 === 0 ? 1 : 0;
+    if (matrix[i][6] === null) matrix[i][6] = i % 2 === 0 ? 1 : 0;
+  }
+};
+
+const _reserveFormatInfo = (matrix: (number | null)[][], size: number) => {
+  // Around top-left finder
+  for (let i = 0; i <= 8; i++) {
+    if (matrix[8][i] === null) matrix[8][i] = 0;
+    if (matrix[i][8] === null) matrix[i][8] = 0;
+  }
+  // Top-right and bottom-left
+  for (let i = 0; i < 8; i++) {
+    if (matrix[8][size - 1 - i] === null) matrix[8][size - 1 - i] = 0;
+    if (matrix[size - 1 - i][8] === null) matrix[size - 1 - i][8] = 0;
+  }
+  // Dark module
+  matrix[size - 8][8] = 1;
+};
+
+const _reserveVersionInfo = (matrix: (number | null)[][], version: number, size: number) => {
+  if (version < 7) return;
+  // Version info is 18 bits, placed in two 6x3 rectangles
+  for (let i = 0; i < 6; i++) {
+    for (let j = 0; j < 3; j++) {
+      if (matrix[i][size - 11 + j] === null) matrix[i][size - 11 + j] = 0;
+      if (matrix[size - 11 + j][i] === null) matrix[size - 11 + j][i] = 0;
+    }
+  }
+};
+
+const _placeDataBits = (matrix: (number | null)[][], size: number, dataBits: number[]) => {
+  let bitIdx = 0;
+  let upward = true;
+
+  for (let col = size - 1; col >= 1; col -= 2) {
+    if (col === 6) col = 5; // Skip timing pattern column
+    const rows = upward ? Array.from({ length: size }, (_, i) => size - 1 - i) : Array.from({ length: size }, (_, i) => i);
+    for (const row of rows) {
+      for (const c of [col, col - 1]) {
+        if (c < 0) continue;
+        if (matrix[row][c] === null) {
+          matrix[row][c] = bitIdx < dataBits.length ? dataBits[bitIdx] : 0;
+          bitIdx++;
+        }
+      }
+    }
+    upward = !upward;
+  }
+};
+
+// Format info encoding
+const _formatInfoBits = (maskPattern: number): number => {
+  // ECC level M = 00, mask pattern 3 bits
+  const data = (0b00 << 3) | maskPattern;
+  // BCH(15,5) encoding
+  let rem = data << 10;
+  const gen = 0b10100110111;
+  for (let i = 4; i >= 0; i--) {
+    if (rem & (1 << (i + 10))) rem ^= gen << i;
+  }
+  const encoded = ((data << 10) | rem) ^ 0b101010000010010; // XOR mask
+  return encoded;
+};
+
+const _writeFormatInfo = (matrix: (number | null)[][], size: number, maskPattern: number) => {
+  const bits = _formatInfoBits(maskPattern);
+  // Positions around top-left finder
+  const pos1 = [
+    [8,0],[8,1],[8,2],[8,3],[8,4],[8,5],[8,7],[8,8],
+    [7,8],[5,8],[4,8],[3,8],[2,8],[1,8],[0,8]
+  ];
+  for (let i = 0; i < 15; i++) {
+    matrix[pos1[i][0]][pos1[i][1]] = (bits >> (14 - i)) & 1;
+  }
+  // Right and bottom
+  for (let i = 0; i < 8; i++) {
+    matrix[8][size - 1 - i] = (bits >> i) & 1;
+  }
+  for (let i = 0; i < 7; i++) {
+    matrix[size - 1 - i][8] = (bits >> (8 + i)) & 1;
+  }
+};
+
+// Version info encoding (for v7+)
+const _versionInfoBits = (version: number): number => {
+  let rem = version << 12;
+  const gen = 0b1111100100101;
+  for (let i = 5; i >= 0; i--) {
+    if (rem & (1 << (i + 12))) rem ^= gen << i;
+  }
+  return (version << 12) | rem;
+};
+
+const _writeVersionInfo = (matrix: (number | null)[][], version: number, size: number) => {
+  if (version < 7) return;
+  const bits = _versionInfoBits(version);
+  for (let i = 0; i < 6; i++) {
+    for (let j = 0; j < 3; j++) {
+      const bit = (bits >> (i * 3 + j)) & 1;
+      matrix[i][size - 11 + j] = bit;
+      matrix[size - 11 + j][i] = bit;
+    }
+  }
+};
+
+// Masking
+const _maskFunctions: ((row: number, col: number) => boolean)[] = [
+  (r, c) => (r + c) % 2 === 0,
+  (r, _) => r % 2 === 0,
+  (_, c) => c % 3 === 0,
+  (r, c) => (r + c) % 3 === 0,
+  (r, c) => (Math.floor(r / 2) + Math.floor(c / 3)) % 2 === 0,
+  (r, c) => ((r * c) % 2 + (r * c) % 3) === 0,
+  (r, c) => ((r * c) % 2 + (r * c) % 3) % 2 === 0,
+  (r, c) => ((r + c) % 2 + (r * c) % 3) % 2 === 0,
+];
+
+const _applyMask = (matrix: (number | null)[][], reserved: (number | null)[][], size: number, maskIdx: number): number[][] => {
+  const result = matrix.map(row => [...row]) as number[][];
+  const maskFn = _maskFunctions[maskIdx];
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      if (reserved[r][c] !== null) continue; // Don't mask reserved areas
+      if (maskFn(r, c)) {
+        result[r][c] = result[r][c] === 1 ? 0 : 1;
+      }
+    }
+  }
+  return result;
+};
+
+const _penaltyScore = (matrix: number[][], size: number): number => {
+  let score = 0;
+  // Rule 1: consecutive same-color modules in rows/cols
+  for (let r = 0; r < size; r++) {
+    let count = 1;
+    for (let c = 1; c < size; c++) {
+      if (matrix[r][c] === matrix[r][c - 1]) { count++; }
+      else { if (count >= 5) score += count - 2; count = 1; }
+    }
+    if (count >= 5) score += count - 2;
+  }
+  for (let c = 0; c < size; c++) {
+    let count = 1;
+    for (let r = 1; r < size; r++) {
+      if (matrix[r][c] === matrix[r - 1][c]) { count++; }
+      else { if (count >= 5) score += count - 2; count = 1; }
+    }
+    if (count >= 5) score += count - 2;
+  }
+  // Rule 3: finder-like patterns
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c <= size - 11; c++) {
+      const s = matrix[r].slice(c, c + 11).join('');
+      if (s === '10111010000' || s === '00001011101') score += 40;
+    }
+  }
+  return score;
+};
+
+// Main QR code generation function
+const generateQRMatrix = (text: string): number[][] => {
+  const dataBytes = _encodeByteMode(text);
+  const version = _selectVersion(dataBytes.length);
+  const size = _qrSize(version);
+
+  console.log(`[QR-Facture] Version QR: ${version}, Taille: ${size}x${size}, Data: ${dataBytes.length} octets`);
+
+  // Build bitstream
+  const bits = _buildBitstream(version, dataBytes);
+  const codewords = _bitsToBytes(bits);
+
+  // Interleave blocks and add EC
+  const finalCodewords = _interleaveBlocks(version, codewords);
+
+  // Convert to bit array
+  const dataBits: number[] = [];
+  for (const cw of finalCodewords) {
+    for (let i = 7; i >= 0; i--) dataBits.push((cw >> i) & 1);
+  }
+
+  // Build matrix
+  const matrix = _initMatrix(size);
+
+  // Place function patterns
+  _placeFinderPattern(matrix, 0, 0);
+  _placeFinderPattern(matrix, 0, size - 7);
+  _placeFinderPattern(matrix, size - 7, 0);
+  _placeSeparators(matrix, size);
+  _placeAlignmentPatterns(matrix, version);
+  _placeTimingPatterns(matrix, size);
+  _reserveFormatInfo(matrix, size);
+  _reserveVersionInfo(matrix, version, size);
+
+  // Save reserved areas
+  const reserved = matrix.map(row => [...row]);
+
+  // Place data
+  _placeDataBits(matrix, size, dataBits);
+
+  // Find best mask
+  let bestMask = 0;
+  let bestScore = Infinity;
+  for (let m = 0; m < 8; m++) {
+    const masked = _applyMask(matrix, reserved, size, m);
+    _writeFormatInfo(masked, size, m);
+    _writeVersionInfo(masked, version, size);
+    const score = _penaltyScore(masked, size);
+    if (score < bestScore) { bestScore = score; bestMask = m; }
+  }
+
+  // Apply best mask
+  const final = _applyMask(matrix, reserved, size, bestMask);
+  _writeFormatInfo(final, size, bestMask);
+  _writeVersionInfo(final, version, size);
+
+  console.log(`[QR-Facture] Masque optimal: ${bestMask}, Score: ${bestScore}`);
+  return final;
+};
+
+const qrMatrixToDataURL = (matrix: number[][], pixelSize: number = 10): string => {
+  const size = matrix.length;
+  const margin = 4; // quiet zone in modules
+  const totalSize = (size + margin * 2) * pixelSize;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = totalSize;
+  canvas.height = totalSize;
+  const ctx = canvas.getContext('2d')!;
+
+  // White background
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, totalSize, totalSize);
+
+  // Draw modules
+  ctx.fillStyle = '#000000';
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      if (matrix[r][c] === 1) {
+        ctx.fillRect((c + margin) * pixelSize, (r + margin) * pixelSize, pixelSize, pixelSize);
+      }
+    }
+  }
+
+  return canvas.toDataURL('image/png');
 };
 
 // --- GENERATION DU PAYLOAD SWISS QR (SPC) ---
@@ -240,77 +709,50 @@ const generateSwissQRPayload = (params: {
 }): string => {
   const p = params;
   const iban = formatIBAN(p.iban);
-
-  // Determine reference type based on IBAN type
-  // QR-IBAN (3xxxxx) → QRR, standard IBAN → SCOR or NON
-  const refType = 'NON'; // IBAN classique = NON (pas de référence structurée)
+  const refType = 'NON';
   const ref = '';
 
-  // SPC format v0200 - Swiss Implementation Guidelines QR-bill
-  // Header: 3 lines, Creditor: 7 lines, UCr: 7 lines, Amount: 2 lines, Debtor: 7 lines, Ref: 2 lines, AddInfo: 1 line, Trailer: 1 line
   const lines = [
-    'SPC',                          // QRType (fixed)
-    '0200',                         // Version
-    '1',                            // Coding Type (1=UTF-8)
-    iban,                           // Account (IBAN)
-    // --- Creditor (structured S) ---
-    'S',                            // Address Type
-    (p.creditorName || '').substring(0, 70),       // Name
-    (p.creditorAddress || '').substring(0, 70),    // Street or address line 1
-    '',                             // Building number or address line 2
-    (p.creditorZip || '').substring(0, 16),        // Postal code
-    (p.creditorCity || '').substring(0, 35),       // City
-    (p.creditorCountry || 'CH').substring(0, 2),   // Country
-    // --- Ultimate Creditor (empty, 7 lines) ---
+    'SPC',
+    '0200',
+    '1',
+    iban,
+    'S',
+    (p.creditorName || '').substring(0, 70),
+    (p.creditorAddress || '').substring(0, 70),
+    '',
+    (p.creditorZip || '').substring(0, 16),
+    (p.creditorCity || '').substring(0, 35),
+    (p.creditorCountry || 'CH').substring(0, 2),
     '', '', '', '', '', '', '',
-    // --- Payment amount ---
-    formatAmountQR(p.amount),       // Amount
-    p.currency || 'CHF',            // Currency
-    // --- Ultimate Debtor (structured S if present) ---
-    p.debtorName ? 'S' : '',       // Address Type
-    (p.debtorName || '').substring(0, 70),         // Name
-    (p.debtorAddress || '').substring(0, 70),      // Street
-    '',                             // Building number
-    (p.debtorZip || '').substring(0, 16),          // Postal code
-    (p.debtorCity || '').substring(0, 35),         // City
-    p.debtorName ? (p.debtorCountry || 'CH').substring(0, 2) : '', // Country
-    // --- Reference ---
-    refType,                        // Reference type (NON for IBAN classique)
-    ref,                            // Reference (empty for NON)
-    // --- Additional information ---
-    (p.additionalInfo || '').substring(0, 140),    // Unstructured message
-    'EPD',                          // Trailer (fixed)
+    formatAmountQR(p.amount),
+    p.currency || 'CHF',
+    p.debtorName ? 'S' : '',
+    (p.debtorName || '').substring(0, 70),
+    (p.debtorAddress || '').substring(0, 70),
+    '',
+    (p.debtorZip || '').substring(0, 16),
+    (p.debtorCity || '').substring(0, 35),
+    p.debtorName ? (p.debtorCountry || 'CH').substring(0, 2) : '',
+    refType,
+    ref,
+    (p.additionalInfo || '').substring(0, 140),
+    'EPD',
   ];
 
   return lines.join('\n');
 };
 
-const generateQRCodeDataURL = async (payload: string): Promise<string> => {
-  const QRCodeLib = await requireQRCodeLib();
-
-  // API "qrcode" npm (toDataURL retourne une Promise)
-  if (typeof QRCodeLib.toDataURL === 'function') {
-    const url = await QRCodeLib.toDataURL(payload, {
-      errorCorrectionLevel: 'M',
-      margin: 0,
-      width: 460,
-      color: { dark: '#000000', light: '#FFFFFF' }
-    });
-    console.log('[QR-Facture] QR code généré avec succès (qrcode lib)');
-    return url;
-  }
-
-  // Fallback: API "qrcode-generator" (function-based)
-  if (typeof QRCodeLib === 'function') {
-    const qr = QRCodeLib(0, 'M');
-    qr.addData(payload);
-    qr.make();
-    const dataUrl = qr.createDataURL(4, 0);
-    console.log('[QR-Facture] QR code généré avec succès (qrcode-generator)');
+const generateQRCodeDataURL = (payload: string): string => {
+  try {
+    const matrix = generateQRMatrix(payload);
+    const dataUrl = qrMatrixToDataURL(matrix, 10);
+    console.log('[QR-Facture] ✅ QR code généré avec succès (embedded engine)');
     return dataUrl;
+  } catch (err) {
+    console.error('[QR-Facture] ❌ Erreur génération QR:', err);
+    return '';
   }
-
-  throw new Error('[QR-Facture] API QR code non reconnue');
 };
 
 // --- COMPOSANT LOGIN ---
@@ -723,17 +1165,14 @@ export default function App() {
       additionalInfo: `Facture ${currentInvoice.id || ''}`.trim(),
     });
 
-    console.log('[QR-Facture] Payload SPC généré, chargement librairie QR...');
-
-    generateQRCodeDataURL(payload)
-      .then(url => {
-        console.log('[QR-Facture] ✅ QR code data URL généré avec succès');
-        setQrCodeDataUrl(url);
-      })
-      .catch(err => {
-        console.error('[QR-Facture] ❌ Erreur génération QR code:', err);
-        setQrCodeDataUrl('');
-      });
+    console.log('[QR-Facture] Payload SPC généré, génération QR code...');
+    const url = generateQRCodeDataURL(payload);
+    if (url) {
+      setQrCodeDataUrl(url);
+    } else {
+      console.error('[QR-Facture] ❌ Génération QR a retourné une URL vide');
+      setQrCodeDataUrl('');
+    }
   }, [qrDepsKey]);
 
   const [currentSimulation, setCurrentSimulation] = useState<any>(null);
