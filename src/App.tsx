@@ -1708,6 +1708,7 @@ export default function App() {
       const contactAssocie = prospectContact || contacts.find(c => c.id === invoice?.clientId);
       const nomCompletContact = contactAssocie?.name || '';
       const prenomContact = nomCompletContact.split(' ')[0] || '';
+      const adresseClient = contactAssocie?.address || invoice?.clientAddress || '';
 
       // Remplacement des variables dynamiques
       const replaceVars = (str: string) => {
@@ -1718,7 +1719,8 @@ export default function App() {
             .replace(/\{\{client\}\}/g, clientName)
             .replace(/\{\{societe\}\}/g, clientName)
             .replace(/\{\{nom_contact\}\}/g, nomCompletContact)
-            .replace(/\{\{prenom_contact\}\}/g, prenomContact);
+            .replace(/\{\{prenom_contact\}\}/g, prenomContact)
+            .replace(/\{\{adresse_client\}\}/g, adresseClient);
       };
 
       setEmailData((prev: any) => ({ 
@@ -4629,7 +4631,7 @@ function pushKpiToCrmDaily() {
                       <div className="bg-blue-50/50 p-6 rounded-2xl border border-blue-100 mb-6">
                           <p className="text-sm font-bold text-[#01189B] flex items-center gap-2 mb-4"><Info size={18}/> Variables disponibles dans les modèles :</p>
                           <div className="flex flex-wrap gap-3">
-                              {['{{nom_contact}}', '{{prenom_contact}}', '{{societe}}', '{{facture}}', '{{montant}}', '{{agence}}'].map(v => (
+                              {['{{nom_contact}}', '{{prenom_contact}}', '{{societe}}', '{{facture}}', '{{montant}}', '{{agence}}', '{{adresse_client}}'].map(v => (
                                   <span 
                                     key={v} 
                                     onClick={() => {
@@ -4918,7 +4920,6 @@ function pushKpiToCrmDaily() {
             {[
               { id: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard },
               { id: 'contacts', label: 'CRM', icon: Users },
-              { id: 'prospection', label: 'Prospection', icon: Mail },
               { id: 'deliveries', label: 'Suivi Livraisons', icon: Activity },
               { id: 'calendar', label: 'Campagnes', icon: Target },
               { id: 'ponderation', label: 'Pondération', icon: PieChart },
@@ -4989,7 +4990,6 @@ function pushKpiToCrmDaily() {
           {selectedContactId ? renderContactDetail() : selectedCompanyName ? renderCompanyDetail() : (
             <>
               {activeView === 'dashboard' && renderDashboard()}
-              {activeView === 'prospection' && renderProspection()}
               {activeView === 'deliveries' && renderDeliveries()}
               {activeView === 'calendar' && (
                   <div className="max-w-6xl mx-auto animate-fade-in space-y-8 pb-12">
@@ -5642,42 +5642,96 @@ function envoyerLead(agent, ligne) {
                      {displayedContacts.length === 0 ? (
                          <div className="p-20 text-center text-slate-400 font-medium">Aucune entreprise trouvée.</div>
                      ) : (
-                         <div className="space-y-3">
-                            {Object.entries(
-                                displayedContacts.reduce((acc: any, c: any) => {
-                                    const comp = c.company || 'Sans Entreprise';
-                                    if (!acc[comp]) acc[comp] = [];
-                                    acc[comp].push(c);
-                                    return acc;
-                                }, {})
-                            ).map(([companyName, companyContacts]: any) => {
-                                // Find highest status or aggregate CA
-                                const clientInvoices = invoices.filter(inv => inv.clientName === companyName || companyContacts.some((c:any) => c.id === inv.clientId));
-                                const companyNode = companiesData.find((c:any) => c.name === companyName) || {};
-                                const caTotal = clientInvoices.filter(i => i.status === 'payee').reduce((a, b) => a + b.amount, 0) + companyContacts.reduce((a:any, b:any) => a + Number(b.manualCA || 0), 0) + Number(companyNode.manualCA || 0);
-                                const isClient = companyContacts.some((c:any) => c.type === 'client' || c.status === 'gagne');
+                         <div className="space-y-8">
+                            {/* --- SECTION CLIENTS ACTIFS --- */}
+                            {(contactFilterType === 'all' || contactFilterType === 'client') && (
+                                <div>
+                                    {contactFilterType === 'all' && <h3 className="text-lg font-extrabold text-emerald-600 mb-4 flex items-center gap-2"><CheckCircle size={20}/> Clients Actifs</h3>}
+                                    <div className="space-y-3">
+                                        {Object.entries(
+                                            displayedContacts.filter((c: any) => c.type === 'client' || c.status === 'gagne').reduce((acc: any, c: any) => {
+                                                const comp = c.company || 'Sans Entreprise';
+                                                if (!acc[comp]) acc[comp] = [];
+                                                acc[comp].push(c);
+                                                return acc;
+                                            }, {})
+                                        ).map(([companyName, companyContacts]: any) => {
+                                            const clientInvoices = invoices.filter(inv => inv.clientName === companyName || companyContacts.some((c:any) => c.id === inv.clientId));
+                                            const companyNode = companiesData.find((c:any) => c.name === companyName) || {};
+                                            const caTotal = clientInvoices.filter(i => i.status === 'payee').reduce((a, b) => a + b.amount, 0) + companyContacts.reduce((a:any, b:any) => a + Number(b.manualCA || 0), 0) + Number(companyNode.manualCA || 0);
 
-                                return (
-                                    <div key={companyName} onClick={() => setSelectedCompanyName(companyName)} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm hover:border-[#01189B] hover:shadow-md cursor-pointer transition-all group flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                                        <div className="flex items-center gap-4 w-full md:w-1/3">
-                                            <div className="w-12 h-12 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-extrabold text-xl shadow-inner group-hover:scale-105 transition-transform shrink-0">
-                                                {isSecretMode ? '**' : companyName.substring(0, 2).toUpperCase()}
-                                            </div>
-                                            <div className="overflow-hidden">
-                                                <h3 className="font-extrabold text-slate-800 font-poppins text-base leading-tight truncate" title={companyName}>{renderName(companyName)}</h3>
-                                                <span className={`inline-block mt-1 px-2 py-0.5 rounded-md text-[9px] uppercase font-bold tracking-widest ${isClient ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-slate-100 text-slate-600 border border-slate-200'}`}>{isClient ? 'Client' : 'Prospect'}</span>
-                                            </div>
-                                        </div>
-                                        <div className="text-right w-24 md:w-32 md:border-l md:border-slate-100 md:pl-6">
-                                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-0.5">CA Encaissé</p>
-                                            <p className="text-sm font-extrabold text-[#01189B] font-mono">{renderCurrency(caTotal)}</p>
-                                        </div>
-                                        <div className="text-slate-300 group-hover:text-[#01189B] transition-colors hidden md:block ml-2">
-                                            <ArrowRight size={20} />
-                                        </div>
+                                            return (
+                                                <div key={companyName} onClick={() => setSelectedCompanyName(companyName)} className="bg-white p-4 rounded-2xl border-2 border-emerald-100 shadow-sm hover:border-emerald-400 hover:shadow-md cursor-pointer transition-all group flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                                                    <div className="flex items-center gap-4 w-full md:w-1/3">
+                                                        <div className="w-12 h-12 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-extrabold text-xl shadow-inner group-hover:scale-105 transition-transform shrink-0">
+                                                            {isSecretMode ? '**' : companyName.substring(0, 2).toUpperCase()}
+                                                        </div>
+                                                        <div className="overflow-hidden">
+                                                            <h3 className="font-extrabold text-slate-800 font-poppins text-base leading-tight truncate" title={companyName}>{renderName(companyName)}</h3>
+                                                            <span className="inline-block mt-1 px-2 py-0.5 rounded-md text-[9px] uppercase font-bold tracking-widest bg-emerald-50 text-emerald-700 border border-emerald-100">Client Actif</span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-right w-24 md:w-32 md:border-l md:border-slate-100 md:pl-6">
+                                                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-0.5">CA Encaissé</p>
+                                                        <p className="text-sm font-extrabold text-emerald-600 font-mono">{renderCurrency(caTotal)}</p>
+                                                    </div>
+                                                    <div className="text-slate-300 group-hover:text-emerald-600 transition-colors hidden md:block ml-2">
+                                                        <ArrowRight size={20} />
+                                                    </div>
+                                                </div>
+                                            )
+                                        })}
+                                        {displayedContacts.filter((c: any) => c.type === 'client' || c.status === 'gagne').length === 0 && (
+                                            <p className="text-slate-400 italic text-sm p-4 bg-slate-50 rounded-xl">Aucun client actif dans cette vue.</p>
+                                        )}
                                     </div>
-                                )
-                            })}
+                                </div>
+                            )}
+
+                            {/* --- SECTION PROSPECTS --- */}
+                            {(contactFilterType === 'all' || contactFilterType === 'prospect') && (
+                                <div>
+                                    {contactFilterType === 'all' && <h3 className="text-lg font-extrabold text-[#01189B] mb-4 flex items-center gap-2 mt-4"><Target size={20}/> Prospects</h3>}
+                                    <div className="space-y-3">
+                                        {Object.entries(
+                                            displayedContacts.filter((c: any) => c.type !== 'client' && c.status !== 'gagne').reduce((acc: any, c: any) => {
+                                                const comp = c.company || 'Sans Entreprise';
+                                                if (!acc[comp]) acc[comp] = [];
+                                                acc[comp].push(c);
+                                                return acc;
+                                            }, {})
+                                        ).map(([companyName, companyContacts]: any) => {
+                                            const clientInvoices = invoices.filter(inv => inv.clientName === companyName || companyContacts.some((c:any) => c.id === inv.clientId));
+                                            const companyNode = companiesData.find((c:any) => c.name === companyName) || {};
+                                            const caTotal = clientInvoices.filter(i => i.status === 'payee').reduce((a, b) => a + b.amount, 0) + companyContacts.reduce((a:any, b:any) => a + Number(b.manualCA || 0), 0) + Number(companyNode.manualCA || 0);
+
+                                            return (
+                                                <div key={companyName} onClick={() => setSelectedCompanyName(companyName)} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm hover:border-[#01189B] hover:shadow-md cursor-pointer transition-all group flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                                                    <div className="flex items-center gap-4 w-full md:w-1/3">
+                                                        <div className="w-12 h-12 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-extrabold text-xl shadow-inner group-hover:scale-105 transition-transform shrink-0">
+                                                            {isSecretMode ? '**' : companyName.substring(0, 2).toUpperCase()}
+                                                        </div>
+                                                        <div className="overflow-hidden">
+                                                            <h3 className="font-extrabold text-slate-800 font-poppins text-base leading-tight truncate" title={companyName}>{renderName(companyName)}</h3>
+                                                            <span className="inline-block mt-1 px-2 py-0.5 rounded-md text-[9px] uppercase font-bold tracking-widest bg-slate-100 text-slate-600 border border-slate-200">Prospect</span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-right w-24 md:w-32 md:border-l md:border-slate-100 md:pl-6">
+                                                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-0.5">CA Encaissé</p>
+                                                        <p className="text-sm font-extrabold text-[#01189B] font-mono">{renderCurrency(caTotal)}</p>
+                                                    </div>
+                                                    <div className="text-slate-300 group-hover:text-[#01189B] transition-colors hidden md:block ml-2">
+                                                        <ArrowRight size={20} />
+                                                    </div>
+                                                </div>
+                                            )
+                                        })}
+                                        {displayedContacts.filter((c: any) => c.type !== 'client' && c.status !== 'gagne').length === 0 && (
+                                            <p className="text-slate-400 italic text-sm p-4 bg-slate-50 rounded-xl">Aucun prospect dans cette vue.</p>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
                          </div>
                      )}
                   </div>
@@ -5871,7 +5925,7 @@ function envoyerLead(agent, ligne) {
                 <p className="text-slate-500 text-sm mt-2 leading-relaxed">Créez un nouveau prospect ou client. <br/><span className="bg-blue-50 text-[#01189B] px-2 py-0.5 rounded font-bold mr-1">💡 Astuce :</span> Si ce contact appartient à une entreprise déjà existante (ex: un conseiller d'une <i>Agence</i> apportant son propre budget), sélectionnez le même nom de société. Leurs données (CA, notes) seront regroupées dans la vue pipeline sous cette même entité.</p>
             </div>
 
-            <form onSubmit={(e: any) => { e.preventDefault(); const fd = new FormData(e.target); handleCreate('contacts', { name: fd.get('name'), company: fd.get('company'), email: fd.get('email'), phone: fd.get('phone'), address: fd.get('address'), status: fd.get('type') === 'client' ? 'gagne' : 'nouveau', type: fd.get('type'), source: fd.get('source'), sourceDetails: fd.get('sourceDetails'), googleSheetId: fd.get('googleSheetId'), manualCA: Number(fd.get('manualCA') || 0), manualBenefice: Number(fd.get('manualBenefice') || 0) }); }} className="space-y-6">
+            <form onSubmit={(e: any) => { e.preventDefault(); const fd = new FormData(e.target); handleCreate('contacts', { name: fd.get('name'), company: fd.get('company'), email: fd.get('email'), phone: fd.get('phone'), address: fd.get('address'), status: fd.get('type') === 'client' ? 'gagne' : 'nouveau', type: fd.get('type') }); }} className="space-y-6">
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-stretch">
                   {/* Colonne 1 : Infos de base */}
@@ -5902,7 +5956,6 @@ function envoyerLead(agent, ligne) {
                               <datalist id="companies-list">
                                   {uniqueCompanies.map((comp: any) => <option key={comp} value={comp} />)}
                               </datalist>
-                              <p className="text-[10px] text-slate-400 mt-1.5 font-medium leading-tight"><Info size={12} className="inline mr-0.5" /> Tapez pour créer une nouvelle société ou sélectionnez-en une existante.</p>
                           </div>
                           <div>
                               <label className={UI_CLASSES.label}>Nom de l'interlocuteur / Conseiller</label>
@@ -5911,9 +5964,9 @@ function envoyerLead(agent, ligne) {
                       </div>
                   </div>
 
-                  {/* Colonne 2 : Coordonnées & Source */}
+                  {/* Colonne 2 : Coordonnées & Adresse */}
                   <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 shadow-sm h-full flex flex-col">
-                      <h4 className="font-bold text-slate-700 text-sm mb-4 flex items-center gap-2"><Mail size={18}/> 2. Coordonnées & Origine</h4>
+                      <h4 className="font-bold text-slate-700 text-sm mb-4 flex items-center gap-2"><Mail size={18}/> 2. Coordonnées & Adresse</h4>
                       
                       <div className="space-y-4 flex-1">
                           <div className="grid grid-cols-2 gap-4">
@@ -5921,29 +5974,9 @@ function envoyerLead(agent, ligne) {
                             <div><label className={UI_CLASSES.label}>Téléphone</label><input name="phone" className={UI_CLASSES.input} placeholder="+41..." /></div>
                           </div>
                           
-                          <div className="grid grid-cols-2 gap-4">
-                              <div>
-                                <label className={UI_CLASSES.label}>Source</label>
-                                <select name="source" value={newContactSource} onChange={(e) => setNewContactSource(e.target.value)} className={UI_CLASSES.input}>
-                                  <option value="">-- Inconnue --</option>
-                                  <option value="Recommandation">Recommandation</option>
-                                  <option value="Call froid">Call froid</option>
-                                  <option value="Lead site internet">Lead site internet</option>
-                                  <option value="LinkedIn">LinkedIn</option>
-                                  <option value="Autre">Autre</option>
-                                </select>
-                              </div>
-                              {newContactSource === 'Recommandation' && (
-                                <div>
-                                  <label className={UI_CLASSES.label}>Recommandé par</label>
-                                  <input name="sourceDetails" className={UI_CLASSES.input} placeholder="Nom..." />
-                                </div>
-                              )}
-                          </div>
-
                           <div>
-                            <label className={UI_CLASSES.label}>Adresse Facturation / Locaux</label>
-                            <textarea name="address" className={`${UI_CLASSES.input} h-12 resize-none`} placeholder="Rue, NPA, Ville..."></textarea>
+                            <label className={UI_CLASSES.label}>Adresse Physique / Facturation</label>
+                            <textarea name="address" className={`${UI_CLASSES.input} h-32 resize-none`} placeholder="Rue, NPA, Ville..."></textarea>
                           </div>
                       </div>
                   </div>
