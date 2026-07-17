@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '61.7';
+const APP_VERSION = '61.8';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -601,15 +601,21 @@ const parseSheetUrl = (url: string): any => {
 };
 
 // Construit la liste des URLs CSV à essayer (CORS-friendly pour un Sheet public)
-const buildCsvUrls = (parsed: any): string[] => {
+const buildCsvUrls = (parsed: any, tabName?: string): string[] => {
   const urls: string[] = [];
-  const gid = parsed.gid || '0';
+  const gid = parsed.gid || null;
+  const enc = tabName && String(tabName).trim() ? encodeURIComponent(String(tabName).trim()) : null;
   if (parsed.type === 'pub') {
-    urls.push(`https://docs.google.com/spreadsheets/d/e/${parsed.token}/pub?gid=${gid}&single=true&output=csv`);
+    // Un lien "publié sur le web" ne cible un onglet que par gid
+    if (gid) urls.push(`https://docs.google.com/spreadsheets/d/e/${parsed.token}/pub?gid=${gid}&single=true&output=csv`);
     urls.push(`https://docs.google.com/spreadsheets/d/e/${parsed.token}/pub?output=csv`);
   } else {
-    urls.push(`https://docs.google.com/spreadsheets/d/${parsed.id}/gviz/tq?tqx=out:csv&gid=${gid}`);
-    urls.push(`https://docs.google.com/spreadsheets/d/${parsed.id}/export?format=csv&gid=${gid}`);
+    // Lien de partage classique : on peut cibler l'onglet par NOM (gviz) ou par gid
+    if (enc) urls.push(`https://docs.google.com/spreadsheets/d/${parsed.id}/gviz/tq?tqx=out:csv&sheet=${enc}`);
+    if (gid) {
+      urls.push(`https://docs.google.com/spreadsheets/d/${parsed.id}/gviz/tq?tqx=out:csv&gid=${gid}`);
+      urls.push(`https://docs.google.com/spreadsheets/d/${parsed.id}/export?format=csv&gid=${gid}`);
+    }
     urls.push(`https://docs.google.com/spreadsheets/d/${parsed.id}/gviz/tq?tqx=out:csv`);
   }
   return urls;
@@ -1137,6 +1143,7 @@ export default function App() {
   // NOUVEAU : comptage des leads par campagne (1 ligne du Sheet = 1 lead, comptée depuis la date de début)
   const [leadsLoadingIds, setLeadsLoadingIds] = useState<string[]>([]);
   const [showKpiOptionsIds, setShowKpiOptionsIds] = useState<string[]>([]);
+  const [sheetTabs, setSheetTabs] = useState<any>({}); // { spreadsheetId: [{ title, gid }] }
   const kpiAutoRefreshedRef = useRef(false);
 
   // NOUVEAU : Etat du module Statistiques & Rentabilité
@@ -1412,7 +1419,7 @@ export default function App() {
     if (!parsed) { if (!opts.silent) addNotification('error', 'Lien Google Sheet invalide.'); return; }
 
     setLeadsLoadingIds((prev) => (prev.includes(sim.id) ? prev : [...prev, sim.id]));
-    const candidates = buildCsvUrls(parsed);
+    const candidates = buildCsvUrls(parsed, sim.leadsTab);
     let rows: string[][] | null = null;
     let lastErr = '';
     for (const cUrl of candidates) {
@@ -1454,6 +1461,25 @@ export default function App() {
     if (withSheet.length === 0) { if (!opts.silent) addNotification('info', 'Aucune campagne reliée à un Sheet de leads.'); return; }
     for (const s of withSheet) { await fetchCampaignLeads(s, { silent: true }); }
     if (!opts.silent) addNotification('success', `${withSheet.length} campagne(s) rafraîchie(s).`);
+  };
+
+  // --- Liste les onglets d'un Sheet (via l'API Sheets, best-effort) pour pouvoir les choisir ---
+  const loadSheetTabs = async (sim: any) => {
+    const parsed = parseSheetUrl((sim.leadsSheetUrl || '').trim());
+    if (!parsed || parsed.type !== 'id') { addNotification('info', 'Utilise le lien de partage classique du Sheet pour lister les onglets.'); return; }
+    try {
+      let apiKey = fallbackFirebaseConfig.apiKey;
+      try { if (typeof __firebase_config !== 'undefined') { const c = JSON.parse(__firebase_config); if (c.apiKey) apiKey = c.apiKey; } } catch (e) {}
+      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${parsed.id}?fields=sheets(properties(sheetId,title))&key=${apiKey}`);
+      if (!res.ok) throw new Error('http');
+      const data = await res.json();
+      const tabs = (data.sheets || []).map((s: any) => ({ title: s.properties.title, gid: String(s.properties.sheetId) }));
+      if (tabs.length === 0) throw new Error('empty');
+      setSheetTabs((prev: any) => ({ ...prev, [parsed.id]: tabs }));
+      addNotification('success', `${tabs.length} onglet(s) trouvé(s) — choisis-le dans la liste.`);
+    } catch (e) {
+      addNotification('info', "Liste des onglets indisponible (API Sheets non activée sur ce Sheet). Tape le nom exact de l'onglet à la main.");
+    }
   };
 
   // --- AUTH ---
@@ -4594,10 +4620,10 @@ function pushKpiToCrmDaily() {
         leads = deliveries.filter((d: any) => d.agentName === matchName).length + Number(sim.manualLeadsOffset || 0);
       }
 
-      // Budget journalier saisi manuellement → estimation de dépense si pas de Sheet
+      // Dépense : dépense réelle saisie si présente, sinon budget journalier × jours écoulés
       const dailyBudget = Number(sim.manualDailyBudget || 0);
-      const spendReal = kpi ? kpiToCHF(kpi.spend) : 0;
-      const spend = kpi ? spendReal : dailyBudget * daysElapsed;
+      const manualSpend = Number(sim.manualSpend || 0);
+      const spend = manualSpend > 0 ? manualSpend : dailyBudget * daysElapsed;
 
       // Cadence & coût
       const avgPerDay = leads / daysElapsed;
@@ -4613,11 +4639,9 @@ function pushKpiToCrmDaily() {
       const willReach = objective > 0 ? projectedLeads >= objective : true;
       const progress = objective > 0 ? Math.min(100, (leads / objective) * 100) : 0;
 
-      // Marge = facturé − dépense pub (réelle à ce jour, puis projetée en fin de campagne)
+      // Marge (bénéfice) = facturé − dépense pub
       const revenue = Number(sim.budget || 0);
-      const projectedSpend = kpi
-        ? (leads > 0 ? cpl * projectedLeads : dailyBudget * duration)
-        : dailyBudget * duration;
+      const projectedSpend = manualSpend > 0 ? manualSpend : dailyBudget * duration;
       const marginReal = revenue - spend;
       const marginProjected = revenue - projectedSpend;
 
@@ -4724,6 +4748,25 @@ function pushKpiToCrmDaily() {
                         {leadsLoadingIds.includes(sim.id) ? <Loader size={14} className="animate-spin" /> : <RefreshCcw size={14} />} Compter
                       </button>
                     </div>
+                    {/* Choix de l'onglet du Sheet */}
+                    <div className="flex gap-2 mt-2 items-center">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest shrink-0">Onglet</span>
+                      {(() => {
+                        const pt = parseSheetUrl(sim.leadsSheetUrl || '');
+                        const tabs = pt && pt.type === 'id' ? sheetTabs[pt.id] : null;
+                        if (tabs && tabs.length) {
+                          return (
+                            <select value={sim.leadsTab || ''} onChange={(e) => { handleUpdate('simulations', sim.id, { leadsTab: e.target.value }); if (sim.leadsSheetUrl) fetchCampaignLeads({ ...sim, leadsTab: e.target.value }); }} className="flex-1 min-w-0 border-2 border-slate-100 bg-slate-50 p-2 rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-[#01189B]">
+                              <option value="">Onglet par défaut (1er)</option>
+                              {tabs.map((t: any) => <option key={t.gid} value={t.title}>{t.title}</option>)}
+                            </select>
+                          );
+                        }
+                        return <input defaultValue={sim.leadsTab || ''} onBlur={(e) => { const v = e.target.value.trim(); if (v !== (sim.leadsTab || '')) { handleUpdate('simulations', sim.id, { leadsTab: v }); if (sim.leadsSheetUrl) fetchCampaignLeads({ ...sim, leadsTab: v }); } }} className="flex-1 min-w-0 border-2 border-slate-100 bg-slate-50 p-2 rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-[#01189B]" placeholder="Nom exact de l'onglet (ex: Leads)" />;
+                      })()}
+                      <button onClick={() => loadSheetTabs(sim)} className="text-[10px] font-bold text-[#01189B] bg-blue-50 hover:bg-blue-100 border border-blue-100 px-2.5 py-2 rounded-lg transition-colors shrink-0" title="Lister les onglets du Sheet">Charger les onglets</button>
+                    </div>
+
                     <div className="flex items-center justify-between mt-1.5 gap-2">
                       <p className="text-[10px] text-slate-400 font-medium truncate">{sim.sheetLastSync ? `Dernier comptage : ${formatDateTime(sim.sheetLastSync)}` : 'Colle le lien puis « Compter » (ou modifie la date de début).'}</p>
                       <button onClick={() => setShowKpiOptionsIds((prev: string[]) => prev.includes(sim.id) ? prev.filter((x) => x !== sim.id) : [...prev, sim.id])} className="text-[10px] font-bold text-[#01189B] hover:underline flex items-center gap-1 shrink-0"><Settings size={11} /> Options</button>
@@ -4768,13 +4811,21 @@ function pushKpiToCrmDaily() {
                     </div>
                   </div>
 
-                  {/* Saisie manuelle : budget/jour, objectif, durée */}
-                  <div className="px-6 pt-4 grid grid-cols-3 gap-2">
+                  {/* Saisie manuelle : budget/jour, dépense réelle, objectif, durée */}
+                  <div className="px-6 pt-4 grid grid-cols-2 md:grid-cols-4 gap-2">
                     <div className="bg-white p-2.5 rounded-xl border border-slate-200 relative group hover:border-[#01189B] transition-colors">
                       <p className="text-[9px] text-slate-400 font-bold uppercase">Budget/jour</p>
                       <div className="flex items-center mt-0.5">
                         <span className="text-[#01189B] font-mono font-bold text-sm mr-1">CHF</span>
                         <input type="number" defaultValue={r.dailyBudget || ''} onBlur={(e) => { const v = Number(e.target.value); if (v !== r.dailyBudget && !isNaN(v)) handleUpdate('simulations', sim.id, { manualDailyBudget: v }); }} className="w-full bg-transparent font-mono font-bold text-[#01189B] text-sm outline-none" placeholder="0" />
+                      </div>
+                      <Edit2 size={10} className="absolute top-2 right-2 text-slate-300 opacity-0 group-hover:opacity-100 pointer-events-none" />
+                    </div>
+                    <div className="bg-white p-2.5 rounded-xl border border-slate-200 relative group hover:border-orange-500 transition-colors">
+                      <p className="text-[9px] text-slate-400 font-bold uppercase">Dépense réelle</p>
+                      <div className="flex items-center mt-0.5">
+                        <span className="text-orange-600 font-mono font-bold text-sm mr-1">CHF</span>
+                        <input type="number" defaultValue={sim.manualSpend || ''} onBlur={(e) => { const v = Number(e.target.value); if (v !== Number(sim.manualSpend || 0) && !isNaN(v)) handleUpdate('simulations', sim.id, { manualSpend: v }); }} className="w-full bg-transparent font-mono font-bold text-orange-600 text-sm outline-none" placeholder="auto" />
                       </div>
                       <Edit2 size={10} className="absolute top-2 right-2 text-slate-300 opacity-0 group-hover:opacity-100 pointer-events-none" />
                     </div>
@@ -4820,15 +4871,15 @@ function pushKpiToCrmDaily() {
                       <p className={`text-lg font-black font-poppins ${needsBoost ? 'text-orange-600' : 'text-emerald-600'}`}>{renderNumber(r.leadsNeededPerDay.toFixed(1))}<span className="text-[10px] text-slate-400 font-sans font-medium">/j</span></p>
                     </div>
                     <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-1">CPL (budget/lead)</p>
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-1">CPL (dépense / lead)</p>
                       <p className={`text-lg font-black font-mono ${r.cpl > 40 ? 'text-red-500' : 'text-emerald-600'}`}>{r.leads > 0 && r.spend > 0 ? renderCurrency(r.cpl) : '—'}</p>
                     </div>
                     <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-1">Dépense (budget/j)</p>
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-1">Dépense</p>
                       <p className="text-base font-black text-orange-600 font-mono">{renderCurrency(r.spend)}</p>
                     </div>
                     <div className={`p-3 rounded-2xl border ${r.marginReal >= 0 ? 'bg-emerald-50 border-emerald-100' : 'bg-red-50 border-red-100'}`}>
-                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-1">Marge (facturé − dépense)</p>
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-1">Bénéfice (facturé − dépense)</p>
                       <p className={`text-base font-black font-mono ${r.marginReal >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{renderCurrency(r.marginReal)}</p>
                     </div>
                   </div>
