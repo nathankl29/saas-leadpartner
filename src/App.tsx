@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '61.3';
+const APP_VERSION = '61.4';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -183,7 +183,6 @@ const requireHtml2Pdf = async () => {
       document.body.appendChild(script);
   });
 };
-
 // ═══════════════════════════════════════════════════════════
 // QR-FACTURE SUISSE - Génération du QR Code + Payload SPC
 // ═══════════════════════════════════════════════════════════
@@ -582,7 +581,6 @@ const _fallbackQRGenerate = (data: string): string => {
 
   return canvas.toDataURL('image/png');
 };
-
 // --- COMPOSANT LOGIN ---
 const LoginScreen = ({ onLogin, addNotification }: any) => {
   const [email, setEmail] = useState('');
@@ -829,7 +827,6 @@ const SignaturePad = ({ onSave, onClear }: any) => {
         </div>
     );
 };
-
 // --- COMPOSANT PRINCIPAL ---
 export default function App() {
   const [activeView, setActiveView] = useState('dashboard');
@@ -1349,7 +1346,6 @@ export default function App() {
       caDetails
     };
   }, [invoices, contacts, simulations, dashboardYear, companiesData]); // <-- DEPENDANCE dashboardYear ET companiesData AJOUTEES
-
   // --- ACTIONS ---
   const handleCreate = async (col: string, data: any) => {
     if (isOfflineMode) return addNotification('error', 'Mode hors-ligne : Sauvegarde impossible');
@@ -1912,7 +1908,6 @@ export default function App() {
 
       addNotification('success', 'Export de vos données réussi !');
   };
-
   const renderDeliveries = () => {
       // Groupement des données
       const byCampaign = deliveries.reduce((acc: any, d: any) => {
@@ -2227,7 +2222,7 @@ function pushKpiToCrmDaily() {
     const data = sheet.getDataRange().getValues();
 
     // -- VOS IDENTIFIANTS DE CONNEXION CRM --
-    const USER_EMAIL = "contact@leadpartner.ch"; 
+    const USER_EMAIL = "contact@leadpartner.ch";
     const USER_PASSWORD = "VOTRE_MOT_DE_PASSE";
 
     // -- CONFIGURATION TECHNIQUE --
@@ -2280,7 +2275,7 @@ function pushKpiToCrmDaily() {
     };
 
     const options = {
-      method: "patch", 
+      method: "patch",
       contentType: "application/json",
       headers: { "Authorization": "Bearer " + idToken },
       payload: JSON.stringify(payload),
@@ -2289,7 +2284,7 @@ function pushKpiToCrmDaily() {
 
     const response = UrlFetchApp.fetch(firebaseUrl, options);
     Logger.log("Synchro terminée. Statut HTTP : " + response.getResponseCode());
-    
+
   } catch (e) {
     Logger.log("Erreur réseau/technique : " + e.toString());
   } finally {
@@ -2805,7 +2800,6 @@ function pushKpiToCrmDaily() {
         </div>
       );
   };
-
   const handleExportContactsCSV = () => {
       let csvContent = "Société,Contact,Email,Téléphone,Adresse,Type,Statut,Source,Budget,Audience,Produits,CA Manuel,Bénéfice Manuel\n";
 
@@ -2977,7 +2971,6 @@ function pushKpiToCrmDaily() {
       </div>
     );
   };
-
   const renderContactDetail = () => {
     if (!selectedContact) return null;
     const contactInteractions = interactions.filter(i => i.contactId === selectedContact.id).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -3320,7 +3313,6 @@ function pushKpiToCrmDaily() {
       </div>
     );
   };
-
   const renderCompanyDetail = () => {
     if (!selectedCompanyName) return null;
     const companyContacts = contacts.filter(c => c.company === selectedCompanyName);
@@ -3669,7 +3661,6 @@ function pushKpiToCrmDaily() {
       </div>
     );
   };
-
   // ═══════════════════════════════════════════════════════════
   // NOUVEAU MODULE : STATISTIQUES & RENTABILITÉ
   // ═══════════════════════════════════════════════════════════
@@ -4141,6 +4132,261 @@ function pushKpiToCrmDaily() {
       </div>
     );
   };
+  // ═══════════════════════════════════════════════════════════
+  // NOUVEL ONGLET : KPI & PROJECTIONS PAR CAMPAGNE
+  // ═══════════════════════════════════════════════════════════
+  const renderKPI = () => {
+    const today = new Date();
+    const DAY = 1000 * 60 * 60 * 24;
+
+    const rows = simulations.map((sim: any) => {
+      // Lien Meta (Sheet) : source des chiffres réels si la campagne est reliée
+      const kpi = sim.metaCampaignName ? campaignKpis.find((k: any) => k.name === sim.metaCampaignName) : null;
+
+      const duration = Number(sim.duration || 30);
+      const start = sim.createdAt ? new Date(sim.createdAt) : today;
+      const diffDays = Math.max(0, Math.floor((today.getTime() - start.getTime()) / DAY));
+      const daysElapsed = Math.max(1, Math.min(diffDays, duration)); // min 1 pour éviter la division par 0
+      const daysRemaining = Math.max(0, duration - daysElapsed);
+      const isFinished = diffDays >= duration;
+
+      // Leads reçus : priorité au lien Sheet, sinon livraisons CRM, sinon saisie manuelle
+      let leads = 0;
+      if (kpi) {
+        leads = Number(kpi.leads || 0);
+      } else if (sim.dataSource === 'manual') {
+        leads = Number(sim.manualLeads || 0);
+      } else {
+        const matchName = sim.deliveryMatchName !== undefined ? sim.deliveryMatchName : sim.clientName;
+        leads = deliveries.filter((d: any) => d.agentName === matchName).length + Number(sim.manualLeadsOffset || 0);
+      }
+
+      // Budget journalier saisi manuellement → estimation de dépense si pas de Sheet
+      const dailyBudget = Number(sim.manualDailyBudget || 0);
+      const spendReal = kpi ? kpiToCHF(kpi.spend) : 0;
+      const spend = kpi ? spendReal : dailyBudget * daysElapsed;
+
+      // Cadence & coût
+      const avgPerDay = leads / daysElapsed;
+      const cpl = leads > 0 ? spend / leads : 0;
+
+      // Objectif (manuel, avec repli sur l'objectif de volume de la campagne)
+      const objective = Number(sim.manualObjective || sim.stats?.volumeTotal || 0);
+      const remainingLeads = Math.max(0, objective - leads);
+      const leadsNeededPerDay = daysRemaining > 0 ? remainingLeads / daysRemaining : remainingLeads;
+
+      // Projection linéaire de fin de campagne
+      const projectedLeads = Math.round(avgPerDay * duration);
+      const willReach = objective > 0 ? projectedLeads >= objective : true;
+      const progress = objective > 0 ? Math.min(100, (leads / objective) * 100) : 0;
+
+      // Marge = facturé − dépense pub (réelle à ce jour, puis projetée en fin de campagne)
+      const revenue = Number(sim.budget || 0);
+      const projectedSpend = kpi
+        ? (leads > 0 ? cpl * projectedLeads : dailyBudget * duration)
+        : dailyBudget * duration;
+      const marginReal = revenue - spend;
+      const marginProjected = revenue - projectedSpend;
+
+      return { sim, kpi, duration, daysElapsed, daysRemaining, isFinished, leads, dailyBudget, spend, avgPerDay, cpl, objective, remainingLeads, leadsNeededPerDay, projectedLeads, willReach, progress, revenue, marginReal, marginProjected };
+    }).sort((a: any, b: any) => {
+      // Les campagnes en retard (objectif défini mais non atteignable) remontent en premier
+      if (a.willReach !== b.willReach) return a.willReach ? 1 : -1;
+      return b.remainingLeads - a.remainingLeads;
+    });
+
+    const nbTotal = rows.length;
+    const nbLinked = rows.filter((r: any) => r.kpi).length;
+    const nbOnTrack = rows.filter((r: any) => r.objective > 0 && r.willReach).length;
+    const nbLate = rows.filter((r: any) => r.objective > 0 && !r.willReach).length;
+    const totalMarginReal = rows.reduce((a: number, r: any) => a + r.marginReal, 0);
+
+    return (
+      <div className="max-w-7xl mx-auto animate-fade-in space-y-8 pb-12">
+        <div className="flex justify-between items-center flex-wrap gap-4">
+          <div>
+            <h2 className="text-3xl font-extrabold text-slate-800 font-poppins flex items-center gap-3"><Zap style={{ color: BRAND_COLOR }} size={32} /> KPI & Projections Campagnes</h2>
+            <p className="text-slate-500 text-lg mt-1">Pilote chaque campagne cliente : rythme de leads, objectif, marge et projection en temps réel.</p>
+          </div>
+        </div>
+
+        {/* Bandeau de synchro Sheet */}
+        <div className={`p-4 rounded-2xl border flex flex-col md:flex-row justify-between items-start md:items-center gap-3 ${kpiSyncDate ? 'bg-emerald-50 border-emerald-200' : 'bg-orange-50 border-orange-200'}`}>
+          <div className="flex items-center gap-3">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${kpiSyncDate ? 'bg-white text-emerald-600' : 'bg-white text-orange-500'}`}>
+              {kpiSyncDate ? <CheckCircle size={20} /> : <AlertTriangle size={20} />}
+            </div>
+            <div>
+              <p className={`font-bold text-sm ${kpiSyncDate ? 'text-emerald-800' : 'text-orange-800'}`}>
+                {kpiSyncDate ? `Google Sheet connecté — Synchro : ${formatDateTime(kpiSyncDate)}` : 'Aucune synchro Google Sheet détectée'}
+              </p>
+              <p className={`text-xs mt-0.5 ${kpiSyncDate ? 'text-emerald-600' : 'text-orange-600'}`}>
+                {nbLinked} campagne(s) reliée(s) au Sheet. Relie une campagne à sa campagne Meta ci-dessous pour des chiffres réels (sinon estimés via le budget journalier).
+              </p>
+            </div>
+          </div>
+          {!kpiSyncDate && (
+            <button onClick={() => { setActiveView('deliveries'); setDeliveryActiveTab('campaigns'); }} className="bg-white border border-orange-200 text-orange-700 px-4 py-2 rounded-xl text-xs font-bold hover:bg-orange-100 transition-colors flex items-center gap-2 shrink-0"><Zap size={14} /> Configurer la synchro</button>
+          )}
+        </div>
+
+        {/* Tuiles résumé */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="bg-white px-6 py-5 rounded-3xl border border-slate-100 shadow-sm">
+            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1 flex justify-between">Campagnes suivies <Target size={14} /></p>
+            <p className="text-3xl font-black text-slate-800 font-poppins">{renderNumber(nbTotal)}</p>
+          </div>
+          <div className="bg-white px-6 py-5 rounded-3xl border border-slate-100 shadow-sm">
+            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1 flex justify-between">En bonne voie <CheckCircle size={14} /></p>
+            <p className="text-3xl font-black text-emerald-500 font-poppins">{renderNumber(nbOnTrack)}</p>
+          </div>
+          <div className="bg-white px-6 py-5 rounded-3xl border border-slate-100 shadow-sm">
+            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1 flex justify-between">En retard <AlertTriangle size={14} /></p>
+            <p className="text-3xl font-black text-orange-500 font-poppins">{renderNumber(nbLate)}</p>
+          </div>
+          <div className="bg-white px-6 py-5 rounded-3xl border border-slate-100 shadow-sm">
+            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1 flex justify-between">Marge réelle totale <TrendingUp size={14} /></p>
+            <p className="text-2xl font-black text-emerald-600 font-mono mt-1">{renderCurrency(totalMarginReal)}</p>
+          </div>
+        </div>
+
+        {rows.length === 0 ? (
+          <div className="bg-white p-16 text-center rounded-3xl border border-slate-100 shadow-sm">
+            <div className="w-24 h-24 bg-slate-50 text-slate-300 rounded-full flex items-center justify-center mx-auto mb-6"><Zap size={40} /></div>
+            <h3 className="text-xl font-bold text-slate-700 mb-2 font-poppins">Aucune campagne à suivre</h3>
+            <p className="text-slate-500">Passe une facture en « Payée » pour lancer une campagne automatiquement, ou crée-en une depuis l'onglet Campagnes.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {rows.map((r: any) => {
+              const sim = r.sim;
+              const needsBoost = r.objective > 0 && r.remainingLeads > 0 && r.leadsNeededPerDay > r.avgPerDay;
+              return (
+                <div key={sim.id} className={`bg-white rounded-3xl border-2 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden ${r.objective > 0 && !r.willReach ? 'border-orange-200' : 'border-slate-100'}`}>
+                  {/* En-tête */}
+                  <div className="p-6 border-b border-slate-100 flex justify-between items-start gap-3">
+                    <div className="min-w-0">
+                      <h3 className="font-extrabold text-slate-800 font-poppins text-lg truncate">{renderName(sim.clientName || 'Client')}</h3>
+                      <p className="text-sm font-bold mt-0.5 truncate" style={{ color: BRAND_COLOR }}>{sim.productName || 'Campagne'}</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      {r.objective > 0 && (
+                        <span className={`text-[10px] px-3 py-1.5 rounded-lg font-extrabold uppercase tracking-widest ${r.willReach ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700'}`}>
+                          {r.willReach ? '✅ En bonne voie' : '⚠️ En retard'}
+                        </span>
+                      )}
+                      {r.isFinished && <span className="block mt-1.5 text-[9px] font-bold text-red-500 uppercase tracking-widest">Terminée</span>}
+                    </div>
+                  </div>
+
+                  {/* Lien Meta (le "lien que tu attribues") */}
+                  <div className="px-6 pt-4">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5 mb-1.5"><Link size={12} className="text-purple-500" /> Campagne Meta liée (Sheet)</label>
+                    <select
+                      value={sim.metaCampaignName || ''}
+                      onChange={(e) => handleUpdate('simulations', sim.id, { metaCampaignName: e.target.value })}
+                      className="w-full border-2 border-slate-100 bg-slate-50 p-2.5 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-[#01189B] focus:bg-white transition-colors"
+                    >
+                      <option value="">-- Non liée (chiffres estimés) --</option>
+                      {campaignKpis.map((k: any) => <option key={k.name} value={k.name}>{k.name} · {Number(k.leads || 0)} leads · {Number(k.spend || 0).toFixed(0)} {(settings.kpiCurrency || 'CHF') === 'EUR' ? '€' : 'CHF'}</option>)}
+                    </select>
+                  </div>
+
+                  {/* Saisie manuelle : budget/jour, objectif, durée */}
+                  <div className="px-6 pt-4 grid grid-cols-3 gap-2">
+                    <div className="bg-white p-2.5 rounded-xl border border-slate-200 relative group hover:border-[#01189B] transition-colors">
+                      <p className="text-[9px] text-slate-400 font-bold uppercase">Budget/jour</p>
+                      <div className="flex items-center mt-0.5">
+                        <span className="text-[#01189B] font-mono font-bold text-sm mr-1">CHF</span>
+                        <input type="number" defaultValue={r.dailyBudget || ''} onBlur={(e) => { const v = Number(e.target.value); if (v !== r.dailyBudget && !isNaN(v)) handleUpdate('simulations', sim.id, { manualDailyBudget: v }); }} className="w-full bg-transparent font-mono font-bold text-[#01189B] text-sm outline-none" placeholder="0" />
+                      </div>
+                      <Edit2 size={10} className="absolute top-2 right-2 text-slate-300 opacity-0 group-hover:opacity-100 pointer-events-none" />
+                    </div>
+                    <div className="bg-white p-2.5 rounded-xl border border-slate-200 relative group hover:border-orange-400 transition-colors">
+                      <p className="text-[9px] text-slate-400 font-bold uppercase">Objectif leads</p>
+                      <input type="number" defaultValue={r.objective || ''} onBlur={(e) => { const v = Number(e.target.value); if (v !== r.objective && !isNaN(v)) handleUpdate('simulations', sim.id, { manualObjective: v }); }} className="w-full bg-transparent font-mono font-bold text-orange-600 text-sm outline-none mt-0.5" placeholder="0" />
+                      <Edit2 size={10} className="absolute top-2 right-2 text-slate-300 opacity-0 group-hover:opacity-100 pointer-events-none" />
+                    </div>
+                    <div className="bg-white p-2.5 rounded-xl border border-slate-200 relative group hover:border-slate-400 transition-colors">
+                      <p className="text-[9px] text-slate-400 font-bold uppercase">Durée (j)</p>
+                      <input type="number" defaultValue={r.duration} onBlur={(e) => { const v = Number(e.target.value); if (v !== r.duration && !isNaN(v)) handleUpdate('simulations', sim.id, { duration: v }); }} className="w-full bg-transparent font-mono font-bold text-slate-700 text-sm outline-none mt-0.5" placeholder="30" />
+                      <Edit2 size={10} className="absolute top-2 right-2 text-slate-300 opacity-0 group-hover:opacity-100 pointer-events-none" />
+                    </div>
+                  </div>
+
+                  {/* Progression vers l'objectif */}
+                  <div className="px-6 pt-5">
+                    <div className="flex justify-between text-xs font-bold mb-1.5">
+                      <span className="text-slate-500 uppercase tracking-wider flex items-center gap-1"><Target size={12} /> Objectif</span>
+                      <span className="text-slate-800 font-mono">{renderNumber(r.leads)} <span className="text-[10px] text-slate-400">/ {renderNumber(r.objective)} leads</span></span>
+                    </div>
+                    <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                      <div className={`h-full rounded-full transition-all duration-700 ${r.willReach ? 'bg-emerald-500' : 'bg-orange-500'}`} style={{ width: `${r.progress}%` }}></div>
+                    </div>
+                    <div className="flex justify-between text-[10px] font-bold text-slate-400 mt-1.5 uppercase tracking-widest">
+                      <span>Jour {r.daysElapsed} / {r.duration}</span>
+                      <span>{r.daysRemaining} jours restants</span>
+                    </div>
+                  </div>
+
+                  {/* Tuiles KPI */}
+                  <div className="p-6 grid grid-cols-2 md:grid-cols-3 gap-3">
+                    <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-1">Moyenne / jour</p>
+                      <p className="text-lg font-black text-[#01189B] font-poppins">{renderNumber(r.avgPerDay.toFixed(1))}<span className="text-[10px] text-slate-400 font-sans font-medium">/j</span></p>
+                    </div>
+                    <div className={`p-3 rounded-2xl border ${needsBoost ? 'bg-orange-50 border-orange-100' : 'bg-emerald-50 border-emerald-100'}`}>
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-1">Leads/j nécessaires</p>
+                      <p className={`text-lg font-black font-poppins ${needsBoost ? 'text-orange-600' : 'text-emerald-600'}`}>{renderNumber(r.leadsNeededPerDay.toFixed(1))}<span className="text-[10px] text-slate-400 font-sans font-medium">/j</span></p>
+                    </div>
+                    <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-1">CPL {r.kpi ? 'réel' : 'estimé'}</p>
+                      <p className={`text-lg font-black font-mono ${r.cpl > 40 ? 'text-red-500' : 'text-emerald-600'}`}>{r.leads > 0 ? renderCurrency(r.cpl) : '—'}</p>
+                    </div>
+                    <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-1">Dépense {r.kpi ? 'réelle' : 'estimée'}</p>
+                      <p className="text-base font-black text-orange-600 font-mono">{renderCurrency(r.spend)}</p>
+                    </div>
+                    <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-1">Facturé</p>
+                      <p className="text-base font-black text-slate-700 font-mono">{renderCurrency(r.revenue)}</p>
+                    </div>
+                    <div className={`p-3 rounded-2xl border ${r.marginReal >= 0 ? 'bg-emerald-50 border-emerald-100' : 'bg-red-50 border-red-100'}`}>
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-1">Marge réelle</p>
+                      <p className={`text-base font-black font-mono ${r.marginReal >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{renderCurrency(r.marginReal)}</p>
+                    </div>
+                  </div>
+
+                  {/* Bloc projection */}
+                  <div className="px-6 pb-6">
+                    <div className={`p-4 rounded-2xl border ${r.willReach ? 'bg-emerald-50/60 border-emerald-100' : 'bg-orange-50/60 border-orange-100'}`}>
+                      <p className="text-[10px] font-extrabold uppercase tracking-widest mb-2 flex items-center gap-1.5" style={{ color: r.willReach ? '#059669' : '#ea580c' }}><TrendingUp size={14} /> Projection fin de campagne</p>
+                      <div className="flex items-end justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-2xl font-black font-poppins text-slate-800">{renderNumber(r.projectedLeads)} <span className="text-sm font-medium text-slate-400">leads projetés</span></p>
+                          <p className="text-xs font-bold text-slate-500 mt-1">
+                            {r.objective > 0
+                              ? (r.willReach
+                                ? `Objectif de ${renderNumber(r.objective)} atteignable au rythme actuel 🎯`
+                                : `Il faut ${renderNumber(r.leadsNeededPerDay.toFixed(1))} leads/jour sur ${r.daysRemaining} j restants (rythme actuel : ${renderNumber(r.avgPerDay.toFixed(1))}/j)`)
+                              : 'Définis un objectif de leads pour activer la projection.'}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Marge projetée</p>
+                          <p className={`text-lg font-black font-mono ${r.marginProjected >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{renderCurrency(r.marginProjected)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const renderDashboard = () => {
     const goal = Number(settings.monthlyGoal || 50000);
@@ -4593,7 +4839,6 @@ function pushKpiToCrmDaily() {
       </div>
     );
   };
-
   const renderSettings = () => {
       // Configuration form render
       return (
@@ -4980,7 +5225,6 @@ function pushKpiToCrmDaily() {
         </div>
       );
   };
-
   // --- RENDER RACINE ---
   if (loading) return <div className="h-screen flex items-center justify-center text-slate-400 bg-slate-50" style={{ fontFamily: 'Inter, sans-serif' }}><Loader className="animate-spin mr-3 text-[#01189B]" size={32} /> <span className="font-bold text-lg">Démarrage...</span></div>;
   if (!isAppAuthenticated) return <LoginScreen onLogin={() => setIsAppAuthenticated(true)} addNotification={addNotification} />;
@@ -5003,16 +5247,16 @@ function pushKpiToCrmDaily() {
 
       {isDarkMode && (
         <style dangerouslySetInnerHTML={{__html: `
-          html { 
-            background-color: #111827; 
-            filter: invert(0.93) hue-rotate(180deg) brightness(1.05) contrast(1.02); 
+          html {
+            background-color: #111827;
+            filter: invert(0.93) hue-rotate(180deg) brightness(1.05) contrast(1.02);
           }
-          img, video, iframe, .no-invert { 
-            filter: invert(0.93) hue-rotate(180deg) brightness(1.05) contrast(1.02); 
+          img, video, iframe, .no-invert {
+            filter: invert(0.93) hue-rotate(180deg) brightness(1.05) contrast(1.02);
           }
           /* Correction des fonds gris pour un rendu sombre élégant */
-          body, .bg-\\[\\#F8FAFC\\], .bg-slate-50\\/50, .bg-slate-50 { 
-            background-color: #ffffff !important; 
+          body, .bg-\\[\\#F8FAFC\\], .bg-slate-50\\/50, .bg-slate-50 {
+            background-color: #ffffff !important;
           }
           .border-slate-100, .border-slate-200 {
             border-color: #f1f5f9 !important;
@@ -5039,6 +5283,7 @@ function pushKpiToCrmDaily() {
               { id: 'stats', label: 'Statistiques', icon: TrendingUp },
               { id: 'deliveries', label: 'Suivi Livraisons', icon: Activity },
               { id: 'calendar', label: 'Campagnes', icon: Target },
+              { id: 'kpi', label: 'KPI & Projections', icon: Zap },
               { id: 'ponderation', label: 'Pondération', icon: PieChart },
               { id: 'invoices', label: 'Facturation', icon: FileText },
               { id: 'products', label: 'Catalogue Offres', icon: Package },
@@ -5107,6 +5352,7 @@ function pushKpiToCrmDaily() {
               {activeView === 'dashboard' && renderDashboard()}
               {activeView === 'stats' && renderStatistics()}
               {activeView === 'deliveries' && renderDeliveries()}
+              {activeView === 'kpi' && renderKPI()}
               {activeView === 'calendar' && (
                   <div className="max-w-6xl mx-auto animate-fade-in space-y-8 pb-12">
                       <div className="flex justify-between items-center mb-2">
@@ -5232,7 +5478,6 @@ function pushKpiToCrmDaily() {
                       )}
                   </div>
               )}
-
               {activeView === 'ponderation' && (() => {
                   const loadScriptConfig = (id: string) => {
                       if (!id) {
@@ -5914,7 +6159,6 @@ function envoyerLead(agent, ligne) {
             </>
           )}
         </main>
-
         {/* --- MODALS --- */}
         <div className="fixed bottom-8 right-8 flex flex-col gap-3 z-[1000] no-print">
           {notifications.map((n) => (
