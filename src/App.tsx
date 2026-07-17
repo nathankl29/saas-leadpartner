@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '61.5';
+const APP_VERSION = '61.7';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -658,12 +658,38 @@ const cleanSheetNumber = (raw: any): number => {
   return isNaN(n) ? 0 : n;
 };
 
-// Transforme le CSV en campagnes { name, spend, leads }
-// Détecte automatiquement les en-têtes (Campagne / Dépense / Leads), sinon colonnes A / B / C
-const parseKpiCsv = (csv: string): any[] => {
-  const lines = csv.split(/\r?\n/).filter(l => l.trim().length > 0);
-  if (lines.length === 0) return [];
-  const header = parseCsvLine(lines[0]).map(h => h.trim().toLowerCase());
+// Convertit une lettre de colonne (A, B, ... AA) OU un numéro ("1") en index 0-based
+const colToIndex = (v: any): number => {
+  if (v === undefined || v === null || v === '') return -1;
+  const s = String(v).trim().toUpperCase();
+  if (/^[0-9]+$/.test(s)) return Math.max(0, parseInt(s, 10) - 1);
+  let idx = 0;
+  for (let i = 0; i < s.length; i++) {
+    const code = s.charCodeAt(i);
+    if (code < 65 || code > 90) return -1;
+    idx = idx * 26 + (code - 64);
+  }
+  return idx - 1;
+};
+
+// Convertit un index 0-based en lettre de colonne (0 => A, 26 => AA)
+const indexToCol = (idx: number): string => {
+  let s = ''; let n = idx + 1;
+  while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); }
+  return s || 'A';
+};
+
+// Découpe le CSV en tableau 2D (1 ligne = 1 tableau de cellules), numérotation identique au Sheet
+const parseCsvRows = (csv: string): string[][] => {
+  let lines = csv.split(/\r?\n/);
+  while (lines.length && lines[lines.length - 1].trim() === '') lines.pop();
+  return lines.map(l => parseCsvLine(l));
+};
+
+// Détection automatique (en-têtes Campagne / Dépense / Leads, sinon colonnes A / B / C)
+const autoDetectCampaigns = (rows: string[][]): any[] => {
+  if (!rows || rows.length === 0) return [];
+  const header = (rows[0] || []).map(h => (h || '').trim().toLowerCase());
   const findCol = (keys: string[], fallback: number) => {
     const idx = header.findIndex(h => keys.some(k => h.includes(k)));
     return idx > -1 ? idx : fallback;
@@ -679,17 +705,127 @@ const parseKpiCsv = (csv: string): any[] => {
     leadsCol = findCol(['lead', 'résultat', 'resultat', 'contact', 'conversion'], 2);
     startRow = 1;
   }
-  const rows: any[] = [];
-  for (let i = startRow; i < lines.length; i++) {
-    const cols = parseCsvLine(lines[i]);
+  const out: any[] = [];
+  for (let i = startRow; i < rows.length; i++) {
+    const cols = rows[i] || [];
     const name = (cols[nameCol] || '').trim();
     if (!name) continue;
-    if (/^(total|totaux|grand total)/i.test(name)) continue; // ignore les lignes de total
-    const spend = cleanSheetNumber(cols[spendCol]);
-    const leads = Math.round(cleanSheetNumber(cols[leadsCol]));
-    rows.push({ name, spend, leads });
+    if (/^(total|totaux|grand total)/i.test(name)) continue;
+    out.push({ name, spend: cleanSheetNumber(cols[spendCol]), leads: Math.round(cleanSheetNumber(cols[leadsCol])) });
   }
-  return rows;
+  return out;
+};
+
+// Applique un mapping (manuel ou auto) à un tableau 2D → campagnes { name, spend, leads }
+const parseCampaignsFromRows = (rows: string[][], mapping: any): any[] => {
+  if (!rows || rows.length === 0) return [];
+  const m = mapping || {};
+  if (m.autoDetect === false) {
+    const startIdx = Math.max(0, (Number(m.startRow) || 2) - 1);
+    const nC = colToIndex(m.nameCol); const sC = colToIndex(m.spendCol); const lC = colToIndex(m.leadsCol);
+    const nameCol = nC >= 0 ? nC : 0;
+    const spendCol = sC >= 0 ? sC : 1;
+    const leadsCol = lC >= 0 ? lC : 2;
+    const out: any[] = [];
+    for (let i = startIdx; i < rows.length; i++) {
+      const cols = rows[i] || [];
+      const name = (cols[nameCol] || '').trim();
+      if (!name) continue;
+      out.push({ name, spend: cleanSheetNumber(cols[spendCol]), leads: Math.round(cleanSheetNumber(cols[leadsCol])) });
+    }
+    return out;
+  }
+  return autoDetectCampaigns(rows);
+};
+
+// Compat : parse un CSV complet en campagnes (auto-détection)
+const parseKpiCsv = (csv: string): any[] => autoDetectCampaigns(parseCsvRows(csv));
+
+// ═══════════════════════════════════════════════════════════
+// COMPTAGE DES LEADS PAR DATE (1 ligne du Sheet = 1 lead)
+// ═══════════════════════════════════════════════════════════
+
+// Parse une date multi-format (ISO, jj/mm/aaaa, jj.mm.aaaa, jj/mm hh:mm sans année...)
+const parseFlexibleDate = (raw: any): Date | null => {
+  if (raw === undefined || raw === null) return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+  // ISO : aaaa-mm-jj [hh:mm[:ss]]
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0));
+  // jj/mm/aaaa ou jj.mm.aaaa ou jj-mm-aaaa [hh:mm[:ss]]
+  m = s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+  if (m) {
+    let day = +m[1], mon = +m[2], yr = +m[3];
+    if (yr < 100) yr += 2000;
+    if (mon > 12 && day <= 12) { const t = day; day = mon; mon = t; }
+    return new Date(yr, mon - 1, day, +(m[4] || 0), +(m[5] || 0), +(m[6] || 0));
+  }
+  // jj/mm [hh:mm] SANS année (format du script de distribution) → année courante
+  m = s.match(/^(\d{1,2})[\/.\-](\d{1,2})(?:[ T](\d{1,2}):(\d{1,2}))?$/);
+  if (m) {
+    const now = new Date();
+    let day = +m[1], mon = +m[2];
+    if (mon > 12 && day <= 12) { const t = day; day = mon; mon = t; }
+    return new Date(now.getFullYear(), mon - 1, day, +(m[3] || 0), +(m[4] || 0), 0);
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+};
+
+const sameDay = (a: Date, b: Date): boolean =>
+  a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+
+// Détecte automatiquement la colonne qui contient le plus de dates valides
+const autoDetectDateColumn = (rows: string[][], startIdx: number): number => {
+  if (!rows || rows.length === 0) return -1;
+  const maxCols = rows.reduce((mx, r) => Math.max(mx, r.length), 0);
+  let bestCol = -1, bestOk = 0;
+  for (let c = 0; c < maxCols; c++) {
+    let ok = 0, tot = 0;
+    for (let i = startIdx; i < Math.min(rows.length, startIdx + 25); i++) {
+      const v = (rows[i] && rows[i][c]) || '';
+      if (!String(v).trim()) continue;
+      tot++;
+      if (parseFlexibleDate(v)) ok++;
+    }
+    const score = tot > 0 ? ok / tot : 0;
+    if (score > 0.6 && ok > bestOk) { bestOk = ok; bestCol = c; }
+  }
+  return bestCol;
+};
+
+// Compte les lignes (= leads) d'un tableau 2D depuis une date de début (avec filtre optionnel)
+const countLeadsFromRows = (rows: string[][], opts: any): any => {
+  const startIdx = Math.max(0, (Number(opts.startRow) || 1) - 1);
+  let dateCol = colToIndex(opts.dateCol);
+  if (dateCol < 0) dateCol = autoDetectDateColumn(rows, startIdx);
+  const filterCol = colToIndex(opts.filterCol);
+  const filterVal = (opts.filterValue || '').trim().toLowerCase();
+  const startDay: Date = opts.startDay;
+  const now: Date = opts.now || new Date();
+  let leads = 0, today = 0;
+  const byDay: any = {};
+  for (let i = startIdx; i < rows.length; i++) {
+    const cols = rows[i] || [];
+    if (!cols.some((c: any) => String(c || '').trim() !== '')) continue;
+    if (filterCol >= 0 && filterVal) {
+      if (String(cols[filterCol] || '').trim().toLowerCase() !== filterVal) continue;
+    }
+    if (dateCol >= 0) {
+      const d = parseFlexibleDate(cols[dateCol]);
+      if (!d) continue;
+      if (!startDay || d >= startDay) {
+        leads++;
+        if (sameDay(d, now)) today++;
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        byDay[key] = (byDay[key] || 0) + 1;
+      }
+    } else {
+      leads++; // pas de colonne date détectée : on compte toutes les lignes
+    }
+  }
+  return { leads, today, dateCol, byDay };
 };
 
 // --- COMPOSANT LOGIN ---
@@ -994,6 +1130,14 @@ export default function App() {
   const [kpiFetching, setKpiFetching] = useState(false);
   const [kpiFetchError, setKpiFetchError] = useState('');
   const lastKpiFetchRef = useRef('');
+  // Mapping du Sheet (lignes / colonnes) + aperçu brut
+  const [kpiRawRows, setKpiRawRows] = useState<string[][]>([]);
+  const [kpiMapping, setKpiMapping] = useState<any>({ autoDetect: true, startRow: 2, nameCol: 'A', spendCol: 'B', leadsCol: 'C' });
+  const [showKpiMapping, setShowKpiMapping] = useState(false);
+  // NOUVEAU : comptage des leads par campagne (1 ligne du Sheet = 1 lead, comptée depuis la date de début)
+  const [leadsLoadingIds, setLeadsLoadingIds] = useState<string[]>([]);
+  const [showKpiOptionsIds, setShowKpiOptionsIds] = useState<string[]>([]);
+  const kpiAutoRefreshedRef = useRef(false);
 
   // NOUVEAU : Etat du module Statistiques & Rentabilité
   const [statsActiveTab, setStatsActiveTab] = useState('overview');
@@ -1188,6 +1332,7 @@ export default function App() {
     setKpiFetching(true); setKpiFetchError('');
     const candidates = buildCsvUrls(parsed);
     let campaigns: any[] | null = null;
+    let rawRows: string[][] | null = null;
     let lastErr = '';
     for (const cUrl of candidates) {
       try {
@@ -1195,18 +1340,22 @@ export default function App() {
         if (!res.ok) { lastErr = `HTTP ${res.status}`; continue; }
         const text = await res.text();
         if (!text || text.trim().startsWith('<')) { lastErr = 'Le Sheet n\'est pas public (page de connexion reçue).'; continue; }
-        const parsedRows = parseKpiCsv(text);
+        const rows = parseCsvRows(text);
+        if (rows.length > 0) rawRows = rows;
+        const parsedRows = parseCampaignsFromRows(rows, kpiMapping);
         if (parsedRows.length > 0) { campaigns = parsedRows; break; }
-        lastErr = 'Aucune campagne trouvée (vérifie les colonnes Campagne / Dépense / Leads).';
+        lastErr = 'Sheet lu, mais aucune campagne avec le mapping actuel. Ajuste la 1ère ligne / les colonnes ci-dessous.';
       } catch (e) {
         lastErr = 'Accès bloqué (le Sheet doit être public / publié sur le web).';
       }
     }
 
     setKpiFetching(false);
+    if (rawRows) setKpiRawRows(rawRows);
     if (!campaigns) {
+      if (rawRows && rawRows.length > 0) setShowKpiMapping(true);
       setKpiFetchError(`Échec : ${lastErr}`);
-      if (!opts.silent) addNotification('error', 'Impossible de lire le Google Sheet.');
+      if (!opts.silent) addNotification('error', rawRows ? 'Sheet lu — ajuste le mapping des colonnes.' : 'Impossible de lire le Google Sheet.');
       return;
     }
 
@@ -1215,15 +1364,96 @@ export default function App() {
     setKpiSyncDate(date);
     lastKpiFetchRef.current = url;
 
+    const totalLeads = campaigns.reduce((a: number, c: any) => a + Number(c.leads || 0), 0);
+    if (totalLeads === 0) setShowKpiMapping(true); // leads à 0 → on ouvre le mapping pour corriger la colonne
+
     if (user && !isOfflineMode) {
       try {
         await setDoc(doc(db, `artifacts/${getAppId()}/users/${user.uid}/campaign_kpis`, 'latest'), { campaigns, date, sourceUrl: url });
-        await setDoc(doc(db, `artifacts/${getAppId()}/users/${user.uid}/config`, 'general'), { kpiSheetUrl: url }, { merge: true });
+        await setDoc(doc(db, `artifacts/${getAppId()}/users/${user.uid}/config`, 'general'), { kpiSheetUrl: url, kpiMapping }, { merge: true });
         setSettings((prev: any) => ({ ...prev, kpiSheetUrl: url }));
       } catch (e) { /* silencieux */ }
     }
 
-    if (!opts.silent) addNotification('success', `${campaigns.length} campagne(s) récupérée(s) depuis le Google Sheet.`);
+    if (!opts.silent) {
+      if (totalLeads === 0) addNotification('info', `${campaigns.length} campagne(s) lue(s), mais 0 lead : ajuste la colonne « Leads » dans le mapping ci-dessous.`);
+      else addNotification('success', `${campaigns.length} campagne(s) · ${totalLeads} leads récupérés depuis le Google Sheet.`);
+    }
+  };
+
+  // Applique le mapping colonnes/lignes aux lignes déjà récupérées (sans re-télécharger)
+  const applyKpiMapping = async (newMapping: any = null) => {
+    const mapping = newMapping || kpiMapping;
+    setKpiMapping(mapping);
+    if (!kpiRawRows || kpiRawRows.length === 0) {
+      addNotification('info', 'Récupère d\'abord le Sheet, puis ajuste le mapping.');
+      return;
+    }
+    const campaigns = parseCampaignsFromRows(kpiRawRows, mapping);
+    const date = new Date().toISOString();
+    setCampaignKpis(campaigns);
+    setKpiSyncDate(date);
+    if (user && !isOfflineMode) {
+      try {
+        await setDoc(doc(db, `artifacts/${getAppId()}/users/${user.uid}/campaign_kpis`, 'latest'), { campaigns, date, sourceUrl: kpiSheetUrl });
+        await setDoc(doc(db, `artifacts/${getAppId()}/users/${user.uid}/config`, 'general'), { kpiMapping: mapping, kpiSheetUrl }, { merge: true });
+        setSettings((prev: any) => ({ ...prev, kpiMapping: mapping }));
+      } catch (e) { /* silencieux */ }
+    }
+    const totalLeads = campaigns.reduce((a: number, c: any) => a + Number(c.leads || 0), 0);
+    addNotification(campaigns.length > 0 ? 'success' : 'error', campaigns.length > 0 ? `Mapping appliqué : ${campaigns.length} campagne(s), ${totalLeads} leads.` : 'Aucune campagne avec ce mapping. Vérifie la 1ère ligne et les colonnes.');
+  };
+
+  // --- Compte les leads d'UNE campagne = nb de lignes du Sheet depuis sa date de début ---
+  const fetchCampaignLeads = async (sim: any, opts: any = {}) => {
+    const url = (sim.leadsSheetUrl || '').trim();
+    if (!url) { if (!opts.silent) addNotification('error', 'Ajoute le lien du Sheet de leads de cette campagne.'); return; }
+    const parsed = parseSheetUrl(url);
+    if (!parsed) { if (!opts.silent) addNotification('error', 'Lien Google Sheet invalide.'); return; }
+
+    setLeadsLoadingIds((prev) => (prev.includes(sim.id) ? prev : [...prev, sim.id]));
+    const candidates = buildCsvUrls(parsed);
+    let rows: string[][] | null = null;
+    let lastErr = '';
+    for (const cUrl of candidates) {
+      try {
+        const res = await fetch(cUrl, { redirect: 'follow' });
+        if (!res.ok) { lastErr = `HTTP ${res.status}`; continue; }
+        const text = await res.text();
+        if (!text || text.trim().startsWith('<')) { lastErr = 'Le Sheet n\'est pas public.'; continue; }
+        const r = parseCsvRows(text);
+        if (r.length > 0) { rows = r; break; }
+        lastErr = 'Sheet vide.';
+      } catch (e) { lastErr = 'Accès bloqué (le Sheet doit être public / publié sur le web).'; }
+    }
+    setLeadsLoadingIds((prev) => prev.filter((x) => x !== sim.id));
+
+    if (!rows) { if (!opts.silent) addNotification('error', `Lecture impossible : ${lastErr}`); return; }
+
+    const start = sim.startDate ? new Date(sim.startDate) : (sim.createdAt ? new Date(sim.createdAt) : new Date());
+    const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate(), 0, 0, 0);
+    const { leads, today, dateCol } = countLeadsFromRows(rows, {
+      startRow: sim.leadsStartRow, dateCol: sim.leadsDateCol,
+      filterCol: sim.leadsFilterCol, filterValue: sim.leadsFilterValue,
+      startDay, now: new Date(),
+    });
+
+    const patch: any = { sheetLeads: leads, sheetLeadsToday: today, sheetLastSync: new Date().toISOString(), sheetTotalRows: rows.length };
+    // Mémorise la colonne date auto-détectée (si l'utilisateur ne l'a pas fixée)
+    if ((!sim.leadsDateCol || colToIndex(sim.leadsDateCol) < 0) && dateCol >= 0) patch.leadsDateCol = indexToCol(dateCol);
+    if (user && !isOfflineMode) {
+      try { await updateDoc(doc(db, `artifacts/${getAppId()}/users/${user.uid}/simulations`, sim.id), patch); } catch (e) { /* silencieux */ }
+    }
+    if (!opts.silent) addNotification('success', `${leads} lead(s) depuis le ${formatDate(startDay.toISOString())}${today ? ` · ${today} aujourd'hui` : ''}.`);
+    return { leads, today };
+  };
+
+  // --- Rafraîchit toutes les campagnes reliées à un Sheet ---
+  const refreshAllCampaignLeads = async (opts: any = {}) => {
+    const withSheet = simulations.filter((s: any) => (s.leadsSheetUrl || '').trim());
+    if (withSheet.length === 0) { if (!opts.silent) addNotification('info', 'Aucune campagne reliée à un Sheet de leads.'); return; }
+    for (const s of withSheet) { await fetchCampaignLeads(s, { silent: true }); }
+    if (!opts.silent) addNotification('success', `${withSheet.length} campagne(s) rafraîchie(s).`);
   };
 
   // --- AUTH ---
@@ -1382,6 +1612,11 @@ export default function App() {
     if (settings.kpiSheetUrl && !kpiSheetUrl) setKpiSheetUrl(settings.kpiSheetUrl);
   }, [settings.kpiSheetUrl]);
 
+  // Pré-remplit le mapping sauvegardé
+  useEffect(() => {
+    if (settings.kpiMapping) setKpiMapping((prev: any) => ({ ...prev, ...settings.kpiMapping }));
+  }, [settings.kpiMapping]);
+
   // Rafraîchit automatiquement les KPI à l'ouverture de l'onglet KPI (1x par lien / session)
   useEffect(() => {
     if (activeView !== 'kpi') return;
@@ -1392,6 +1627,16 @@ export default function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeView, settings.kpiSheetUrl]);
+
+  // Compte automatiquement les leads de toutes les campagnes reliées à l'ouverture de l'onglet KPI (1x / session)
+  useEffect(() => {
+    if (activeView !== 'kpi' || kpiAutoRefreshedRef.current) return;
+    if (simulations.some((s: any) => (s.leadsSheetUrl || '').trim())) {
+      kpiAutoRefreshedRef.current = true;
+      refreshAllCampaignLeads({ silent: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeView, simulations]);
 
   // --- FILTRES & STATS ---
   const displayedContacts = useMemo(() => {
@@ -4333,9 +4578,14 @@ function pushKpiToCrmDaily() {
       const daysRemaining = Math.max(0, duration - daysElapsed);
       const isFinished = diffDays >= duration;
 
-      // Leads reçus : priorité au lien Sheet, sinon livraisons CRM, sinon saisie manuelle
+      // Leads = nb de lignes du Sheet de la campagne comptées depuis la date de début
       let leads = 0;
-      if (kpi) {
+      let leadsToday = 0;
+      const hasSheet = !!(sim.leadsSheetUrl && String(sim.leadsSheetUrl).trim());
+      if (hasSheet && sim.sheetLeads !== undefined) {
+        leads = Number(sim.sheetLeads || 0);
+        leadsToday = Number(sim.sheetLeadsToday || 0);
+      } else if (kpi) {
         leads = Number(kpi.leads || 0);
       } else if (sim.dataSource === 'manual') {
         leads = Number(sim.manualLeads || 0);
@@ -4371,7 +4621,7 @@ function pushKpiToCrmDaily() {
       const marginReal = revenue - spend;
       const marginProjected = revenue - projectedSpend;
 
-      return { sim, kpi, duration, start, endDate, daysElapsed, daysRemaining, isFinished, leads, dailyBudget, spend, avgPerDay, cpl, objective, remainingLeads, leadsNeededPerDay, projectedLeads, willReach, progress, revenue, marginReal, marginProjected };
+      return { sim, kpi, hasSheet, duration, start, endDate, daysElapsed, daysRemaining, isFinished, leads, leadsToday, dailyBudget, spend, avgPerDay, cpl, objective, remainingLeads, leadsNeededPerDay, projectedLeads, willReach, progress, revenue, marginReal, marginProjected };
     }).sort((a: any, b: any) => {
       // Les campagnes en retard (objectif défini mais non atteignable) remontent en premier
       if (a.willReach !== b.willReach) return a.willReach ? 1 : -1;
@@ -4379,9 +4629,11 @@ function pushKpiToCrmDaily() {
     });
 
     const nbTotal = rows.length;
-    const nbLinked = rows.filter((r: any) => r.kpi).length;
+    const nbLinked = rows.filter((r: any) => r.hasSheet).length;
     const nbOnTrack = rows.filter((r: any) => r.objective > 0 && r.willReach).length;
     const nbLate = rows.filter((r: any) => r.objective > 0 && !r.willReach).length;
+    const totalLeads = rows.reduce((a: number, r: any) => a + Number(r.leads || 0), 0);
+    const totalToday = rows.reduce((a: number, r: any) => a + Number(r.leadsToday || 0), 0);
     const totalMarginReal = rows.reduce((a: number, r: any) => a + r.marginReal, 0);
 
     return (
@@ -4393,54 +4645,20 @@ function pushKpiToCrmDaily() {
           </div>
         </div>
 
-        {/* Source des KPI : lien public Google Sheet */}
-        <div className="bg-white rounded-3xl border-2 border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-6">
-          <div className="flex items-start gap-3 mb-4">
-            <div className="w-11 h-11 rounded-2xl bg-blue-50 flex items-center justify-center text-[#01189B] shrink-0"><Link size={22} /></div>
-            <div className="flex-1 min-w-0">
-              <h3 className="font-extrabold text-slate-800 font-poppins text-lg">Source des KPI — Google Sheet public</h3>
-              <p className="text-sm text-slate-500 mt-0.5">Colle le lien de ton Google Sheet (partagé « Tous les utilisateurs disposant du lien » ou publié sur le web). Le CRM y lit les colonnes <b>Campagne</b>, <b>Dépense</b>, <b>Leads</b>.</p>
+        {/* Modèle : chaque campagne compte les lignes de SON Sheet depuis sa date de début */}
+        <div className="bg-white rounded-3xl border-2 border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="w-11 h-11 rounded-2xl bg-blue-50 flex items-center justify-center text-[#01189B] shrink-0"><Activity size={22} /></div>
+            <div>
+              <h3 className="font-extrabold text-slate-800 font-poppins text-lg">Suivi par comptage de lignes</h3>
+              <p className="text-sm text-slate-500 mt-0.5">Chaque campagne lit <b>son</b> Google Sheet de leads (1 ligne = 1 lead) et compte les lignes <b>depuis sa date de début</b>. Renseigne le lien du Sheet et la date de début sur chaque carte ci-dessous.</p>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">{nbLinked}/{nbTotal} campagne(s) reliée(s) à un Sheet{kpiSyncDate ? ` · Dernier comptage ${formatDateTime(kpiSyncDate)}` : ''}</p>
             </div>
           </div>
-
-          <div className="flex flex-col md:flex-row gap-3">
-            <div className="relative flex-1">
-              <Link size={16} className="absolute left-3.5 top-3.5 text-slate-400 pointer-events-none" />
-              <input
-                value={kpiSheetUrl}
-                onChange={(e) => setKpiSheetUrl(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') fetchKpiFromSheet(kpiSheetUrl); }}
-                className="w-full border-2 border-slate-100 bg-slate-50 p-3 pl-10 rounded-xl text-sm font-medium text-slate-800 outline-none focus:border-[#01189B] focus:bg-white transition-colors"
-                placeholder="https://docs.google.com/spreadsheets/d/.../edit?usp=sharing"
-              />
-            </div>
-            <button
-              onClick={() => fetchKpiFromSheet(kpiSheetUrl)}
-              disabled={kpiFetching}
-              className="text-white px-5 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 hover:shadow-lg transition-all disabled:opacity-60 shrink-0"
-              style={{ backgroundColor: BRAND_COLOR }}
-            >
-              {kpiFetching ? <Loader size={18} className="animate-spin" /> : <RefreshCcw size={18} />}
-              {kpiFetching ? 'Récupération...' : 'Récupérer les KPI'}
-            </button>
-          </div>
-
-          {kpiFetchError && (
-            <div className="mt-3 flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-xs font-bold">
-              <AlertTriangle size={16} className="shrink-0 mt-0.5" />
-              <span>{kpiFetchError} <span className="font-medium text-red-500">Astuce : dans le Sheet → Fichier → Partager → Publier sur le web → CSV, ou passe le partage en « Lecteur » pour tous ceux qui ont le lien.</span></span>
-            </div>
-          )}
-
-          <div className="mt-4 flex flex-wrap items-center gap-3 text-xs">
-            {kpiSyncDate ? (
-              <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-lg font-bold"><CheckCircle size={14} /> {campaignKpis.length} campagne(s) · Synchro {formatDateTime(kpiSyncDate)}</span>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 bg-orange-50 text-orange-700 border border-orange-200 px-3 py-1.5 rounded-lg font-bold"><AlertTriangle size={14} /> Aucune donnée synchronisée pour l'instant</span>
-            )}
-            <span className="inline-flex items-center gap-1.5 bg-slate-50 text-slate-500 border border-slate-200 px-3 py-1.5 rounded-lg font-bold">{nbLinked} campagne(s) reliée(s)</span>
-            {kpiSheetUrl && <a href={kpiSheetUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-[#01189B] font-bold hover:underline"><Globe size={14} /> Ouvrir le Sheet</a>}
-          </div>
+          <button onClick={() => refreshAllCampaignLeads()} disabled={leadsLoadingIds.length > 0} className="text-white px-5 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 hover:shadow-lg transition-all disabled:opacity-60 shrink-0" style={{ backgroundColor: BRAND_COLOR }}>
+            {leadsLoadingIds.length > 0 ? <Loader size={18} className="animate-spin" /> : <RefreshCcw size={18} />}
+            {leadsLoadingIds.length > 0 ? 'Comptage...' : 'Tout rafraîchir les leads'}
+          </button>
         </div>
 
         {/* Tuiles résumé */}
@@ -4458,8 +4676,8 @@ function pushKpiToCrmDaily() {
             <p className="text-3xl font-black text-orange-500 font-poppins">{renderNumber(nbLate)}</p>
           </div>
           <div className="bg-white px-6 py-5 rounded-3xl border border-slate-100 shadow-sm">
-            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1 flex justify-between">Marge réelle totale <TrendingUp size={14} /></p>
-            <p className="text-2xl font-black text-emerald-600 font-mono mt-1">{renderCurrency(totalMarginReal)}</p>
+            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1 flex justify-between">Leads comptés <Users size={14} /></p>
+            <p className="text-3xl font-black text-[#01189B] font-poppins">{renderNumber(totalLeads)} {totalToday > 0 && <span className="text-sm font-bold text-emerald-500">+{renderNumber(totalToday)} auj.</span>}</p>
           </div>
         </div>
 
@@ -4492,17 +4710,45 @@ function pushKpiToCrmDaily() {
                     </div>
                   </div>
 
-                  {/* Lien Meta (le "lien que tu attribues") */}
+                  {/* Google Sheet des leads de la campagne (1 ligne = 1 lead) */}
                   <div className="px-6 pt-4">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5 mb-1.5"><Link size={12} className="text-purple-500" /> Campagne Meta liée (Sheet)</label>
-                    <select
-                      value={sim.metaCampaignName || ''}
-                      onChange={(e) => handleUpdate('simulations', sim.id, { metaCampaignName: e.target.value })}
-                      className="w-full border-2 border-slate-100 bg-slate-50 p-2.5 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-[#01189B] focus:bg-white transition-colors"
-                    >
-                      <option value="">-- Non liée (chiffres estimés) --</option>
-                      {campaignKpis.map((k: any) => <option key={k.name} value={k.name}>{k.name} · {Number(k.leads || 0)} leads · {Number(k.spend || 0).toFixed(0)} {(settings.kpiCurrency || 'CHF') === 'EUR' ? '€' : 'CHF'}</option>)}
-                    </select>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5 mb-1.5"><Link size={12} className="text-[#01189B]" /> Google Sheet des leads (1 ligne = 1 lead)</label>
+                    <div className="flex gap-2">
+                      <input
+                        defaultValue={sim.leadsSheetUrl || ''}
+                        onBlur={(e) => { const v = e.target.value.trim(); if (v !== (sim.leadsSheetUrl || '')) { handleUpdate('simulations', sim.id, { leadsSheetUrl: v }); if (v) fetchCampaignLeads({ ...sim, leadsSheetUrl: v }); } }}
+                        className="flex-1 min-w-0 border-2 border-slate-100 bg-slate-50 p-2.5 rounded-xl text-xs font-medium text-slate-800 outline-none focus:border-[#01189B] focus:bg-white transition-colors"
+                        placeholder="https://docs.google.com/spreadsheets/d/.../edit?usp=sharing"
+                      />
+                      <button onClick={() => fetchCampaignLeads(sim)} disabled={leadsLoadingIds.includes(sim.id)} className="text-white px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 hover:shadow-lg transition-all disabled:opacity-60 shrink-0" style={{ backgroundColor: BRAND_COLOR }} title="Compter les leads depuis la date de début">
+                        {leadsLoadingIds.includes(sim.id) ? <Loader size={14} className="animate-spin" /> : <RefreshCcw size={14} />} Compter
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between mt-1.5 gap-2">
+                      <p className="text-[10px] text-slate-400 font-medium truncate">{sim.sheetLastSync ? `Dernier comptage : ${formatDateTime(sim.sheetLastSync)}` : 'Colle le lien puis « Compter » (ou modifie la date de début).'}</p>
+                      <button onClick={() => setShowKpiOptionsIds((prev: string[]) => prev.includes(sim.id) ? prev.filter((x) => x !== sim.id) : [...prev, sim.id])} className="text-[10px] font-bold text-[#01189B] hover:underline flex items-center gap-1 shrink-0"><Settings size={11} /> Options</button>
+                    </div>
+                    {showKpiOptionsIds.includes(sim.id) && (
+                      <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2 bg-slate-50 border border-slate-200 rounded-xl p-3 animate-fade-in">
+                        <div>
+                          <label className="block text-[9px] font-bold text-slate-500 uppercase mb-1">Colonne Date</label>
+                          <input defaultValue={sim.leadsDateCol || ''} onBlur={(e) => handleUpdate('simulations', sim.id, { leadsDateCol: e.target.value.trim().toUpperCase() })} className="w-full border border-slate-200 bg-white p-1.5 rounded-lg text-xs font-bold text-slate-700 outline-none focus:border-[#01189B]" placeholder="auto" />
+                        </div>
+                        <div>
+                          <label className="block text-[9px] font-bold text-slate-500 uppercase mb-1">1ère ligne</label>
+                          <input type="number" min={1} defaultValue={sim.leadsStartRow || 1} onBlur={(e) => handleUpdate('simulations', sim.id, { leadsStartRow: Number(e.target.value) })} className="w-full border border-slate-200 bg-white p-1.5 rounded-lg text-xs font-bold text-slate-700 outline-none focus:border-[#01189B]" />
+                        </div>
+                        <div>
+                          <label className="block text-[9px] font-bold text-slate-500 uppercase mb-1">Filtre colonne</label>
+                          <input defaultValue={sim.leadsFilterCol || ''} onBlur={(e) => handleUpdate('simulations', sim.id, { leadsFilterCol: e.target.value.trim().toUpperCase() })} className="w-full border border-slate-200 bg-white p-1.5 rounded-lg text-xs font-bold text-slate-700 outline-none focus:border-[#01189B]" placeholder="—" />
+                        </div>
+                        <div>
+                          <label className="block text-[9px] font-bold text-slate-500 uppercase mb-1">Filtre valeur</label>
+                          <input defaultValue={sim.leadsFilterValue || ''} onBlur={(e) => handleUpdate('simulations', sim.id, { leadsFilterValue: e.target.value })} className="w-full border border-slate-200 bg-white p-1.5 rounded-lg text-xs font-bold text-slate-700 outline-none focus:border-[#01189B]" placeholder="—" />
+                        </div>
+                        <p className="col-span-2 md:col-span-4 text-[9px] text-slate-400 leading-tight">« Colonne Date » : laisse <b>auto</b> (détectée). « 1ère ligne » : 2 si en-tête. Filtre (facultatif) : si un seul Sheet regroupe plusieurs clients, mets la colonne + la valeur du client à compter. Reclique « Compter » après modification.</p>
+                      </div>
+                    )}
                   </div>
 
                   {/* Dates de campagne (suivi précis) */}
@@ -4512,7 +4758,7 @@ function pushKpiToCrmDaily() {
                       <input
                         type="date"
                         defaultValue={((sim.startDate || sim.createdAt || '') + '').split('T')[0]}
-                        onChange={(e) => { if (e.target.value) { const [yy, mm, dd] = e.target.value.split('-'); const dObj = new Date(Number(yy), Number(mm) - 1, Number(dd), 12, 0, 0); if (!isNaN(dObj.getTime())) handleUpdate('simulations', sim.id, { startDate: dObj.toISOString() }); } }}
+                        onChange={(e) => { if (e.target.value) { const [yy, mm, dd] = e.target.value.split('-'); const dObj = new Date(Number(yy), Number(mm) - 1, Number(dd), 12, 0, 0); if (!isNaN(dObj.getTime())) { handleUpdate('simulations', sim.id, { startDate: dObj.toISOString() }); if (sim.leadsSheetUrl) fetchCampaignLeads({ ...sim, startDate: dObj.toISOString() }); } } }}
                         className="w-full bg-transparent font-bold text-slate-700 text-sm outline-none mt-0.5 cursor-pointer"
                       />
                     </div>
@@ -4561,6 +4807,10 @@ function pushKpiToCrmDaily() {
 
                   {/* Tuiles KPI */}
                   <div className="p-6 grid grid-cols-2 md:grid-cols-3 gap-3">
+                    <div className="bg-emerald-50/60 p-3 rounded-2xl border border-emerald-100">
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-1">Aujourd'hui</p>
+                      <p className="text-lg font-black text-emerald-600 font-poppins">+{renderNumber(r.leadsToday || 0)}<span className="text-[10px] text-slate-400 font-sans font-medium"> leads</span></p>
+                    </div>
                     <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
                       <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-1">Moyenne / jour</p>
                       <p className="text-lg font-black text-[#01189B] font-poppins">{renderNumber(r.avgPerDay.toFixed(1))}<span className="text-[10px] text-slate-400 font-sans font-medium">/j</span></p>
@@ -4570,19 +4820,15 @@ function pushKpiToCrmDaily() {
                       <p className={`text-lg font-black font-poppins ${needsBoost ? 'text-orange-600' : 'text-emerald-600'}`}>{renderNumber(r.leadsNeededPerDay.toFixed(1))}<span className="text-[10px] text-slate-400 font-sans font-medium">/j</span></p>
                     </div>
                     <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-1">CPL {r.kpi ? 'réel' : 'estimé'}</p>
-                      <p className={`text-lg font-black font-mono ${r.cpl > 40 ? 'text-red-500' : 'text-emerald-600'}`}>{r.leads > 0 ? renderCurrency(r.cpl) : '—'}</p>
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-1">CPL (budget/lead)</p>
+                      <p className={`text-lg font-black font-mono ${r.cpl > 40 ? 'text-red-500' : 'text-emerald-600'}`}>{r.leads > 0 && r.spend > 0 ? renderCurrency(r.cpl) : '—'}</p>
                     </div>
                     <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-1">Dépense {r.kpi ? 'réelle' : 'estimée'}</p>
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-1">Dépense (budget/j)</p>
                       <p className="text-base font-black text-orange-600 font-mono">{renderCurrency(r.spend)}</p>
                     </div>
-                    <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-1">Facturé</p>
-                      <p className="text-base font-black text-slate-700 font-mono">{renderCurrency(r.revenue)}</p>
-                    </div>
                     <div className={`p-3 rounded-2xl border ${r.marginReal >= 0 ? 'bg-emerald-50 border-emerald-100' : 'bg-red-50 border-red-100'}`}>
-                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-1">Marge réelle</p>
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-1">Marge (facturé − dépense)</p>
                       <p className={`text-base font-black font-mono ${r.marginReal >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{renderCurrency(r.marginReal)}</p>
                     </div>
                   </div>
