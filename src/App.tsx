@@ -31,7 +31,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '61.4';
+const APP_VERSION = '61.5';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -581,6 +581,117 @@ const _fallbackQRGenerate = (data: string): string => {
 
   return canvas.toDataURL('image/png');
 };
+// ═══════════════════════════════════════════════════════════
+// RÉCUPÉRATION KPI DEPUIS UN GOOGLE SHEET PUBLIC (lien de partage)
+// ═══════════════════════════════════════════════════════════
+
+// Extrait l'ID (ou le token "publié sur le web") + le gid depuis un lien Google Sheet
+const parseSheetUrl = (url: string): any => {
+  if (!url) return null;
+  const clean = url.trim();
+  const gidMatch = clean.match(/[?&#]gid=([0-9]+)/);
+  const gid = gidMatch ? gidMatch[1] : null;
+  // Lien "Publier sur le web" : /spreadsheets/d/e/{token}/pub...
+  const pubMatch = clean.match(/\/spreadsheets\/d\/e\/([\w-]+)/);
+  if (pubMatch) return { type: 'pub', token: pubMatch[1], gid };
+  // Lien de partage classique : /spreadsheets/d/{id}/edit...
+  const idMatch = clean.match(/\/spreadsheets\/d\/([\w-]+)/);
+  if (idMatch) return { type: 'id', id: idMatch[1], gid };
+  return null;
+};
+
+// Construit la liste des URLs CSV à essayer (CORS-friendly pour un Sheet public)
+const buildCsvUrls = (parsed: any): string[] => {
+  const urls: string[] = [];
+  const gid = parsed.gid || '0';
+  if (parsed.type === 'pub') {
+    urls.push(`https://docs.google.com/spreadsheets/d/e/${parsed.token}/pub?gid=${gid}&single=true&output=csv`);
+    urls.push(`https://docs.google.com/spreadsheets/d/e/${parsed.token}/pub?output=csv`);
+  } else {
+    urls.push(`https://docs.google.com/spreadsheets/d/${parsed.id}/gviz/tq?tqx=out:csv&gid=${gid}`);
+    urls.push(`https://docs.google.com/spreadsheets/d/${parsed.id}/export?format=csv&gid=${gid}`);
+    urls.push(`https://docs.google.com/spreadsheets/d/${parsed.id}/gviz/tq?tqx=out:csv`);
+  }
+  return urls;
+};
+
+// Parse une ligne CSV en gérant les guillemets et les virgules internes
+const parseCsvLine = (line: string): string[] => {
+  const result: string[] = [];
+  let cur = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++; }
+        else inQuotes = false;
+      } else cur += ch;
+    } else {
+      if (ch === '"') inQuotes = true;
+      else if (ch === ',') { result.push(cur); cur = ''; }
+      else cur += ch;
+    }
+  }
+  result.push(cur);
+  return result;
+};
+
+// Nettoie un nombre venant du Sheet (espaces, séparateurs de milliers, symboles monétaires)
+const cleanSheetNumber = (raw: any): number => {
+  if (raw === undefined || raw === null) return 0;
+  let s = String(raw).trim();
+  if (!s) return 0;
+  s = s.replace(/[^0-9.,-]/g, '');
+  if (!s || s === '-') return 0;
+  const lastComma = s.lastIndexOf(',');
+  const lastDot = s.lastIndexOf('.');
+  if (lastComma > -1 && lastDot > -1) {
+    if (lastComma > lastDot) s = s.replace(/\./g, '').replace(',', '.');
+    else s = s.replace(/,/g, '');
+  } else if (lastComma > -1) {
+    const decimals = s.length - lastComma - 1;
+    if (decimals > 0 && decimals <= 2) s = s.replace(',', '.');
+    else s = s.replace(/,/g, '');
+  }
+  const n = parseFloat(s);
+  return isNaN(n) ? 0 : n;
+};
+
+// Transforme le CSV en campagnes { name, spend, leads }
+// Détecte automatiquement les en-têtes (Campagne / Dépense / Leads), sinon colonnes A / B / C
+const parseKpiCsv = (csv: string): any[] => {
+  const lines = csv.split(/\r?\n/).filter(l => l.trim().length > 0);
+  if (lines.length === 0) return [];
+  const header = parseCsvLine(lines[0]).map(h => h.trim().toLowerCase());
+  const findCol = (keys: string[], fallback: number) => {
+    const idx = header.findIndex(h => keys.some(k => h.includes(k)));
+    return idx > -1 ? idx : fallback;
+  };
+  let nameCol = 0, spendCol = 1, leadsCol = 2, startRow = 0;
+  const looksLikeHeader =
+    header.some(h => /campagn|campaign|nom|name|adset|ad set|annonce/.test(h)) ||
+    header.some(h => /spend|dépens|depens|budget|coût|cout|montant|amount/.test(h)) ||
+    header.some(h => /lead|résultat|resultat|contact|conversion/.test(h));
+  if (looksLikeHeader) {
+    nameCol = findCol(['campagn', 'campaign', 'adset', 'ad set', 'annonce', 'nom', 'name'], 0);
+    spendCol = findCol(['spend', 'dépens', 'depens', 'budget', 'coût', 'cout', 'montant', 'amount', 'depense'], 1);
+    leadsCol = findCol(['lead', 'résultat', 'resultat', 'contact', 'conversion'], 2);
+    startRow = 1;
+  }
+  const rows: any[] = [];
+  for (let i = startRow; i < lines.length; i++) {
+    const cols = parseCsvLine(lines[i]);
+    const name = (cols[nameCol] || '').trim();
+    if (!name) continue;
+    if (/^(total|totaux|grand total)/i.test(name)) continue; // ignore les lignes de total
+    const spend = cleanSheetNumber(cols[spendCol]);
+    const leads = Math.round(cleanSheetNumber(cols[leadsCol]));
+    rows.push({ name, spend, leads });
+  }
+  return rows;
+};
+
 // --- COMPOSANT LOGIN ---
 const LoginScreen = ({ onLogin, addNotification }: any) => {
   const [email, setEmail] = useState('');
@@ -878,6 +989,12 @@ export default function App() {
   const [campaignKpis, setCampaignKpis] = useState<any[]>([]);
   const [kpiSyncDate, setKpiSyncDate] = useState<string | null>(null);
 
+  // NOUVEAU : Récupération des KPI via lien public Google Sheet
+  const [kpiSheetUrl, setKpiSheetUrl] = useState('');
+  const [kpiFetching, setKpiFetching] = useState(false);
+  const [kpiFetchError, setKpiFetchError] = useState('');
+  const lastKpiFetchRef = useRef('');
+
   // NOUVEAU : Etat du module Statistiques & Rentabilité
   const [statsActiveTab, setStatsActiveTab] = useState('overview');
 
@@ -1061,6 +1178,54 @@ export default function App() {
     setConfirmState({ isOpen: true, title, message, onConfirm: () => { onConfirm(); setConfirmState((prev: any) => ({ ...prev, isOpen: false })); } });
   };
 
+  // --- Récupération des KPI depuis le lien public d'un Google Sheet ---
+  const fetchKpiFromSheet = async (rawUrl: string, opts: any = {}) => {
+    const url = (rawUrl || '').trim();
+    if (!url) { setKpiFetchError('Colle d\'abord le lien public de ton Google Sheet.'); if (!opts.silent) addNotification('error', 'Aucun lien Google Sheet.'); return; }
+    const parsed = parseSheetUrl(url);
+    if (!parsed) { setKpiFetchError('Lien non reconnu. Copie le lien de partage complet du Google Sheet.'); if (!opts.silent) addNotification('error', 'Lien Google Sheet invalide.'); return; }
+
+    setKpiFetching(true); setKpiFetchError('');
+    const candidates = buildCsvUrls(parsed);
+    let campaigns: any[] | null = null;
+    let lastErr = '';
+    for (const cUrl of candidates) {
+      try {
+        const res = await fetch(cUrl, { redirect: 'follow' });
+        if (!res.ok) { lastErr = `HTTP ${res.status}`; continue; }
+        const text = await res.text();
+        if (!text || text.trim().startsWith('<')) { lastErr = 'Le Sheet n\'est pas public (page de connexion reçue).'; continue; }
+        const parsedRows = parseKpiCsv(text);
+        if (parsedRows.length > 0) { campaigns = parsedRows; break; }
+        lastErr = 'Aucune campagne trouvée (vérifie les colonnes Campagne / Dépense / Leads).';
+      } catch (e) {
+        lastErr = 'Accès bloqué (le Sheet doit être public / publié sur le web).';
+      }
+    }
+
+    setKpiFetching(false);
+    if (!campaigns) {
+      setKpiFetchError(`Échec : ${lastErr}`);
+      if (!opts.silent) addNotification('error', 'Impossible de lire le Google Sheet.');
+      return;
+    }
+
+    const date = new Date().toISOString();
+    setCampaignKpis(campaigns);
+    setKpiSyncDate(date);
+    lastKpiFetchRef.current = url;
+
+    if (user && !isOfflineMode) {
+      try {
+        await setDoc(doc(db, `artifacts/${getAppId()}/users/${user.uid}/campaign_kpis`, 'latest'), { campaigns, date, sourceUrl: url });
+        await setDoc(doc(db, `artifacts/${getAppId()}/users/${user.uid}/config`, 'general'), { kpiSheetUrl: url }, { merge: true });
+        setSettings((prev: any) => ({ ...prev, kpiSheetUrl: url }));
+      } catch (e) { /* silencieux */ }
+    }
+
+    if (!opts.silent) addNotification('success', `${campaigns.length} campagne(s) récupérée(s) depuis le Google Sheet.`);
+  };
+
   // --- AUTH ---
   useEffect(() => {
     if (!auth) {
@@ -1190,6 +1355,7 @@ export default function App() {
                 if (s.exists()) {
                     setCampaignKpis(s.data().campaigns || []);
                     setKpiSyncDate(s.data().date || null);
+                    if (s.data().sourceUrl) setKpiSheetUrl((prev) => prev || s.data().sourceUrl);
                 }
             }),
             onSnapshot(doc(db, `${basePath}/config`, 'general'), (s) => {
@@ -1210,6 +1376,22 @@ export default function App() {
 
     return () => unsubs.forEach((u) => u && u());
   }, [user, isOfflineMode]);
+
+  // Pré-remplit le champ URL avec la dernière source sauvegardée
+  useEffect(() => {
+    if (settings.kpiSheetUrl && !kpiSheetUrl) setKpiSheetUrl(settings.kpiSheetUrl);
+  }, [settings.kpiSheetUrl]);
+
+  // Rafraîchit automatiquement les KPI à l'ouverture de l'onglet KPI (1x par lien / session)
+  useEffect(() => {
+    if (activeView !== 'kpi') return;
+    const url = (settings.kpiSheetUrl || '').trim();
+    if (url && lastKpiFetchRef.current !== url) {
+      lastKpiFetchRef.current = url;
+      fetchKpiFromSheet(url, { silent: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeView, settings.kpiSheetUrl]);
 
   // --- FILTRES & STATS ---
   const displayedContacts = useMemo(() => {
@@ -4144,7 +4326,8 @@ function pushKpiToCrmDaily() {
       const kpi = sim.metaCampaignName ? campaignKpis.find((k: any) => k.name === sim.metaCampaignName) : null;
 
       const duration = Number(sim.duration || 30);
-      const start = sim.createdAt ? new Date(sim.createdAt) : today;
+      const start = sim.startDate ? new Date(sim.startDate) : (sim.createdAt ? new Date(sim.createdAt) : today);
+      const endDate = new Date(start.getTime() + duration * DAY);
       const diffDays = Math.max(0, Math.floor((today.getTime() - start.getTime()) / DAY));
       const daysElapsed = Math.max(1, Math.min(diffDays, duration)); // min 1 pour éviter la division par 0
       const daysRemaining = Math.max(0, duration - daysElapsed);
@@ -4188,7 +4371,7 @@ function pushKpiToCrmDaily() {
       const marginReal = revenue - spend;
       const marginProjected = revenue - projectedSpend;
 
-      return { sim, kpi, duration, daysElapsed, daysRemaining, isFinished, leads, dailyBudget, spend, avgPerDay, cpl, objective, remainingLeads, leadsNeededPerDay, projectedLeads, willReach, progress, revenue, marginReal, marginProjected };
+      return { sim, kpi, duration, start, endDate, daysElapsed, daysRemaining, isFinished, leads, dailyBudget, spend, avgPerDay, cpl, objective, remainingLeads, leadsNeededPerDay, projectedLeads, willReach, progress, revenue, marginReal, marginProjected };
     }).sort((a: any, b: any) => {
       // Les campagnes en retard (objectif défini mais non atteignable) remontent en premier
       if (a.willReach !== b.willReach) return a.willReach ? 1 : -1;
@@ -4210,24 +4393,54 @@ function pushKpiToCrmDaily() {
           </div>
         </div>
 
-        {/* Bandeau de synchro Sheet */}
-        <div className={`p-4 rounded-2xl border flex flex-col md:flex-row justify-between items-start md:items-center gap-3 ${kpiSyncDate ? 'bg-emerald-50 border-emerald-200' : 'bg-orange-50 border-orange-200'}`}>
-          <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${kpiSyncDate ? 'bg-white text-emerald-600' : 'bg-white text-orange-500'}`}>
-              {kpiSyncDate ? <CheckCircle size={20} /> : <AlertTriangle size={20} />}
-            </div>
-            <div>
-              <p className={`font-bold text-sm ${kpiSyncDate ? 'text-emerald-800' : 'text-orange-800'}`}>
-                {kpiSyncDate ? `Google Sheet connecté — Synchro : ${formatDateTime(kpiSyncDate)}` : 'Aucune synchro Google Sheet détectée'}
-              </p>
-              <p className={`text-xs mt-0.5 ${kpiSyncDate ? 'text-emerald-600' : 'text-orange-600'}`}>
-                {nbLinked} campagne(s) reliée(s) au Sheet. Relie une campagne à sa campagne Meta ci-dessous pour des chiffres réels (sinon estimés via le budget journalier).
-              </p>
+        {/* Source des KPI : lien public Google Sheet */}
+        <div className="bg-white rounded-3xl border-2 border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-6">
+          <div className="flex items-start gap-3 mb-4">
+            <div className="w-11 h-11 rounded-2xl bg-blue-50 flex items-center justify-center text-[#01189B] shrink-0"><Link size={22} /></div>
+            <div className="flex-1 min-w-0">
+              <h3 className="font-extrabold text-slate-800 font-poppins text-lg">Source des KPI — Google Sheet public</h3>
+              <p className="text-sm text-slate-500 mt-0.5">Colle le lien de ton Google Sheet (partagé « Tous les utilisateurs disposant du lien » ou publié sur le web). Le CRM y lit les colonnes <b>Campagne</b>, <b>Dépense</b>, <b>Leads</b>.</p>
             </div>
           </div>
-          {!kpiSyncDate && (
-            <button onClick={() => { setActiveView('deliveries'); setDeliveryActiveTab('campaigns'); }} className="bg-white border border-orange-200 text-orange-700 px-4 py-2 rounded-xl text-xs font-bold hover:bg-orange-100 transition-colors flex items-center gap-2 shrink-0"><Zap size={14} /> Configurer la synchro</button>
+
+          <div className="flex flex-col md:flex-row gap-3">
+            <div className="relative flex-1">
+              <Link size={16} className="absolute left-3.5 top-3.5 text-slate-400 pointer-events-none" />
+              <input
+                value={kpiSheetUrl}
+                onChange={(e) => setKpiSheetUrl(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') fetchKpiFromSheet(kpiSheetUrl); }}
+                className="w-full border-2 border-slate-100 bg-slate-50 p-3 pl-10 rounded-xl text-sm font-medium text-slate-800 outline-none focus:border-[#01189B] focus:bg-white transition-colors"
+                placeholder="https://docs.google.com/spreadsheets/d/.../edit?usp=sharing"
+              />
+            </div>
+            <button
+              onClick={() => fetchKpiFromSheet(kpiSheetUrl)}
+              disabled={kpiFetching}
+              className="text-white px-5 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 hover:shadow-lg transition-all disabled:opacity-60 shrink-0"
+              style={{ backgroundColor: BRAND_COLOR }}
+            >
+              {kpiFetching ? <Loader size={18} className="animate-spin" /> : <RefreshCcw size={18} />}
+              {kpiFetching ? 'Récupération...' : 'Récupérer les KPI'}
+            </button>
+          </div>
+
+          {kpiFetchError && (
+            <div className="mt-3 flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-xs font-bold">
+              <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+              <span>{kpiFetchError} <span className="font-medium text-red-500">Astuce : dans le Sheet → Fichier → Partager → Publier sur le web → CSV, ou passe le partage en « Lecteur » pour tous ceux qui ont le lien.</span></span>
+            </div>
           )}
+
+          <div className="mt-4 flex flex-wrap items-center gap-3 text-xs">
+            {kpiSyncDate ? (
+              <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-lg font-bold"><CheckCircle size={14} /> {campaignKpis.length} campagne(s) · Synchro {formatDateTime(kpiSyncDate)}</span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 bg-orange-50 text-orange-700 border border-orange-200 px-3 py-1.5 rounded-lg font-bold"><AlertTriangle size={14} /> Aucune donnée synchronisée pour l'instant</span>
+            )}
+            <span className="inline-flex items-center gap-1.5 bg-slate-50 text-slate-500 border border-slate-200 px-3 py-1.5 rounded-lg font-bold">{nbLinked} campagne(s) reliée(s)</span>
+            {kpiSheetUrl && <a href={kpiSheetUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-[#01189B] font-bold hover:underline"><Globe size={14} /> Ouvrir le Sheet</a>}
+          </div>
         </div>
 
         {/* Tuiles résumé */}
@@ -4290,6 +4503,23 @@ function pushKpiToCrmDaily() {
                       <option value="">-- Non liée (chiffres estimés) --</option>
                       {campaignKpis.map((k: any) => <option key={k.name} value={k.name}>{k.name} · {Number(k.leads || 0)} leads · {Number(k.spend || 0).toFixed(0)} {(settings.kpiCurrency || 'CHF') === 'EUR' ? '€' : 'CHF'}</option>)}
                     </select>
+                  </div>
+
+                  {/* Dates de campagne (suivi précis) */}
+                  <div className="px-6 pt-4 grid grid-cols-2 gap-2">
+                    <div className="bg-white p-2.5 rounded-xl border border-slate-200 relative group hover:border-blue-500 transition-colors">
+                      <p className="text-[9px] text-slate-400 font-bold uppercase flex items-center gap-1"><CalendarIcon size={10} className="text-blue-500" /> Date de début</p>
+                      <input
+                        type="date"
+                        defaultValue={((sim.startDate || sim.createdAt || '') + '').split('T')[0]}
+                        onChange={(e) => { if (e.target.value) { const [yy, mm, dd] = e.target.value.split('-'); const dObj = new Date(Number(yy), Number(mm) - 1, Number(dd), 12, 0, 0); if (!isNaN(dObj.getTime())) handleUpdate('simulations', sim.id, { startDate: dObj.toISOString() }); } }}
+                        className="w-full bg-transparent font-bold text-slate-700 text-sm outline-none mt-0.5 cursor-pointer"
+                      />
+                    </div>
+                    <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                      <p className="text-[9px] text-slate-400 font-bold uppercase flex items-center gap-1"><Clock size={10} /> Date de fin (calculée)</p>
+                      <p className="font-bold text-slate-700 text-sm mt-1">{formatDate(r.endDate.toISOString())}</p>
+                    </div>
                   </div>
 
                   {/* Saisie manuelle : budget/jour, objectif, durée */}
