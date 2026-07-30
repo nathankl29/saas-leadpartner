@@ -6,8 +6,11 @@ import {
   Wallet, PieChart, Globe, Share2, Loader, LogIn, LogOut, Edit2, Save,
   Wand2, Send, X, AlertTriangle, Info, Calendar as CalendarIcon,
   Mail, Download, MapPin, Eye, EyeOff, Activity,
-  Paperclip, Bell, CalendarClock, GripHorizontal, Link, Archive, Upload, Moon, Sun, Zap, RefreshCcw, Copy
+  Paperclip, Bell, CalendarClock, GripHorizontal, Link, Archive, Upload, Moon, Sun, Zap, RefreshCcw, Copy, Rocket
 } from 'lucide-react';
+
+// 🚀 NOUVEAU MODULE : Potentiel & Verticales (fichier séparé PotentialVerticals.tsx)
+import PotentialVerticals from './PotentialVerticals';
 
 import { initializeApp } from 'firebase/app';
 import {
@@ -31,7 +34,7 @@ declare global {
 }
 
 // --- VERSION DU CRM ---
-const APP_VERSION = '61.8';
+const APP_VERSION = '62.0';
 
 // --- STYLES GLOBAUX & COULEURS DE MARQUE ---
 const BRAND_COLOR = '#01189B';
@@ -4914,7 +4917,6 @@ function pushKpiToCrmDaily() {
       </div>
     );
   };
-
   const renderDashboard = () => {
     const goal = Number(settings.monthlyGoal || 50000);
     const progressGoal = Math.min((stats.caMensuel / goal) * 100, 100);
@@ -5811,6 +5813,7 @@ function pushKpiToCrmDaily() {
               { id: 'deliveries', label: 'Suivi Livraisons', icon: Activity },
               { id: 'calendar', label: 'Campagnes', icon: Target },
               { id: 'kpi', label: 'KPI & Projections', icon: Zap },
+              { id: 'potential', label: 'Potentiel Verticales', icon: Rocket },
               { id: 'ponderation', label: 'Pondération', icon: PieChart },
               { id: 'invoices', label: 'Facturation', icon: FileText },
               { id: 'products', label: 'Catalogue Offres', icon: Package },
@@ -5880,6 +5883,26 @@ function pushKpiToCrmDaily() {
               {activeView === 'stats' && renderStatistics()}
               {activeView === 'deliveries' && renderDeliveries()}
               {activeView === 'kpi' && renderKPI()}
+              {activeView === 'potential' && (
+                <PotentialVerticals
+                  invoices={invoices}
+                  products={products}
+                  settings={settings}
+                  dashboardYear={dashboardYear}
+                  setDashboardYear={setDashboardYear}
+                  isSecretMode={isSecretMode}
+                  addNotification={addNotification}
+                  openConfirm={openConfirm}
+                  onSave={async (partial: any) => {
+                    setSettings((prev: any) => ({ ...prev, ...partial }));
+                    if (user && !isOfflineMode) {
+                      try {
+                        await setDoc(doc(db, `artifacts/${getAppId()}/users/${user.uid}/config`, 'general'), partial, { merge: true });
+                      } catch (e) {}
+                    }
+                  }}
+                />
+              )}
               {activeView === 'calendar' && (
                   <div className="max-w-6xl mx-auto animate-fade-in space-y-8 pb-12">
                       <div className="flex justify-between items-center mb-2">
@@ -6710,7 +6733,6 @@ function envoyerLead(agent, ligne) {
           </div>
         )}
       </div>
-
       {showImportModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-[2000] p-4">
           <div className="bg-white p-10 rounded-3xl w-full max-w-md shadow-2xl border border-slate-100 animate-fade-in text-center">
@@ -7004,7 +7026,6 @@ function envoyerLead(agent, ligne) {
           </div>
         </div>
       )}
-
       {showModal === 'invoice' && currentInvoice && (
         <div className="fixed inset-0 bg-slate-900/95 z-[100] flex items-center justify-center p-4 md:p-6 backdrop-blur-md">
           <div className="bg-slate-100 w-full max-w-6xl h-[95vh] md:h-[90vh] rounded-3xl flex flex-col shadow-2xl overflow-hidden animate-fade-in border border-slate-700">
@@ -7489,7 +7510,6 @@ function envoyerLead(agent, ligne) {
         </div>
       </div>
     )}
-
     {/* MODAL EDITION CAMPAGNE / SIMULATION */}
     {showModal === 'simulation' && currentSimulation && (
       <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-[2000] p-4">
